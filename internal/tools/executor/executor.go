@@ -47,10 +47,21 @@ type Executor struct {
 	Vision     Vision
 	MCP        MCPCaller
 	SessionMCP sessionMcpClient
+	// Plugins, when set, handles tool calls whose name matches the
+	// plugin naming convention (plugin__<name>__<tool>). The executor
+	// uses the PluginDispatcher interface so it does not need to import
+	// internal/plugins directly.
+	Plugins PluginDispatcher
 	// Mode is the ACP session mode for this turn. Empty / "default" means
 	// always ask for permission; "accept_edits" auto-allows writes;
 	// "bypass_permissions" auto-allows both writes and commands.
 	Mode string
+}
+
+// PluginDispatcher routes a tool invocation to a plugin. ok=true means the
+// call was claimed by a plugin (regardless of whether the call succeeded).
+type PluginDispatcher interface {
+	Dispatch(ctx context.Context, name string, args json.RawMessage) (result string, ok bool, err error)
 }
 
 // sessionMcpClient is the interface to session-scoped MCP servers.
@@ -77,6 +88,10 @@ func (e *Executor) Execute(ctx context.Context, toolCallID, toolName, rawArgs st
 	// Route mcp__ prefixed tools to sessionMCP.
 	if strings.HasPrefix(toolName, "mcp__") && e.SessionMCP != nil {
 		return e.mcpTool(ctx, toolCallID, toolName, args)
+	}
+	// Route plugin__ prefixed tools to the active plugin dispatcher.
+	if strings.HasPrefix(toolName, "plugin__") && e.Plugins != nil {
+		return e.pluginTool(ctx, toolCallID, toolName, args, rawArgs)
 	}
 	switch toolName {
 	case "read_file":
@@ -771,6 +786,45 @@ result, err := e.SessionMCP.CallTool(ctx, toolName, args)
 if err != nil {
 e.markFailed(id, err.Error())
 return Result{Content: "Error calling MCP tool: " + err.Error()}
+}
+e.sendUpdate(map[string]any{
+"sessionUpdate": "tool_call_update",
+"toolCallId":    id,
+"status":        "completed",
+"content":       []any{map[string]any{"type": "content", "content": map[string]any{"type": "text", "text": result}}},
+"rawOutput":     map[string]any{"content": result},
+})
+return Result{Content: result}
+}
+
+
+// pluginTool dispatches a `plugin__<name>__<tool>` call through the
+// configured PluginDispatcher and reports tool_call updates to the client.
+func (e *Executor) pluginTool(ctx context.Context, id string, toolName string, args map[string]any, rawArgs string) Result {
+e.sendUpdate(map[string]any{
+"sessionUpdate": "tool_call",
+"toolCallId":    id,
+"title":         "Call plugin tool: " + toolName,
+"kind":          "plugin",
+"status":        "in_progress",
+"locations":     []any{},
+"rawInput":      args,
+})
+raw := json.RawMessage(rawArgs)
+if len(raw) == 0 {
+raw = json.RawMessage(`{}`)
+}
+result, ok, err := e.Plugins.Dispatch(ctx, toolName, raw)
+if !ok {
+// Should never happen because the prefix check matched, but be
+// defensive: fall through to the generic failure branch.
+msg := fmt.Sprintf("Error: plugin not active for %q", toolName)
+e.markFailed(id, msg)
+return Result{Content: msg}
+}
+if err != nil {
+e.markFailed(id, err.Error())
+return Result{Content: "Error calling plugin tool: " + err.Error()}
 }
 e.sendUpdate(map[string]any{
 "sessionUpdate": "tool_call_update",

@@ -16,12 +16,23 @@ import (
 	"time"
 
 	"github.com/ziozzang/glm-acp/internal/acp"
+	"github.com/ziozzang/glm-acp/internal/config"
 	"github.com/ziozzang/glm-acp/internal/credentials"
 	"github.com/ziozzang/glm-acp/internal/glm"
 	"github.com/ziozzang/glm-acp/internal/logger"
+	codexoauth "github.com/ziozzang/glm-acp/internal/oauth/codex"
+	"github.com/ziozzang/glm-acp/internal/plugins"
+	_ "github.com/ziozzang/glm-acp/internal/plugins/duckdb" // register duckdb stub
+	_ "github.com/ziozzang/glm-acp/internal/plugins/sqlite" // register sqlite plugin
 	"github.com/ziozzang/glm-acp/internal/protocol/imagepre"
 	"github.com/ziozzang/glm-acp/internal/protocol/sessionstore"
 	"github.com/ziozzang/glm-acp/internal/protocol/systemprompt"
+	"github.com/ziozzang/glm-acp/internal/provider"
+	_ "github.com/ziozzang/glm-acp/internal/provider/anthropic"  // register anthropic
+	_ "github.com/ziozzang/glm-acp/internal/provider/glmprov"    // register glm kind
+	_ "github.com/ziozzang/glm-acp/internal/provider/ollama"     // register ollama
+	_ "github.com/ziozzang/glm-acp/internal/provider/openaichat" // register openai-chat
+	_ "github.com/ziozzang/glm-acp/internal/provider/openairesp" // register openai-responses
 	"github.com/ziozzang/glm-acp/internal/tools/definitions"
 	"github.com/ziozzang/glm-acp/internal/tools/executor"
 	"github.com/ziozzang/glm-acp/internal/tools/sessionmcp"
@@ -55,11 +66,16 @@ type Notifier interface {
 	Call(ctx context.Context, method string, params any, result any) error
 }
 
-// Agent is the GLM-backed ACP Agent.
+// Agent is the harness's ACP Agent. It owns the per-session prompt loop,
+// history, model/mode state, and dispatches tool calls back to the
+// connected ACP client. The Provider field abstracts the upstream LLM and
+// is selected at startup via ACP_HARNESS_PROVIDER + provider templates.
 type Agent struct {
 	Conn     Notifier
 	Store    *sessionstore.Store
-	GLM      *glm.Client
+	Provider provider.Provider // active LLM provider (built from config)
+	GLM      *glm.Client       // retained for tests; nil in normal runs
+	Plugins  *plugins.Active   // optional plugins (sqlite, duckdb, …)
 	MCP      executor.MCPCaller
 	Vision   executor.Vision
 	MaxTurns int
@@ -155,6 +171,36 @@ func (a *Agent) Initialize(_ context.Context, p acp.InitializeParams) (acp.Initi
 	return resp, nil
 }
 
+// streamChat dispatches the streaming call to the active provider, falling
+// back to the legacy *glm.Client when tests pre-populate Agent.GLM
+// directly. Both paths produce the same Chunk/error stream types because
+// they share aliased shapes via internal/provider.
+func (a *Agent) streamChat(ctx context.Context, msgs []glm.Message, opts glm.StreamOptions) (<-chan glm.Chunk, <-chan error) {
+	if a.Provider != nil {
+		return a.Provider.StreamChat(ctx, msgs, opts)
+	}
+	return a.GLM.StreamChat(ctx, msgs, opts)
+}
+
+// defaultModel returns the active provider's default model, falling back
+// to the legacy GLM default when no provider is configured (test-only
+// path).
+func (a *Agent) defaultModel() string {
+	if a.Provider != nil {
+		return a.Provider.DefaultModel()
+	}
+	return glm.DefaultModelEnv()
+}
+
+// contextWindow returns the per-model context window for the active
+// provider, falling back to the legacy GLM table for test paths.
+func (a *Agent) contextWindow(model string) int {
+	if a.Provider != nil {
+		return a.Provider.ContextWindow(model)
+	}
+	return glm.ContextWindow(model)
+}
+
 // Authenticate accepts an API key submission from the client.
 func (a *Agent) Authenticate(_ context.Context, raw json.RawMessage) (any, error) {
 	var body struct {
@@ -176,7 +222,7 @@ func (a *Agent) NewSession(_ context.Context, p acp.NewSessionParams) (acp.NewSe
 		return acp.NewSessionResponse{}, err
 	}
 	id := newSessionID()
-	model := glm.DefaultModelEnv()
+	model := a.defaultModel()
 	tools := a.availableTools()
 
 	// Connect to session-scoped MCP servers.
@@ -222,7 +268,7 @@ func (a *Agent) LoadSession(ctx context.Context, p acp.LoadSessionParams) (acp.L
 	}
 	model := persisted.Model
 	if model == "" {
-		model = glm.DefaultModelEnv()
+		model = a.defaultModel()
 	}
 	mode := persisted.Mode
 	if mode == "" {
@@ -275,7 +321,7 @@ func (a *Agent) ResumeSession(_ context.Context, p acp.LoadSessionParams) (acp.L
 	}
 	model := persisted.Model
 	if model == "" {
-		model = glm.DefaultModelEnv()
+		model = a.defaultModel()
 	}
 	mode := persisted.Mode
 	if mode == "" {
@@ -321,7 +367,7 @@ func (a *Agent) ForkSession(_ context.Context, p acp.LoadSessionParams) (acp.For
 
 	var msgs []glm.Message
 	var title *string
-	model := glm.DefaultModelEnv()
+	model := a.defaultModel()
 	mode := ModeDefault
 	if inMem {
 		msgs = append([]glm.Message(nil), source.Messages...)
@@ -553,6 +599,7 @@ func (a *Agent) Prompt(ctx context.Context, p acp.PromptParams) (acp.PromptRespo
 		Vision:     a.visionClient(),
 		Mode:       s.Mode,
 		SessionMCP: s.sessionMcp,
+		Plugins:    a.Plugins,
 	}
 
 	// Prepare the system prompt once per turn.
@@ -584,7 +631,7 @@ func (a *Agent) Prompt(ctx context.Context, p acp.PromptParams) (acp.PromptRespo
 			break
 		}
 		// Proactive compaction: if history exceeds ~90% of the model's window.
-		window := glm.ContextWindow(s.Model)
+		window := a.contextWindow(s.Model)
 		if glm.EstimateTokens(messages) > (window*9)/10 {
 			messages = glm.Compact(messages, (window*8)/10, 10)
 		}
@@ -592,7 +639,7 @@ func (a *Agent) Prompt(ctx context.Context, p acp.PromptParams) (acp.PromptRespo
 		// Sync the executor's mode so changes mid-turn take effect immediately.
 		exec.Mode = s.Mode
 
-		chunks, errs := a.GLM.StreamChat(promptCtx, messages, glm.StreamOptions{Model: s.Model, Tools: tools})
+		chunks, errs := a.streamChat(promptCtx, messages, glm.StreamOptions{Model: s.Model, Tools: tools})
 
 		var assistantText, assistantThought string
 		var toolCalls []glm.ToolCall
@@ -628,16 +675,17 @@ func (a *Agent) Prompt(ctx context.Context, p acp.PromptParams) (acp.PromptRespo
 				break
 			}
 			var apiErr *glm.APIError
-			if errors.As(err, &apiErr) && apiErr.IsContextOverflow() && overflowRetries < 1 {
+			isOverflow := provider.IsContextOverflow(err) || (errors.As(err, &apiErr) && apiErr.IsContextOverflow())
+			if isOverflow && overflowRetries < 1 {
 				// Emergency compaction: aggressive (~70%) then retry once.
 				logger.Debugf("prompt: context overflow detected; emergency compaction")
-				window := glm.ContextWindow(s.Model)
+				window := a.contextWindow(s.Model)
 				messages = glm.Compact(messages, (window*7)/10, 10)
 				overflowRetries++
 				iter--
 				continue
 			}
-			return acp.PromptResponse{}, fmt.Errorf("GLM stream failed: %w", err)
+			return acp.PromptResponse{}, fmt.Errorf("model stream failed: %w", err)
 		}
 
 		// Persist assistant turn.
@@ -714,26 +762,88 @@ func (a *Agent) Prompt(ctx context.Context, p acp.PromptParams) (acp.PromptRespo
 // Helpers
 // ---------------------------------------------------------------------------
 
-// ensureClient lazily constructs the GLM client.
+// ensureClient lazily constructs the active provider from configuration.
+// If tests set Agent.GLM or Agent.Provider directly, that path is reused.
 func (a *Agent) ensureClient() error {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	if a.GLM != nil {
+	if a.Provider != nil || a.GLM != nil {
+		if a.MCP == nil {
+			a.MCP = zaimcp.New()
+		}
 		return nil
 	}
-	c, err := glm.New()
+	mfst, err := config.Load()
 	if err != nil {
 		return err
 	}
-	a.GLM = c
+	cfg, err := mfst.Resolve("")
+	if err != nil {
+		return err
+	}
+	// Back-compat: when no key is set, fall back to the credentials file
+	// for the GLM provider (the original behaviour of glm.New).
+	if cfg.APIKey == "" && (cfg.Kind == "glm" || cfg.Kind == "" || cfg.Kind == "openai-chat") {
+		if k := credentials.Resolve(); k != "" {
+			cfg.APIKey = k
+		}
+	}
+	// Resolve any oauth:* tokens (currently codex). The function returns
+	// the original value when no resolver matches, so non-oauth configs
+	// stay untouched.
+	if resolved, rerr := resolveOAuthKey(cfg.APIKey); rerr == nil {
+		cfg.APIKey = resolved
+	} else {
+		return rerr
+	}
+	if cfg.APIKey == "" && cfg.Kind != "ollama" {
+		return errors.New("No API key configured. Set an API key via ACP_HARNESS_API_KEY, ACP_HARNESS_<PROVIDER>_API_KEY, the provider-specific env var (Z_AI_API_KEY/OPENAI_API_KEY/…), or run `glm-acp-agent --setup`.")
+	}
+	p, err := provider.Build(cfg)
+	if err != nil {
+		return err
+	}
+	a.Provider = p
+	logger.Infof("active provider: %s (kind=%s, model=%s, base=%s)",
+		cfg.Name, cfg.Kind, p.DefaultModel(), cfg.BaseURL)
 	if a.MCP == nil {
 		a.MCP = zaimcp.New()
+	}
+	if a.Plugins == nil {
+		a.Plugins = plugins.LoadActive()
 	}
 	return nil
 }
 
+// resolveOAuthKey returns the API key after resolving any `oauth:*`
+// markers. Currently supports `oauth:codex` for the OpenAI Codex
+// refresh-token flow.
+var resolveOAuthKey = func(key string) (string, error) {
+	if !strings.HasPrefix(key, "oauth:") {
+		return key, nil
+	}
+	flavour := strings.TrimPrefix(key, "oauth:")
+	switch flavour {
+	case "codex":
+		r := codexoauth.New("")
+		tok, err := r.Resolve(context.Background())
+		if err != nil {
+			return "", err
+		}
+		return tok, nil
+	default:
+		return "", fmt.Errorf("oauth resolver for %q is not registered", flavour)
+	}
+}
+
 func (a *Agent) modelState(current string) *acp.SessionModelState {
-	models := glm.AvailableModels()
+	var models []glm.ModelInfo
+	if a.Provider != nil {
+		models = a.Provider.AvailableModels()
+	}
+	if len(models) == 0 {
+		models = glm.AvailableModels()
+	}
 	out := make([]acp.ModelInfo, len(models))
 	for i, m := range models {
 		out[i] = acp.ModelInfo{ModelID: m.ModelID, Name: m.Name, Description: m.Description}
@@ -778,6 +888,9 @@ func (a *Agent) availableTools() []definitions.Tool {
 			continue
 		}
 		out = append(out, t)
+	}
+	if a.Plugins != nil {
+		out = append(out, a.Plugins.Tools()...)
 	}
 	return out
 }

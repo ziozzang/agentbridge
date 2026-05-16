@@ -18,6 +18,7 @@ import (
 
 	"github.com/ziozzang/glm-acp/internal/credentials"
 	"github.com/ziozzang/glm-acp/internal/logger"
+	"github.com/ziozzang/glm-acp/internal/provider"
 	"github.com/ziozzang/glm-acp/internal/tools/definitions"
 )
 
@@ -31,11 +32,10 @@ const DefaultModel = "glm-5.1"
 const DefaultMaxTokens = 8192
 
 // ModelInfo describes a model the agent advertises to ACP clients.
-type ModelInfo struct {
-	ModelID     string `json:"modelId"`
-	Name        string `json:"name"`
-	Description string `json:"description,omitempty"`
-}
+//
+// Aliased to provider.ModelInfo so the agent and the new provider
+// abstraction share a single canonical type.
+type ModelInfo = provider.ModelInfo
 
 // BuiltinAvailableModels mirrors the curated TypeScript list.
 var BuiltinAvailableModels = []ModelInfo{
@@ -117,59 +117,30 @@ func BaseURLEnv() string {
 }
 
 // ToolCall is an assembled GLM function-call arriving from the stream.
-type ToolCall struct {
-	ID        string `json:"id"`
-	Name      string `json:"name"`
-	Arguments string `json:"arguments"`
-}
+// Aliased to provider.ToolCall.
+type ToolCall = provider.ToolCall
 
-// Usage mirrors the ACP token-usage shape.
-type Usage struct {
-	InputTokens      int `json:"inputTokens"`
-	OutputTokens     int `json:"outputTokens"`
-	TotalTokens      int `json:"totalTokens"`
-	CachedReadTokens int `json:"cachedReadTokens,omitempty"`
-	ThoughtTokens    int `json:"thoughtTokens,omitempty"`
-}
+// Usage mirrors the ACP token-usage shape. Aliased to provider.Usage.
+type Usage = provider.Usage
 
-// Chunk is a single yielded streaming event.
-type Chunk struct {
-	Text       string
-	Thinking   string
-	ToolCall   *ToolCall
-	Usage      *Usage
-	Done       bool
-	StopReason string
-}
+// Chunk is a single yielded streaming event. Aliased to provider.Chunk.
+type Chunk = provider.Chunk
 
-// Message is the OpenAI chat-completion message shape (keeps unknown fields
-// via json.RawMessage so we can faithfully echo persisted history).
-type Message struct {
-	Role       string        `json:"role"`
-	Content    any           `json:"content,omitempty"`
-	Name       string        `json:"name,omitempty"`
-	ToolCalls  []ToolCallMsg `json:"tool_calls,omitempty"`
-	ToolCallID string        `json:"tool_call_id,omitempty"`
-}
+// Message is the OpenAI chat-completion message shape. Aliased to
+// provider.Message.
+type Message = provider.Message
 
-// ToolCallMsg is the message-shape of a recorded tool call.
-type ToolCallMsg struct {
-	ID       string              `json:"id"`
-	Type     string              `json:"type"`
-	Function ToolCallMsgFunction `json:"function"`
-}
+// ToolCallMsg is the message-shape of a recorded tool call. Aliased to
+// provider.ToolCallMsg.
+type ToolCallMsg = provider.ToolCallMsg
 
-// ToolCallMsgFunction is the function payload for ToolCallMsg.
-type ToolCallMsgFunction struct {
-	Name      string `json:"name"`
-	Arguments string `json:"arguments"`
-}
+// ToolCallMsgFunction is the function payload for ToolCallMsg. Aliased to
+// provider.ToolCallMsgFunction.
+type ToolCallMsgFunction = provider.ToolCallMsgFunction
 
-// StreamOptions tunes a single StreamChat invocation.
-type StreamOptions struct {
-	Model string
-	Tools []definitions.Tool
-}
+// StreamOptions tunes a single StreamChat invocation. Aliased to
+// provider.StreamOptions.
+type StreamOptions = provider.StreamOptions
 
 // Client wraps the HTTP-level chat-completions API.
 type Client struct {
