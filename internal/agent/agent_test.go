@@ -49,6 +49,20 @@ func TestInitializeReportsCapabilitiesAndAuth(t *testing.T) {
 	}
 }
 
+func TestInitializeImageDisabledByEnv(t *testing.T) {
+	a := New(sessionstore.NewIn(t.TempDir()))
+	t.Setenv("ACP_GLM_PROMPT_IMAGES", "false")
+	res, _ := a.Initialize(context.Background(), acp.InitializeParams{ProtocolVersion: 1})
+	if res.AgentCapabilities.PromptCapabilities.Image {
+		t.Error("image should be disabled")
+	}
+	t.Setenv("ACP_GLM_PROMPT_IMAGES", "0")
+	res, _ = a.Initialize(context.Background(), acp.InitializeParams{ProtocolVersion: 1})
+	if res.AgentCapabilities.PromptCapabilities.Image {
+		t.Error("image should be disabled with 0")
+	}
+}
+
 func TestNewSessionPromptRoundTrip(t *testing.T) {
 	t.Setenv("Z_AI_API_KEY", "key")
 	t.Setenv("ACP_GLM_THINKING", "false")

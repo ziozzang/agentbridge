@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -77,15 +78,16 @@ func (a *Agent) SetConn(c *acp.Conn) { a.Conn = c }
 
 // Initialize handles the ACP `initialize` method.
 func (a *Agent) Initialize(_ context.Context, p acp.InitializeParams) (acp.InitializeResponse, error) {
+	imageAllowed := !disabledByEnv("ACP_GLM_PROMPT_IMAGES")
 	resp := acp.InitializeResponse{
 		ProtocolVersion: minInt(p.ProtocolVersion, acp.ProtocolVersion),
 		AgentInfo:       acp.AgentInfo{Name: AgentName, Version: Version},
 		AgentCapabilities: acp.AgentCapabilities{
-			LoadSession: true,
+			LoadSession:     true,
 			MCPCapabilities: acp.MCPCapabilities{HTTP: true},
 			PromptCapabilities: acp.PromptCapabilities{
 				EmbeddedContext: true,
-				Image:           true,
+				Image:           imageAllowed,
 			},
 			SessionCapabilities: acp.SessionCapabilities{
 				Close: &struct{}{}, List: &struct{}{}, Fork: &struct{}{}, Resume: &struct{}{},
@@ -439,6 +441,11 @@ func newSessionID() string {
 }
 
 func nowRFC3339() string { return time.Now().UTC().Format(time.RFC3339) }
+
+func disabledByEnv(name string) bool {
+	v := strings.ToLower(strings.TrimSpace(os.Getenv(name)))
+	return v == "false" || v == "0"
+}
 
 func minInt(a, b int) int {
 	if a == 0 {
