@@ -9,7 +9,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"io"
 	"net/http"
 	"os"
@@ -319,7 +318,7 @@ func (c *Client) StreamChat(ctx context.Context, messages []Message, opts Stream
 		if resp.StatusCode/100 != 2 {
 			b, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
 			logger.Errorf("streamChat request failed: status=%d body=%s", resp.StatusCode, string(b))
-			errs <- fmt.Errorf("HTTP %d: %s", resp.StatusCode, string(b))
+			errs <- parseAPIError(resp.StatusCode, b)
 			return
 		}
 
@@ -418,4 +417,25 @@ func (c *Client) StreamChat(ctx context.Context, messages []Message, opts Stream
 	}()
 
 	return chunks, errs
+}
+
+// parseAPIError extracts the Z.AI / OpenAI-style error envelope from a non-2xx
+// response body so callers can distinguish business errors (e.g. context
+// overflow, code 1261) from generic HTTP failures.
+func parseAPIError(status int, body []byte) error {
+var envelope struct {
+Error struct {
+Code    any    `json:"code"`
+Message string `json:"message"`
+} `json:"error"`
+}
+apiErr := &APIError{HTTPStatus: status, RawBody: string(body)}
+if err := json.Unmarshal(body, &envelope); err == nil {
+apiErr.Code = envelope.Error.Code
+apiErr.Message = envelope.Error.Message
+}
+if apiErr.Message == "" {
+apiErr.Message = string(body)
+}
+return apiErr
 }

@@ -62,6 +62,11 @@ func IsDebugEnabled() bool {
 	return debugOn
 }
 
+// IsDebug reports whether debug-level logging is enabled. Alias of
+// IsDebugEnabled, provided so call sites can read naturally
+// (`if logger.IsDebug() { ... }`).
+func IsDebug() bool { return IsDebugEnabled() }
+
 func write(level, msg string) {
 	mu.Lock()
 	defer mu.Unlock()

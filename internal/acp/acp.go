@@ -110,10 +110,24 @@ type ModelInfo struct {
 	Description string `json:"description,omitempty"`
 }
 
+// SessionModeInfo describes one mode the agent supports.
+type SessionModeInfo struct {
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	Description string `json:"description,omitempty"`
+}
+
+// SessionModeState is the mode picker advertised on session/new etc.
+type SessionModeState struct {
+	AvailableModes []SessionModeInfo `json:"availableModes"`
+	CurrentModeID  string            `json:"currentModeId"`
+}
+
 // NewSessionResponse is returned from `session/new`.
 type NewSessionResponse struct {
 	SessionID string             `json:"sessionId"`
 	Models    *SessionModelState `json:"models,omitempty"`
+	Modes     *SessionModeState  `json:"modes,omitempty"`
 }
 
 // LoadSessionParams is the argument to `session/load`.
@@ -126,12 +140,14 @@ type LoadSessionParams struct {
 // LoadSessionResponse is returned from `session/load` / `resume` / `fork`.
 type LoadSessionResponse struct {
 	Models *SessionModelState `json:"models,omitempty"`
+	Modes  *SessionModeState  `json:"modes,omitempty"`
 }
 
 // ForkSessionResponse is returned from `session/fork`.
 type ForkSessionResponse struct {
 	SessionID string             `json:"sessionId"`
 	Models    *SessionModelState `json:"models,omitempty"`
+	Modes     *SessionModeState  `json:"modes,omitempty"`
 }
 
 // PromptParams is the argument to `session/prompt`.

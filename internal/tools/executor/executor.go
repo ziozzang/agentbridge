@@ -41,11 +41,15 @@ type MCPCaller interface {
 
 // Executor dispatches tool calls.
 type Executor struct {
-	Conn        SessionConn
-	SessionID   string
-	SessionCwd  string
-	Vision      Vision
-	MCP         MCPCaller
+	Conn       SessionConn
+	SessionID  string
+	SessionCwd string
+	Vision     Vision
+	MCP        MCPCaller
+	// Mode is the ACP session mode for this turn. Empty / "default" means
+	// always ask for permission; "accept_edits" auto-allows writes;
+	// "bypass_permissions" auto-allows both writes and commands.
+	Mode string
 }
 
 // Result is the shape returned to the prompt loop after a tool runs.
@@ -137,26 +141,18 @@ func (e *Executor) writeFile(ctx context.Context, id string, args map[string]any
 		"locations":     []any{map[string]any{"path": path}},
 		"rawInput":      args,
 	})
-	resp, err := e.requestPermission(ctx, map[string]any{
-		"toolCallId": id,
-		"title":      "Write file: " + path,
-		"kind":       "edit",
-		"status":     "pending",
-		"locations":  []any{map[string]any{"path": path}},
-		"rawInput":   args,
-	}, []acp.PermissionOption{
-		{Kind: "allow_once", Name: "Allow write", OptionID: "allow"},
-		{Kind: "reject_once", Name: "Skip write", OptionID: "reject"},
+	outcome := e.maybeRequestPermission(ctx, permArgs{
+		ToolCallID: id, Kind: "write", Title: "Write file: " + path,
+		Locations: []any{map[string]any{"path": path}}, RawInput: args,
 	})
-	if err != nil {
-		e.markFailed(id, err.Error())
-		return Result{Content: "Error requesting permission: " + err.Error()}
-	}
-	if resp.Outcome.Outcome == "cancelled" {
+	switch outcome.Type {
+	case permError:
+		e.markFailed(id, outcome.Message)
+		return Result{Content: "Error requesting permission: " + outcome.Message}
+	case permCancelled:
 		e.markFailed(id, "Cancelled by user.")
 		return Result{Content: "Write cancelled by user."}
-	}
-	if resp.Outcome.Outcome == "selected" && resp.Outcome.OptionID == "reject" {
+	case permReject:
 		e.markFailed(id, "Rejected by user.")
 		return Result{Content: "Write rejected by user."}
 	}
@@ -241,26 +237,18 @@ func (e *Executor) runCommand(ctx context.Context, id string, args map[string]an
 		"locations":     []any{},
 		"rawInput":      args,
 	})
-	resp, err := e.requestPermission(ctx, map[string]any{
-		"toolCallId": id,
-		"title":      "Run command: " + command,
-		"kind":       "execute",
-		"status":     "pending",
-		"locations":  []any{},
-		"rawInput":   args,
-	}, []acp.PermissionOption{
-		{Kind: "allow_once", Name: "Run command", OptionID: "allow"},
-		{Kind: "reject_once", Name: "Skip command", OptionID: "reject"},
+	outcome := e.maybeRequestPermission(ctx, permArgs{
+		ToolCallID: id, Kind: "execute", Title: "Run command: " + command,
+		Locations: []any{}, RawInput: args,
 	})
-	if err != nil {
-		e.markFailed(id, err.Error())
-		return Result{Content: "Error requesting permission: " + err.Error()}
-	}
-	if resp.Outcome.Outcome == "cancelled" {
+	switch outcome.Type {
+	case permError:
+		e.markFailed(id, outcome.Message)
+		return Result{Content: "Error requesting permission: " + outcome.Message}
+	case permCancelled:
 		e.markFailed(id, "Cancelled by user.")
 		return Result{Content: "Command cancelled by user."}
-	}
-	if resp.Outcome.Outcome == "selected" && resp.Outcome.OptionID == "reject" {
+	case permReject:
 		e.markFailed(id, "Rejected by user.")
 		return Result{Content: "Command rejected by user."}
 	}
@@ -500,6 +488,70 @@ func (e *Executor) requestPermission(ctx context.Context, toolCall map[string]an
 		SessionID: e.SessionID, ToolCall: toolCall, Options: options,
 	}, &resp)
 	return resp, err
+}
+
+// permOutcomeType enumerates the mode-aware permission outcomes.
+type permOutcomeType int
+
+const (
+	permAllow permOutcomeType = iota
+	permReject
+	permCancelled
+	permError
+)
+
+type permOutcome struct {
+	Type    permOutcomeType
+	Message string
+}
+
+type permArgs struct {
+	ToolCallID string
+	// Kind is "write" or "execute"; selects the ACP tool-call kind to surface.
+	Kind      string
+	Title     string
+	Locations []any
+	RawInput  map[string]any
+}
+
+// maybeRequestPermission gates a write/execute tool call on the current
+// session mode and on the user's permission decision. Transport errors are
+// returned as permError so the caller can fail the tool call cleanly instead
+// of silently allowing the operation.
+func (e *Executor) maybeRequestPermission(ctx context.Context, a permArgs) permOutcome {
+	switch e.Mode {
+	case "bypass_permissions":
+		return permOutcome{Type: permAllow}
+	case "accept_edits":
+		if a.Kind == "write" {
+			return permOutcome{Type: permAllow}
+		}
+	}
+	acpKind := "edit"
+	if a.Kind == "execute" {
+		acpKind = "execute"
+	}
+	resp, err := e.requestPermission(ctx, map[string]any{
+		"toolCallId": a.ToolCallID,
+		"title":      a.Title,
+		"kind":       acpKind,
+		"status":     "pending",
+		"locations":  a.Locations,
+		"rawInput":   a.RawInput,
+	}, []acp.PermissionOption{
+		{Kind: "allow_once", Name: "Allow", OptionID: "allow"},
+		{Kind: "reject_once", Name: "Skip", OptionID: "reject"},
+	})
+	if err != nil {
+		return permOutcome{Type: permError, Message: err.Error()}
+	}
+	if resp.Outcome.Outcome == "cancelled" {
+		return permOutcome{Type: permCancelled}
+	}
+	if resp.Outcome.Outcome == "selected" && resp.Outcome.OptionID == "reject" {
+		return permOutcome{Type: permReject}
+	}
+	return permOutcome{Type: permAllow}
 }
 
 func (e *Executor) markFailed(id, message string) {
