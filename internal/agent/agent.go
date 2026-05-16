@@ -40,9 +40,9 @@ const DefaultMaxTurns = 20
 
 // Session mode identifiers.
 const (
-	ModeDefault      = "default"
-	ModeAcceptEdits  = "accept_edits"
-	ModeBypassPerms  = "bypass_permissions"
+	ModeDefault     = "default"
+	ModeAcceptEdits = "accept_edits"
+	ModeBypassPerms = "bypass_permissions"
 )
 
 // ValidModes is the set of session mode IDs we accept.
@@ -178,7 +178,7 @@ func (a *Agent) NewSession(_ context.Context, p acp.NewSessionParams) (acp.NewSe
 	id := newSessionID()
 	model := glm.DefaultModelEnv()
 	tools := a.availableTools()
-	
+
 	// Connect to session-scoped MCP servers.
 	var mcpClient sessionMcpClient
 	if len(p.MCPServers) > 0 {
@@ -195,7 +195,7 @@ func (a *Agent) NewSession(_ context.Context, p acp.NewSessionParams) (acp.NewSe
 			}
 		}
 	}
-	
+
 	a.mu.Lock()
 	a.sessions[id] = &sessionState{
 		ID: id, Cwd: p.Cwd, Model: model, Mode: ModeDefault,
@@ -229,7 +229,7 @@ func (a *Agent) LoadSession(ctx context.Context, p acp.LoadSessionParams) (acp.L
 		mode = ModeDefault
 	}
 	tools := a.availableTools()
-	
+
 	// Connect to session-scoped MCP servers.
 	var mcpClient sessionMcpClient
 	if len(p.MCPServers) > 0 {
@@ -246,7 +246,7 @@ func (a *Agent) LoadSession(ctx context.Context, p acp.LoadSessionParams) (acp.L
 			}
 		}
 	}
-	
+
 	a.mu.Lock()
 	a.sessions[p.SessionID] = &sessionState{
 		ID: p.SessionID, Cwd: p.Cwd, Model: model, Mode: mode,
@@ -282,7 +282,7 @@ func (a *Agent) ResumeSession(_ context.Context, p acp.LoadSessionParams) (acp.L
 		mode = ModeDefault
 	}
 	tools := a.availableTools()
-	
+
 	// Connect to session-scoped MCP servers.
 	var mcpClient sessionMcpClient
 	if len(p.MCPServers) > 0 {
@@ -299,7 +299,7 @@ func (a *Agent) ResumeSession(_ context.Context, p acp.LoadSessionParams) (acp.L
 			}
 		}
 	}
-	
+
 	a.mu.Lock()
 	a.sessions[p.SessionID] = &sessionState{
 		ID: p.SessionID, Cwd: p.Cwd, Model: model, Mode: mode,
@@ -901,13 +901,13 @@ func disabledByEnv(name string) bool {
 
 // parseMcpServers decodes an array of MCPServerSpec (json.RawMessage) into []acp.McpServer.
 func parseMcpServers(specs []acp.MCPServerSpec) ([]acp.McpServer, error) {
-out := make([]acp.McpServer, 0, len(specs))
-for _, raw := range specs {
-var srv acp.McpServer
-if err := json.Unmarshal(raw, &srv); err != nil {
-return nil, fmt.Errorf("invalid MCP server spec: %w", err)
-}
-out = append(out, srv)
-}
-return out, nil
+	out := make([]acp.McpServer, 0, len(specs))
+	for _, raw := range specs {
+		var srv acp.McpServer
+		if err := json.Unmarshal(raw, &srv); err != nil {
+			return nil, fmt.Errorf("invalid MCP server spec: %w", err)
+		}
+		out = append(out, srv)
+	}
+	return out, nil
 }

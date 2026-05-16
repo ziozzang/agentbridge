@@ -125,37 +125,37 @@ type ToolCall struct {
 
 // Usage mirrors the ACP token-usage shape.
 type Usage struct {
-	InputTokens     int `json:"inputTokens"`
-	OutputTokens    int `json:"outputTokens"`
-	TotalTokens     int `json:"totalTokens"`
+	InputTokens      int `json:"inputTokens"`
+	OutputTokens     int `json:"outputTokens"`
+	TotalTokens      int `json:"totalTokens"`
 	CachedReadTokens int `json:"cachedReadTokens,omitempty"`
-	ThoughtTokens   int `json:"thoughtTokens,omitempty"`
+	ThoughtTokens    int `json:"thoughtTokens,omitempty"`
 }
 
 // Chunk is a single yielded streaming event.
 type Chunk struct {
-	Text     string
-	Thinking string
-	ToolCall *ToolCall
-	Usage    *Usage
-	Done     bool
+	Text       string
+	Thinking   string
+	ToolCall   *ToolCall
+	Usage      *Usage
+	Done       bool
 	StopReason string
 }
 
 // Message is the OpenAI chat-completion message shape (keeps unknown fields
 // via json.RawMessage so we can faithfully echo persisted history).
 type Message struct {
-	Role       string          `json:"role"`
-	Content    any             `json:"content,omitempty"`
-	Name       string          `json:"name,omitempty"`
-	ToolCalls  []ToolCallMsg   `json:"tool_calls,omitempty"`
-	ToolCallID string          `json:"tool_call_id,omitempty"`
+	Role       string        `json:"role"`
+	Content    any           `json:"content,omitempty"`
+	Name       string        `json:"name,omitempty"`
+	ToolCalls  []ToolCallMsg `json:"tool_calls,omitempty"`
+	ToolCallID string        `json:"tool_call_id,omitempty"`
 }
 
 // ToolCallMsg is the message-shape of a recorded tool call.
 type ToolCallMsg struct {
-	ID       string             `json:"id"`
-	Type     string             `json:"type"`
+	ID       string              `json:"id"`
+	Type     string              `json:"type"`
 	Function ToolCallMsgFunction `json:"function"`
 }
 
@@ -225,9 +225,9 @@ type streamChunk struct {
 }
 
 type deltaPayload struct {
-	Content          string             `json:"content,omitempty"`
-	ReasoningContent string             `json:"reasoning_content,omitempty"`
-	ToolCalls        []deltaToolCall    `json:"tool_calls,omitempty"`
+	Content          string          `json:"content,omitempty"`
+	ReasoningContent string          `json:"reasoning_content,omitempty"`
+	ToolCalls        []deltaToolCall `json:"tool_calls,omitempty"`
 }
 
 type deltaToolCall struct {
@@ -241,9 +241,9 @@ type deltaToolCall struct {
 }
 
 type rawUsage struct {
-	PromptTokens     int `json:"prompt_tokens"`
-	CompletionTokens int `json:"completion_tokens"`
-	TotalTokens      int `json:"total_tokens"`
+	PromptTokens        int `json:"prompt_tokens"`
+	CompletionTokens    int `json:"completion_tokens"`
+	TotalTokens         int `json:"total_tokens"`
 	PromptTokensDetails *struct {
 		CachedTokens int `json:"cached_tokens"`
 	} `json:"prompt_tokens_details,omitempty"`
@@ -423,19 +423,19 @@ func (c *Client) StreamChat(ctx context.Context, messages []Message, opts Stream
 // response body so callers can distinguish business errors (e.g. context
 // overflow, code 1261) from generic HTTP failures.
 func parseAPIError(status int, body []byte) error {
-var envelope struct {
-Error struct {
-Code    any    `json:"code"`
-Message string `json:"message"`
-} `json:"error"`
-}
-apiErr := &APIError{HTTPStatus: status, RawBody: string(body)}
-if err := json.Unmarshal(body, &envelope); err == nil {
-apiErr.Code = envelope.Error.Code
-apiErr.Message = envelope.Error.Message
-}
-if apiErr.Message == "" {
-apiErr.Message = string(body)
-}
-return apiErr
+	var envelope struct {
+		Error struct {
+			Code    any    `json:"code"`
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+	apiErr := &APIError{HTTPStatus: status, RawBody: string(body)}
+	if err := json.Unmarshal(body, &envelope); err == nil {
+		apiErr.Code = envelope.Error.Code
+		apiErr.Message = envelope.Error.Message
+	}
+	if apiErr.Message == "" {
+		apiErr.Message = string(body)
+	}
+	return apiErr
 }
