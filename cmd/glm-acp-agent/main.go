@@ -26,6 +26,7 @@ import (
 	"github.com/ziozzang/glm-acp/internal/acp"
 	"github.com/ziozzang/glm-acp/internal/agent"
 	"github.com/ziozzang/glm-acp/internal/credentials"
+	"github.com/ziozzang/glm-acp/internal/logger"
 	"github.com/ziozzang/glm-acp/internal/protocol/sessionstore"
 )
 
@@ -78,6 +79,9 @@ func main() {
 }
 
 func runStdio(in io.Reader, out io.Writer) error {
+	if err := logger.Configure(); err != nil {
+		fmt.Fprintln(os.Stderr, "logger init failed:", err)
+	}
 	a := agent.New(sessionstore.New())
 	conn := acp.NewConn(in, out, a)
 	a.SetConn(conn)

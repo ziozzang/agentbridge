@@ -41,11 +41,32 @@ type MCPCaller interface {
 
 // Executor dispatches tool calls.
 type Executor struct {
-	Conn        SessionConn
-	SessionID   string
-	SessionCwd  string
-	Vision      Vision
-	MCP         MCPCaller
+	Conn       SessionConn
+	SessionID  string
+	SessionCwd string
+	Vision     Vision
+	MCP        MCPCaller
+	SessionMCP sessionMcpClient
+	// Plugins, when set, handles tool calls whose name matches the
+	// plugin naming convention (plugin__<name>__<tool>). The executor
+	// uses the PluginDispatcher interface so it does not need to import
+	// internal/plugins directly.
+	Plugins PluginDispatcher
+	// Mode is the ACP session mode for this turn. Empty / "default" means
+	// always ask for permission; "accept_edits" auto-allows writes;
+	// "bypass_permissions" auto-allows both writes and commands.
+	Mode string
+}
+
+// PluginDispatcher routes a tool invocation to a plugin. ok=true means the
+// call was claimed by a plugin (regardless of whether the call succeeded).
+type PluginDispatcher interface {
+	Dispatch(ctx context.Context, name string, args json.RawMessage) (result string, ok bool, err error)
+}
+
+// sessionMcpClient is the interface to session-scoped MCP servers.
+type sessionMcpClient interface {
+	CallTool(ctx context.Context, fullName string, args map[string]any) (string, error)
 }
 
 // Result is the shape returned to the prompt loop after a tool runs.
@@ -63,6 +84,14 @@ func (e *Executor) Execute(ctx context.Context, toolCallID, toolName, rawArgs st
 		msg := fmt.Sprintf("Error: could not parse tool arguments as JSON: %s", rawArgs)
 		e.failedToolCall(toolCallID, toolName, map[string]any{}, msg)
 		return Result{Content: msg}
+	}
+	// Route mcp__ prefixed tools to sessionMCP.
+	if strings.HasPrefix(toolName, "mcp__") && e.SessionMCP != nil {
+		return e.mcpTool(ctx, toolCallID, toolName, args)
+	}
+	// Route plugin__ prefixed tools to the active plugin dispatcher.
+	if strings.HasPrefix(toolName, "plugin__") && e.Plugins != nil {
+		return e.pluginTool(ctx, toolCallID, toolName, args, rawArgs)
 	}
 	switch toolName {
 	case "read_file":
@@ -137,26 +166,18 @@ func (e *Executor) writeFile(ctx context.Context, id string, args map[string]any
 		"locations":     []any{map[string]any{"path": path}},
 		"rawInput":      args,
 	})
-	resp, err := e.requestPermission(ctx, map[string]any{
-		"toolCallId": id,
-		"title":      "Write file: " + path,
-		"kind":       "edit",
-		"status":     "pending",
-		"locations":  []any{map[string]any{"path": path}},
-		"rawInput":   args,
-	}, []acp.PermissionOption{
-		{Kind: "allow_once", Name: "Allow write", OptionID: "allow"},
-		{Kind: "reject_once", Name: "Skip write", OptionID: "reject"},
+	outcome := e.maybeRequestPermission(ctx, permArgs{
+		ToolCallID: id, Kind: "write", Title: "Write file: " + path,
+		Locations: []any{map[string]any{"path": path}}, RawInput: args,
 	})
-	if err != nil {
-		e.markFailed(id, err.Error())
-		return Result{Content: "Error requesting permission: " + err.Error()}
-	}
-	if resp.Outcome.Outcome == "cancelled" {
+	switch outcome.Type {
+	case permError:
+		e.markFailed(id, outcome.Message)
+		return Result{Content: "Error requesting permission: " + outcome.Message}
+	case permCancelled:
 		e.markFailed(id, "Cancelled by user.")
 		return Result{Content: "Write cancelled by user."}
-	}
-	if resp.Outcome.Outcome == "selected" && resp.Outcome.OptionID == "reject" {
+	case permReject:
 		e.markFailed(id, "Rejected by user.")
 		return Result{Content: "Write rejected by user."}
 	}
@@ -241,26 +262,18 @@ func (e *Executor) runCommand(ctx context.Context, id string, args map[string]an
 		"locations":     []any{},
 		"rawInput":      args,
 	})
-	resp, err := e.requestPermission(ctx, map[string]any{
-		"toolCallId": id,
-		"title":      "Run command: " + command,
-		"kind":       "execute",
-		"status":     "pending",
-		"locations":  []any{},
-		"rawInput":   args,
-	}, []acp.PermissionOption{
-		{Kind: "allow_once", Name: "Run command", OptionID: "allow"},
-		{Kind: "reject_once", Name: "Skip command", OptionID: "reject"},
+	outcome := e.maybeRequestPermission(ctx, permArgs{
+		ToolCallID: id, Kind: "execute", Title: "Run command: " + command,
+		Locations: []any{}, RawInput: args,
 	})
-	if err != nil {
-		e.markFailed(id, err.Error())
-		return Result{Content: "Error requesting permission: " + err.Error()}
-	}
-	if resp.Outcome.Outcome == "cancelled" {
+	switch outcome.Type {
+	case permError:
+		e.markFailed(id, outcome.Message)
+		return Result{Content: "Error requesting permission: " + outcome.Message}
+	case permCancelled:
 		e.markFailed(id, "Cancelled by user.")
 		return Result{Content: "Command cancelled by user."}
-	}
-	if resp.Outcome.Outcome == "selected" && resp.Outcome.OptionID == "reject" {
+	case permReject:
 		e.markFailed(id, "Rejected by user.")
 		return Result{Content: "Command rejected by user."}
 	}
@@ -502,6 +515,70 @@ func (e *Executor) requestPermission(ctx context.Context, toolCall map[string]an
 	return resp, err
 }
 
+// permOutcomeType enumerates the mode-aware permission outcomes.
+type permOutcomeType int
+
+const (
+	permAllow permOutcomeType = iota
+	permReject
+	permCancelled
+	permError
+)
+
+type permOutcome struct {
+	Type    permOutcomeType
+	Message string
+}
+
+type permArgs struct {
+	ToolCallID string
+	// Kind is "write" or "execute"; selects the ACP tool-call kind to surface.
+	Kind      string
+	Title     string
+	Locations []any
+	RawInput  map[string]any
+}
+
+// maybeRequestPermission gates a write/execute tool call on the current
+// session mode and on the user's permission decision. Transport errors are
+// returned as permError so the caller can fail the tool call cleanly instead
+// of silently allowing the operation.
+func (e *Executor) maybeRequestPermission(ctx context.Context, a permArgs) permOutcome {
+	switch e.Mode {
+	case "bypass_permissions":
+		return permOutcome{Type: permAllow}
+	case "accept_edits":
+		if a.Kind == "write" {
+			return permOutcome{Type: permAllow}
+		}
+	}
+	acpKind := "edit"
+	if a.Kind == "execute" {
+		acpKind = "execute"
+	}
+	resp, err := e.requestPermission(ctx, map[string]any{
+		"toolCallId": a.ToolCallID,
+		"title":      a.Title,
+		"kind":       acpKind,
+		"status":     "pending",
+		"locations":  a.Locations,
+		"rawInput":   a.RawInput,
+	}, []acp.PermissionOption{
+		{Kind: "allow_once", Name: "Allow", OptionID: "allow"},
+		{Kind: "reject_once", Name: "Skip", OptionID: "reject"},
+	})
+	if err != nil {
+		return permOutcome{Type: permError, Message: err.Error()}
+	}
+	if resp.Outcome.Outcome == "cancelled" {
+		return permOutcome{Type: permCancelled}
+	}
+	if resp.Outcome.Outcome == "selected" && resp.Outcome.OptionID == "reject" {
+		return permOutcome{Type: permReject}
+	}
+	return permOutcome{Type: permAllow}
+}
+
 func (e *Executor) markFailed(id, message string) {
 	e.sendUpdate(map[string]any{
 		"sessionUpdate": "tool_call_update",
@@ -689,4 +766,72 @@ func valueOr(m map[string]any, key, fallback string) string {
 		return v
 	}
 	return fallback
+}
+
+// ---------------------------------------------------------------------------
+// Session MCP tools
+// ---------------------------------------------------------------------------
+
+func (e *Executor) mcpTool(ctx context.Context, id string, toolName string, args map[string]any) Result {
+e.sendUpdate(map[string]any{
+"sessionUpdate": "tool_call",
+"toolCallId":    id,
+"title":         "Call MCP tool: " + toolName,
+"kind":          "mcp",
+"status":        "in_progress",
+"locations":     []any{},
+"rawInput":      args,
+})
+result, err := e.SessionMCP.CallTool(ctx, toolName, args)
+if err != nil {
+e.markFailed(id, err.Error())
+return Result{Content: "Error calling MCP tool: " + err.Error()}
+}
+e.sendUpdate(map[string]any{
+"sessionUpdate": "tool_call_update",
+"toolCallId":    id,
+"status":        "completed",
+"content":       []any{map[string]any{"type": "content", "content": map[string]any{"type": "text", "text": result}}},
+"rawOutput":     map[string]any{"content": result},
+})
+return Result{Content: result}
+}
+
+
+// pluginTool dispatches a `plugin__<name>__<tool>` call through the
+// configured PluginDispatcher and reports tool_call updates to the client.
+func (e *Executor) pluginTool(ctx context.Context, id string, toolName string, args map[string]any, rawArgs string) Result {
+e.sendUpdate(map[string]any{
+"sessionUpdate": "tool_call",
+"toolCallId":    id,
+"title":         "Call plugin tool: " + toolName,
+"kind":          "plugin",
+"status":        "in_progress",
+"locations":     []any{},
+"rawInput":      args,
+})
+raw := json.RawMessage(rawArgs)
+if len(raw) == 0 {
+raw = json.RawMessage(`{}`)
+}
+result, ok, err := e.Plugins.Dispatch(ctx, toolName, raw)
+if !ok {
+// Should never happen because the prefix check matched, but be
+// defensive: fall through to the generic failure branch.
+msg := fmt.Sprintf("Error: plugin not active for %q", toolName)
+e.markFailed(id, msg)
+return Result{Content: msg}
+}
+if err != nil {
+e.markFailed(id, err.Error())
+return Result{Content: "Error calling plugin tool: " + err.Error()}
+}
+e.sendUpdate(map[string]any{
+"sessionUpdate": "tool_call_update",
+"toolCallId":    id,
+"status":        "completed",
+"content":       []any{map[string]any{"type": "content", "content": map[string]any{"type": "text", "text": result}}},
+"rawOutput":     map[string]any{"content": result},
+})
+return Result{Content: result}
 }

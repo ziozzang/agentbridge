@@ -17,12 +17,13 @@ import (
 // fakeConn records every notification, and answers Call requests with the
 // pre-staged outcome.
 type fakeConn struct {
-	mu       sync.Mutex
-	updates  []map[string]any
-	approve  bool
-	reject   bool
-	cancel   bool
-	callErr  error
+	mu              sync.Mutex
+	updates         []map[string]any
+	approve         bool
+	reject          bool
+	cancel          bool
+	callErr         error
+	permissionCalls int
 }
 
 func (f *fakeConn) SendNotification(method string, params any) error {
@@ -43,6 +44,9 @@ func (f *fakeConn) Call(_ context.Context, method string, _ any, result any) err
 	if method != "session/request_permission" {
 		return errors.New("unexpected call: " + method)
 	}
+	f.mu.Lock()
+	f.permissionCalls++
+	f.mu.Unlock()
 	resp := result.(*acp.RequestPermissionResponse)
 	switch {
 	case f.cancel:

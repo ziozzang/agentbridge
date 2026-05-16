@@ -1,89 +1,113 @@
-# glm-acp
+# glm-acp — a generic, high-quality ACP harness
 
-`glm-acp` is a faithful Go port of the [`glm-acp-agent`](https://www.npmjs.com/package/glm-acp-agent) npm package. It is an [Agent Client Protocol](https://github.com/zed-industries/agent-client-protocol) (ACP) coding agent that drives Z.AI / Zhipu AI **GLM** models (GLM-5.1, GLM-4.7, GLM-4.5-Air, …) over stdio so any ACP-aware editor (e.g. Zed) can use them as a chat backend.
+[![Go tests](https://img.shields.io/badge/go%20test-passing-brightgreen)](#testing)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](#license)
 
-The behavior, system prompt, tool surface, and on-the-wire protocol mirror the reference TypeScript implementation while gaining Go's static binary, easier container deployment, and high concurrency.
+`glm-acp` is an [**Agent Client Protocol**](https://github.com/zed-industries/agent-client-protocol)
+(ACP) coding agent written in Go. It runs on stdio as a JSON-RPC 2.0 /
+newline-delimited JSON server and bridges any ACP-aware editor
+(e.g. Zed) to a wide range of LLM providers — OpenAI Chat Completions,
+OpenAI Responses, Anthropic Messages, Ollama, Z.AI/GLM, OpenRouter,
+LiteLLM, Codex OAuth — through a single small static binary.
 
-## Features
+> The project started as a focused GLM adapter. It is now a *provider-
+> neutral harness*; the binary name `glm-acp-agent` and Go module path
+> are kept for backwards compatibility.
 
-- Speaks ACP `2025-…` (protocol version 1) over JSON-RPC 2.0 / newline-delimited JSON on stdio.
-- Streams GLM chat completions including the GLM-specific `thinking` (reasoning) deltas.
-- Built-in tools: `read_file`, `write_file`, `list_files`, `run_command`, `web_search`, `web_reader`, `image_analysis`.
-  - File writes and shell commands always ask the ACP client for permission first.
-  - `web_search` / `web_reader` call Z.AI's hosted MCP endpoints with session caching.
-- Persists every session as `~/.local/state/glm-acp-agent/sessions/<id>.json` so `session/list`, `session/load`, `session/resume`, `session/fork` all work.
-- API key resolution: `Z_AI_API_KEY` env var > `~/.config/glm-acp-agent/credentials.json` (written by `--setup`).
-- Container-first: ships with a multi-stage `Dockerfile`.
+## Highlights
 
-## Install / build
+- **One agent, many providers.** Switch upstream model with a single env
+  variable (`ACP_HARNESS_PROVIDER=openai|anthropic|ollama|glm|…`).
+- **Provider templates** in `internal/config/providers.yaml`, overridable
+  per-user in `$XDG_CONFIG_HOME/acp-harness/providers.yaml`.
+- **Plugin system** activated with `ACP_HARNESS_PLUGINS=sqlite[,…]`.
+  Ships with a pure-Go SQLite catalogue browser
+  (`sqlite_list/load/query/…`).
+- **Codex OAuth** support: use `oauth:codex` API keys; the harness
+  refreshes access tokens automatically against the OpenAI OAuth endpoint.
+- **Structured logging** with level, file sink, and size-based rotation
+  (`ACP_HARNESS_LOG_*`). Stdout stays pure JSON-RPC.
+- **Local tools** built in: `read_file`, `write_file`, `list_files`,
+  `run_command`, `web_search`, `web_reader`, `image_analysis`. Writes
+  and shell commands always ask the ACP client for permission.
+- **Persistent sessions** under `$XDG_STATE_HOME/glm-acp-agent/sessions/`.
+- **Container-first**: ships with a multi-stage `Dockerfile`.
+- **Designed for editors**: lean memory and CPU profile; back-pressure-
+  aware channel design; no polling loops.
+
+## Quick start
 
 ```bash
 go build -o glm-acp-agent ./cmd/glm-acp-agent
-```
 
-## Run
-
-```bash
-# Bootstrap the API key once, then start the agent on stdio.
-./glm-acp-agent --setup
+# OpenAI Chat (or LiteLLM / OpenRouter / vLLM with OPENAI_BASE_URL …)
+ACP_HARNESS_PROVIDER=openai \
+ACP_HARNESS_API_KEY=sk-... \
+ACP_HARNESS_MODEL=gpt-4o-mini \
 ./glm-acp-agent
 
-# Or pass everything via the environment (ideal for containers / CI).
-Z_AI_API_KEY=sk-... ACP_GLM_MODEL=glm-5.1 ./glm-acp-agent
+# Anthropic
+ACP_HARNESS_PROVIDER=anthropic \
+ACP_HARNESS_API_KEY=sk-ant-... \
+ACP_HARNESS_MODEL=claude-sonnet-4-5 \
+./glm-acp-agent
+
+# Local Ollama
+ACP_HARNESS_PROVIDER=ollama ACP_HARNESS_MODEL=llama3.1 ./glm-acp-agent
+
+# Z.AI / GLM (default; back-compat with the legacy tool)
+Z_AI_API_KEY=sk-... ACP_HARNESS_PROVIDER=glm ./glm-acp-agent
 ```
 
-The agent talks ACP on stdio; an editor like Zed will spawn it under the hood. There is no HTTP server.
+The agent only speaks ACP on stdio — your editor spawns it and pipes
+JSON-RPC back and forth. There is no HTTP server.
 
-## Container
+## Documentation
 
-```bash
-docker build -t glm-acp-agent .
-docker run --rm -i \
-  -e Z_AI_API_KEY="$Z_AI_API_KEY" \
-  -v "$PWD":/workspace -w /workspace \
-  glm-acp-agent
-```
-
-Mount a volume at `/home/agent/.local/state` to persist sessions across container restarts.
-
-## Environment variables
-
-| Variable | Purpose |
+| Topic | Doc |
 | --- | --- |
-| `Z_AI_API_KEY` | Required for chat. Z.AI Coding Plan API key. |
-| `ACP_GLM_MODEL` | Default model id (e.g. `glm-5.1`). |
-| `ACP_GLM_AVAILABLE_MODELS` | Comma-separated whitelist advertised to clients. |
-| `ACP_GLM_BASE_URL` | Override the Z.AI Coding Plan base URL. |
-| `ACP_GLM_MAX_TOKENS` | Per-call max output tokens (default 8192). |
-| `ACP_GLM_THINKING` | Force GLM thinking mode on/off (`true`/`false`). |
-| `ACP_GLM_DEBUG` | `true`/`1` enables verbose stderr debug logging. |
-| `ACP_GLM_SESSION_DIR` | Directory for persisted session JSON files. |
-| `XDG_CONFIG_HOME` | Used to locate the credentials file. |
+| Install / build | [docs/install.md](docs/install.md) |
+| Environment variables and YAML | [docs/configuration.md](docs/configuration.md) |
+| Provider catalogue and how to add one | [docs/providers.md](docs/providers.md) |
+| Plugins (sqlite, duckdb, custom) | [docs/plugins.md](docs/plugins.md) |
+| Running and writing tests | [docs/testing.md](docs/testing.md) |
+| Architecture for AI agents working on the repo | [AGENTS.md](AGENTS.md) |
 
-## Layout
+## Repository layout
 
 ```
-cmd/glm-acp-agent          # main entry point (stdio + --setup + --version)
-internal/acp               # ACP types and JSON-RPC ndjson stdio transport
-internal/agent             # GLM-backed Agent (initialize, sessions, prompt loop)
-internal/credentials       # XDG credentials + Z_AI_API_KEY resolution
-internal/glm               # OpenAI-compatible streaming GLM client (SSE + thinking)
-internal/logger            # Stderr leveled logger with secret masking
-internal/protocol/imagepre        # Image content-block preprocessor
-internal/protocol/sessionstore    # Per-session JSON persistence (XDG_STATE_HOME)
-internal/protocol/systemprompt    # System prompt builder + AGENTS.md/CLAUDE.md
-internal/tools/definitions # OpenAI function-calling tool schemas
-internal/tools/executor    # Tool dispatcher (file/shell + Z.AI MCP)
-internal/tools/zaimcp      # Z.AI MCP HTTP+SSE client (web_search, web_reader)
+cmd/glm-acp-agent              entrypoint binary (stdio + --setup)
+internal/acp                   ACP protocol types + JSON-RPC transport
+internal/agent                 ACP Agent, prompt loop, sessions
+internal/config                provider templates + layered loader
+internal/credentials           XDG credentials + back-compat Z_AI_API_KEY
+internal/glm                   legacy GLM HTTP client + type aliases
+internal/logger                leveled logger with file sink + rotation
+internal/oauth/codex           `oauth:codex` token resolver
+internal/plugins               plugin core (sqlite, duckdb)
+internal/protocol              image preprocess, session store, system prompt
+internal/provider              provider abstraction + adapters
+internal/tools                 tool schemas + executor + MCP clients
+docs/                          user-facing documentation
 ```
 
-## Test
+## Compatibility & back-compat
 
-The whole port is TDD-driven. Run:
+Existing GLM-only setups continue to work unchanged: `Z_AI_API_KEY`,
+`ACP_GLM_MODEL`, `ACP_GLM_BASE_URL`, `ACP_GLM_THINKING`,
+`ACP_GLM_MAX_TOKENS`, `ACP_GLM_DEBUG`, `ACP_GLM_SESSION_DIR`, and
+`ACP_GLM_AVAILABLE_MODELS` are still honoured. The default
+provider is still `glm`.
+
+## Testing
 
 ```bash
 go test ./...
+go vet ./...
 ```
+
+About two dozen packages, finishing in well under a minute. See
+[docs/testing.md](docs/testing.md) for details.
 
 ## License
 

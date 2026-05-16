@@ -87,9 +87,16 @@ type InitializeResponse struct {
 }
 
 // MCPServerSpec describes a session-scoped MCP server the client wants the
-// agent to connect to. We accept it as raw JSON since glm-acp-agent doesn't
-// (yet) support session MCP integration in this Go port.
+// agent to connect to. We accept it as raw JSON and unmarshal to McpServer.
 type MCPServerSpec = json.RawMessage
+
+// McpServer describes a single MCP server configuration.
+type McpServer struct {
+	Type    string            `json:"type"`            // "http" | "sse" | "stdio"
+	Name    string            `json:"name"`
+	URL     string            `json:"url,omitempty"`
+	Headers map[string]string `json:"headers,omitempty"`
+}
 
 // NewSessionParams is the argument to `session/new`.
 type NewSessionParams struct {
@@ -110,10 +117,24 @@ type ModelInfo struct {
 	Description string `json:"description,omitempty"`
 }
 
+// SessionModeInfo describes one mode the agent supports.
+type SessionModeInfo struct {
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	Description string `json:"description,omitempty"`
+}
+
+// SessionModeState is the mode picker advertised on session/new etc.
+type SessionModeState struct {
+	AvailableModes []SessionModeInfo `json:"availableModes"`
+	CurrentModeID  string            `json:"currentModeId"`
+}
+
 // NewSessionResponse is returned from `session/new`.
 type NewSessionResponse struct {
 	SessionID string             `json:"sessionId"`
 	Models    *SessionModelState `json:"models,omitempty"`
+	Modes     *SessionModeState  `json:"modes,omitempty"`
 }
 
 // LoadSessionParams is the argument to `session/load`.
@@ -126,12 +147,14 @@ type LoadSessionParams struct {
 // LoadSessionResponse is returned from `session/load` / `resume` / `fork`.
 type LoadSessionResponse struct {
 	Models *SessionModelState `json:"models,omitempty"`
+	Modes  *SessionModeState  `json:"modes,omitempty"`
 }
 
 // ForkSessionResponse is returned from `session/fork`.
 type ForkSessionResponse struct {
 	SessionID string             `json:"sessionId"`
 	Models    *SessionModelState `json:"models,omitempty"`
+	Modes     *SessionModeState  `json:"modes,omitempty"`
 }
 
 // PromptParams is the argument to `session/prompt`.

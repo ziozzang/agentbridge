@@ -27,6 +27,7 @@ type PersistedSession struct {
 	Title         *string       `json:"title"`
 	UpdatedAt     string        `json:"updatedAt"`
 	Model         string        `json:"model"`
+	Mode          string        `json:"mode,omitempty"`
 	SchemaVersion int           `json:"schemaVersion"`
 }
 
@@ -37,6 +38,7 @@ type Metadata struct {
 	Title     *string `json:"title"`
 	UpdatedAt string  `json:"updatedAt"`
 	Model     string  `json:"model"`
+	Mode      string  `json:"mode,omitempty"`
 }
 
 // Store is a file-backed session store.
@@ -144,6 +146,7 @@ func (s *Store) ListMetadata() []Metadata {
 			Title:     sess.Title,
 			UpdatedAt: sess.UpdatedAt,
 			Model:     sess.Model,
+			Mode:      sess.Mode,
 		})
 	}
 	sort.SliceStable(out, func(i, j int) bool { return out[i].UpdatedAt > out[j].UpdatedAt })
