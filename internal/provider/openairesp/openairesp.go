@@ -1,0 +1,531 @@
+// Package openairesp implements the OpenAI Responses API as a harness
+// provider.
+//
+// Endpoint:   POST <BaseURL>/v1/responses
+// Streaming:  text/event-stream with `event:` + `data:` pairs. Relevant
+//             event types we honour:
+//               - response.output_text.delta              (assistant text)
+//               - response.reasoning_summary_text.delta   (thinking)
+//               - response.function_call_arguments.delta  (tool arg stream)
+//               - response.output_item.added              (tool item start)
+//               - response.output_item.done               (tool item complete)
+//               - response.completed                      (final usage + status)
+//               - response.failed / response.error        (error envelopes)
+//
+// The harness's neutral message format is translated into the Responses
+// API's `input` array shape. Function-calling tools are translated as
+// {"type":"function", "name":..., "description":..., "parameters":...}
+// without the wrapping `function` block used by Chat Completions.
+package openairesp
+
+import (
+	"bufio"
+	"bytes"
+	"context"
+	"encoding/json"
+	"fmt"
+	"io"
+	"net/http"
+	"strings"
+
+	"github.com/ziozzang/glm-acp/internal/logger"
+	"github.com/ziozzang/glm-acp/internal/provider"
+	"github.com/ziozzang/glm-acp/internal/tools/definitions"
+)
+
+// Kind is the registry key for this provider.
+const Kind = "openai-responses"
+
+func init() {
+	provider.Register(Kind, func(cfg provider.Config) (provider.Provider, error) {
+		return New(cfg), nil
+	})
+}
+
+// Client is an OpenAI Responses API provider.
+type Client struct {
+	cfg        provider.Config
+	HTTPClient *http.Client
+}
+
+// New constructs a Responses API client.
+func New(cfg provider.Config) *Client {
+	if cfg.BaseURL == "" {
+		cfg.BaseURL = "https://api.openai.com"
+	}
+	if cfg.AuthHeader == "" {
+		cfg.AuthHeader = "Authorization"
+	}
+	if cfg.AuthPrefix == "" && cfg.AuthHeader == "Authorization" {
+		cfg.AuthPrefix = "Bearer "
+	}
+	if cfg.MaxTokens <= 0 {
+		cfg.MaxTokens = 4096
+	}
+	return &Client{cfg: cfg, HTTPClient: &http.Client{}}
+}
+
+func (c *Client) Name() string { return firstNonEmpty(c.cfg.Name, Kind) }
+func (c *Client) Kind() string { return Kind }
+
+func (c *Client) AvailableModels() []provider.ModelInfo {
+	out := make([]provider.ModelInfo, len(c.cfg.Models))
+	copy(out, c.cfg.Models)
+	return out
+}
+
+func (c *Client) DefaultModel() string {
+	if c.cfg.DefaultModel != "" {
+		return c.cfg.DefaultModel
+	}
+	if len(c.cfg.Models) > 0 {
+		return c.cfg.Models[0].ModelID
+	}
+	return ""
+}
+
+func (c *Client) ContextWindow(model string) int {
+	_ = model
+	if c.cfg.ContextWindow > 0 {
+		return c.cfg.ContextWindow
+	}
+	return 128_000
+}
+
+// Config exposes the resolved provider configuration (read-only).
+func (c *Client) Config() provider.Config { return c.cfg }
+
+// ----- Request shape ------------------------------------------------------
+
+type respRequest struct {
+	Model           string          `json:"model"`
+	Input           []respInputItem `json:"input"`
+	Instructions    string          `json:"instructions,omitempty"`
+	Tools           []respTool      `json:"tools,omitempty"`
+	Stream          bool            `json:"stream"`
+	MaxOutputTokens int             `json:"max_output_tokens,omitempty"`
+}
+
+// respInputItem covers the four "input" shapes we emit. The unused fields
+// stay zero and omitempty keeps the JSON tight.
+type respInputItem struct {
+	Type    string          `json:"type,omitempty"`
+	Role    string          `json:"role,omitempty"`
+	Content []respPart      `json:"content,omitempty"`
+	CallID  string          `json:"call_id,omitempty"`
+	Name    string          `json:"name,omitempty"`
+	Args    json.RawMessage `json:"arguments,omitempty"`
+	Output  string          `json:"output,omitempty"`
+}
+
+type respPart struct {
+	Type string `json:"type"`
+	Text string `json:"text,omitempty"`
+}
+
+type respTool struct {
+	Type        string          `json:"type"`
+	Name        string          `json:"name"`
+	Description string          `json:"description,omitempty"`
+	Parameters  json.RawMessage `json:"parameters"`
+}
+
+// ----- Stream shape -------------------------------------------------------
+
+type respEvent struct {
+	Type   string          `json:"type"`
+	Delta  json.RawMessage `json:"delta"`
+	Item   json.RawMessage `json:"item"`
+	Output json.RawMessage `json:"output"`
+	Usage  *respUsage      `json:"usage"`
+	Error  *respError      `json:"error"`
+	// For function_call_arguments.delta:
+	ItemID    string `json:"item_id"`
+	OutputIdx int    `json:"output_index"`
+}
+
+type respUsage struct {
+	InputTokens         int `json:"input_tokens"`
+	OutputTokens        int `json:"output_tokens"`
+	TotalTokens         int `json:"total_tokens"`
+	InputTokensDetails  *struct {
+		CachedTokens int `json:"cached_tokens"`
+	} `json:"input_tokens_details"`
+	OutputTokensDetails *struct {
+		ReasoningTokens int `json:"reasoning_tokens"`
+	} `json:"output_tokens_details"`
+}
+
+type respError struct {
+	Code    string `json:"code"`
+	Message string `json:"message"`
+}
+
+type respOutputItem struct {
+	Type      string          `json:"type"`
+	ID        string          `json:"id"`
+	CallID    string          `json:"call_id"`
+	Name      string          `json:"name"`
+	Arguments json.RawMessage `json:"arguments"`
+	Status    string          `json:"status"`
+}
+
+// StreamChat implements provider.Provider.
+func (c *Client) StreamChat(ctx context.Context, messages []provider.Message, opts provider.StreamOptions) (<-chan provider.Chunk, <-chan error) {
+	chunks := make(chan provider.Chunk, 32)
+	errs := make(chan error, 1)
+
+	go func() {
+		defer close(chunks)
+		defer close(errs)
+
+		model := opts.Model
+		if model == "" {
+			model = c.DefaultModel()
+		}
+		toolList := opts.Tools
+		if toolList == nil {
+			toolList = definitions.All()
+		}
+
+		instructions, input := translateMessages(messages)
+
+		logger.Debugf("%s.streamChat: model=%s input_items=%d tools=%d",
+			c.Name(), model, len(input), len(toolList))
+
+		req := respRequest{
+			Model:           model,
+			Input:           input,
+			Instructions:    instructions,
+			Tools:           translateTools(toolList),
+			Stream:          true,
+			MaxOutputTokens: c.cfg.MaxTokens,
+		}
+		body, err := json.Marshal(req)
+		if err != nil {
+			errs <- err
+			return
+		}
+		url := strings.TrimRight(c.cfg.BaseURL, "/") + "/v1/responses"
+		httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
+		if err != nil {
+			errs <- err
+			return
+		}
+		httpReq.Header.Set("Content-Type", "application/json")
+		httpReq.Header.Set("Accept", "text/event-stream")
+		if c.cfg.APIKey != "" {
+			httpReq.Header.Set(c.cfg.AuthHeader, c.cfg.AuthPrefix+c.cfg.APIKey)
+		}
+		for k, v := range c.cfg.Headers {
+			httpReq.Header.Set(k, v)
+		}
+
+		client := c.HTTPClient
+		if client == nil {
+			client = http.DefaultClient
+		}
+		resp, err := client.Do(httpReq)
+		if err != nil {
+			logger.Errorf("%s.streamChat request failed: %v", c.Name(), err)
+			errs <- err
+			return
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode/100 != 2 {
+			b, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+			logger.Errorf("%s.streamChat status=%d body=%s", c.Name(), resp.StatusCode, string(b))
+			errs <- parseAPIError(c.Name(), model, resp.StatusCode, b)
+			return
+		}
+
+		// Per-call tool-call buffering. Streamed function_call_arguments
+		// deltas arrive keyed by item_id; the output_item event provides
+		// id, name, and call_id.
+		type pendingTool struct {
+			CallID string
+			Name   string
+			Args   strings.Builder
+		}
+		pending := map[string]*pendingTool{}
+		var stopReason string
+
+		scanner := bufio.NewScanner(resp.Body)
+		scanner.Buffer(make([]byte, 0, 64*1024), 4*1024*1024)
+		for scanner.Scan() {
+			line := scanner.Text()
+			if !strings.HasPrefix(line, "data:") {
+				continue
+			}
+			data := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
+			if data == "" || data == "[DONE]" {
+				continue
+			}
+			var ev respEvent
+			if err := json.Unmarshal([]byte(data), &ev); err != nil {
+				logger.Warnf("%s.streamChat: bad chunk: %v data=%s", c.Name(), err, data)
+				continue
+			}
+			switch ev.Type {
+			case "response.output_text.delta":
+				var d struct {
+					Delta string `json:"delta"`
+				}
+				_ = json.Unmarshal([]byte(data), &d)
+				if d.Delta != "" {
+					chunks <- provider.Chunk{Text: d.Delta}
+				}
+			case "response.reasoning_summary_text.delta",
+				"response.reasoning.delta":
+				var d struct {
+					Delta string `json:"delta"`
+				}
+				_ = json.Unmarshal([]byte(data), &d)
+				if d.Delta != "" {
+					chunks <- provider.Chunk{Thinking: d.Delta}
+				}
+			case "response.output_item.added":
+				var w struct {
+					Item respOutputItem `json:"item"`
+				}
+				_ = json.Unmarshal([]byte(data), &w)
+				if w.Item.Type == "function_call" {
+					pending[w.Item.ID] = &pendingTool{
+						CallID: firstNonEmpty(w.Item.CallID, w.Item.ID),
+						Name:   w.Item.Name,
+					}
+				}
+			case "response.function_call_arguments.delta":
+				var d struct {
+					ItemID string `json:"item_id"`
+					Delta  string `json:"delta"`
+				}
+				_ = json.Unmarshal([]byte(data), &d)
+				if p, ok := pending[d.ItemID]; ok {
+					p.Args.WriteString(d.Delta)
+				}
+			case "response.output_item.done":
+				var w struct {
+					Item respOutputItem `json:"item"`
+				}
+				_ = json.Unmarshal([]byte(data), &w)
+				if w.Item.Type == "function_call" {
+					p, ok := pending[w.Item.ID]
+					if !ok {
+						p = &pendingTool{
+							CallID: firstNonEmpty(w.Item.CallID, w.Item.ID),
+							Name:   w.Item.Name,
+						}
+					}
+					args := p.Args.String()
+					if args == "" && len(w.Item.Arguments) > 0 {
+						args = string(w.Item.Arguments)
+					}
+					if args == "" {
+						args = "{}"
+					}
+					if p.CallID != "" && p.Name != "" {
+						tc := provider.ToolCall{ID: p.CallID, Name: p.Name, Arguments: args}
+						chunks <- provider.Chunk{ToolCall: &tc}
+					}
+					delete(pending, w.Item.ID)
+				}
+			case "response.completed":
+				var w struct {
+					Response struct {
+						Status string     `json:"status"`
+						Usage  *respUsage `json:"usage"`
+					} `json:"response"`
+				}
+				_ = json.Unmarshal([]byte(data), &w)
+				if w.Response.Usage != nil {
+					u := &provider.Usage{
+						InputTokens:  w.Response.Usage.InputTokens,
+						OutputTokens: w.Response.Usage.OutputTokens,
+						TotalTokens:  w.Response.Usage.TotalTokens,
+					}
+					if w.Response.Usage.InputTokensDetails != nil {
+						u.CachedReadTokens = w.Response.Usage.InputTokensDetails.CachedTokens
+					}
+					if w.Response.Usage.OutputTokensDetails != nil {
+						u.ThoughtTokens = w.Response.Usage.OutputTokensDetails.ReasoningTokens
+					}
+					chunks <- provider.Chunk{Usage: u}
+				}
+				stopReason = "end_turn"
+				if len(pending) > 0 {
+					stopReason = "tool_calls"
+				}
+			case "response.incomplete":
+				stopReason = "max_tokens"
+			case "response.failed", "response.error":
+				if ev.Error != nil {
+					if isContextOverflowText(ev.Error.Message) || ev.Error.Code == "context_length_exceeded" {
+						errs <- &provider.ContextOverflowError{
+							Provider: c.Name(), Model: model,
+							Message: ev.Error.Message,
+						}
+						return
+					}
+					errs <- fmt.Errorf("openai-responses stream error: %s: %s", ev.Error.Code, ev.Error.Message)
+					return
+				}
+			}
+		}
+		if err := scanner.Err(); err != nil {
+			errs <- err
+			return
+		}
+		chunks <- provider.Chunk{Done: true, StopReason: stopReason}
+	}()
+
+	return chunks, errs
+}
+
+// translateMessages converts harness-neutral messages into the Responses
+// API's input-array shape, lifting system messages into `instructions`.
+func translateMessages(in []provider.Message) (instructions string, items []respInputItem) {
+	var sysParts []string
+	for _, m := range in {
+		switch m.Role {
+		case "system":
+			if s := contentToString(m.Content); s != "" {
+				sysParts = append(sysParts, s)
+			}
+		case "user":
+			items = append(items, respInputItem{
+				Type: "message", Role: "user",
+				Content: []respPart{{Type: "input_text", Text: contentToString(m.Content)}},
+			})
+		case "assistant":
+			if s := contentToString(m.Content); s != "" {
+				items = append(items, respInputItem{
+					Type: "message", Role: "assistant",
+					Content: []respPart{{Type: "output_text", Text: s}},
+				})
+			}
+			for _, tc := range m.ToolCalls {
+				args := tc.Function.Arguments
+				if args == "" {
+					args = "{}"
+				}
+				items = append(items, respInputItem{
+					Type:   "function_call",
+					CallID: tc.ID,
+					Name:   tc.Function.Name,
+					Args:   json.RawMessage(args),
+				})
+			}
+		case "tool":
+			items = append(items, respInputItem{
+				Type:   "function_call_output",
+				CallID: m.ToolCallID,
+				Output: contentToString(m.Content),
+			})
+		}
+	}
+	return strings.Join(sysParts, "\n\n"), items
+}
+
+func translateTools(in []definitions.Tool) []respTool {
+	out := make([]respTool, 0, len(in))
+	for _, t := range in {
+		schema := t.Function.Parameters
+		if len(schema) == 0 {
+			schema = json.RawMessage(`{"type":"object","properties":{}}`)
+		}
+		out = append(out, respTool{
+			Type:        "function",
+			Name:        t.Function.Name,
+			Description: t.Function.Description,
+			Parameters:  schema,
+		})
+	}
+	return out
+}
+
+func contentToString(c any) string {
+	switch v := c.(type) {
+	case nil:
+		return ""
+	case string:
+		return v
+	case []any:
+		var sb strings.Builder
+		for _, e := range v {
+			m, ok := e.(map[string]any)
+			if !ok {
+				continue
+			}
+			if t, _ := m["text"].(string); t != "" {
+				sb.WriteString(t)
+			}
+		}
+		return sb.String()
+	}
+	b, _ := json.Marshal(c)
+	return string(b)
+}
+
+// APIError is the parsed envelope of a non-2xx Responses API response.
+type APIError struct {
+	Provider   string
+	Model      string
+	HTTPStatus int
+	Code       string
+	Message    string
+	RawBody    string
+}
+
+func (e *APIError) Error() string {
+	if e == nil {
+		return ""
+	}
+	if e.Message == "" {
+		return fmt.Sprintf("%s HTTP %d", e.Provider, e.HTTPStatus)
+	}
+	return fmt.Sprintf("%s HTTP %d (%s): %s", e.Provider, e.HTTPStatus, e.Code, e.Message)
+}
+
+func parseAPIError(providerName, model string, status int, body []byte) error {
+	var env struct {
+		Error struct {
+			Code    string `json:"code"`
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+	apiErr := &APIError{Provider: providerName, Model: model, HTTPStatus: status, RawBody: string(body)}
+	if err := json.Unmarshal(body, &env); err == nil {
+		apiErr.Code = env.Error.Code
+		apiErr.Message = env.Error.Message
+	}
+	if apiErr.Message == "" {
+		apiErr.Message = string(body)
+	}
+	if apiErr.Code == "context_length_exceeded" || isContextOverflowText(apiErr.Message) {
+		return &provider.ContextOverflowError{
+			Provider: providerName, Model: model,
+			Message: apiErr.Message, Cause: apiErr,
+		}
+	}
+	return apiErr
+}
+
+func isContextOverflowText(msg string) bool {
+	m := strings.ToLower(msg)
+	for _, needle := range []string{"context length", "context window", "too many tokens", "maximum context"} {
+		if strings.Contains(m, needle) {
+			return true
+		}
+	}
+	return false
+}
+
+func firstNonEmpty(s ...string) string {
+	for _, v := range s {
+		if v != "" {
+			return v
+		}
+	}
+	return ""
+}
