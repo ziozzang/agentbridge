@@ -46,10 +46,16 @@ type Executor struct {
 	SessionCwd string
 	Vision     Vision
 	MCP        MCPCaller
+	SessionMCP sessionMcpClient
 	// Mode is the ACP session mode for this turn. Empty / "default" means
 	// always ask for permission; "accept_edits" auto-allows writes;
 	// "bypass_permissions" auto-allows both writes and commands.
 	Mode string
+}
+
+// sessionMcpClient is the interface to session-scoped MCP servers.
+type sessionMcpClient interface {
+	CallTool(ctx context.Context, fullName string, args map[string]any) (string, error)
 }
 
 // Result is the shape returned to the prompt loop after a tool runs.
@@ -67,6 +73,10 @@ func (e *Executor) Execute(ctx context.Context, toolCallID, toolName, rawArgs st
 		msg := fmt.Sprintf("Error: could not parse tool arguments as JSON: %s", rawArgs)
 		e.failedToolCall(toolCallID, toolName, map[string]any{}, msg)
 		return Result{Content: msg}
+	}
+	// Route mcp__ prefixed tools to sessionMCP.
+	if strings.HasPrefix(toolName, "mcp__") && e.SessionMCP != nil {
+		return e.mcpTool(ctx, toolCallID, toolName, args)
 	}
 	switch toolName {
 	case "read_file":
@@ -741,4 +751,33 @@ func valueOr(m map[string]any, key, fallback string) string {
 		return v
 	}
 	return fallback
+}
+
+// ---------------------------------------------------------------------------
+// Session MCP tools
+// ---------------------------------------------------------------------------
+
+func (e *Executor) mcpTool(ctx context.Context, id string, toolName string, args map[string]any) Result {
+e.sendUpdate(map[string]any{
+"sessionUpdate": "tool_call",
+"toolCallId":    id,
+"title":         "Call MCP tool: " + toolName,
+"kind":          "mcp",
+"status":        "in_progress",
+"locations":     []any{},
+"rawInput":      args,
+})
+result, err := e.SessionMCP.CallTool(ctx, toolName, args)
+if err != nil {
+e.markFailed(id, err.Error())
+return Result{Content: "Error calling MCP tool: " + err.Error()}
+}
+e.sendUpdate(map[string]any{
+"sessionUpdate": "tool_call_update",
+"toolCallId":    id,
+"status":        "completed",
+"content":       []any{map[string]any{"type": "content", "content": map[string]any{"type": "text", "text": result}}},
+"rawOutput":     map[string]any{"content": result},
+})
+return Result{Content: result}
 }

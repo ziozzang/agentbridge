@@ -24,6 +24,8 @@ import (
 	"github.com/ziozzang/glm-acp/internal/protocol/systemprompt"
 	"github.com/ziozzang/glm-acp/internal/tools/definitions"
 	"github.com/ziozzang/glm-acp/internal/tools/executor"
+	"github.com/ziozzang/glm-acp/internal/tools/sessionmcp"
+	"github.com/ziozzang/glm-acp/internal/tools/visionmcp"
 	"github.com/ziozzang/glm-acp/internal/tools/zaimcp"
 )
 
@@ -88,6 +90,16 @@ type sessionState struct {
 
 	// tools advertised for this session (varies with MCP discovery / caps).
 	tools []definitions.Tool
+
+	// sessionMcp is the client for session-scoped MCP servers (nil if none).
+	sessionMcp sessionMcpClient
+}
+
+// sessionMcpClient is the interface to session-scoped MCP servers.
+type sessionMcpClient interface {
+	ToolDefinitions() []definitions.Tool
+	CallTool(ctx context.Context, fullName string, args map[string]any) (string, error)
+	Dispose()
 }
 
 // New constructs an Agent. The GLM client is built lazily so `--setup` and
@@ -166,10 +178,28 @@ func (a *Agent) NewSession(_ context.Context, p acp.NewSessionParams) (acp.NewSe
 	id := newSessionID()
 	model := glm.DefaultModelEnv()
 	tools := a.availableTools()
+	
+	// Connect to session-scoped MCP servers.
+	var mcpClient sessionMcpClient
+	if len(p.MCPServers) > 0 {
+		specs, err := parseMcpServers(p.MCPServers)
+		if err != nil {
+			logger.Debugf("session/new: failed to parse MCP servers: %v", err)
+		} else if len(specs) > 0 {
+			client, err := sessionmcp.New(specs)
+			if err != nil {
+				logger.Debugf("session/new: failed to connect MCP servers: %v", err)
+			} else {
+				mcpClient = client
+				tools = append(tools, client.ToolDefinitions()...)
+			}
+		}
+	}
+	
 	a.mu.Lock()
 	a.sessions[id] = &sessionState{
 		ID: id, Cwd: p.Cwd, Model: model, Mode: ModeDefault,
-		Messages: nil, UpdatedAt: nowRFC3339(), tools: tools,
+		Messages: nil, UpdatedAt: nowRFC3339(), tools: tools, sessionMcp: mcpClient,
 	}
 	a.mu.Unlock()
 	logger.Debugf("session/new id=%s cwd=%s model=%s tools=%d", id, p.Cwd, model, len(tools))
@@ -198,11 +228,30 @@ func (a *Agent) LoadSession(ctx context.Context, p acp.LoadSessionParams) (acp.L
 	if mode == "" {
 		mode = ModeDefault
 	}
+	tools := a.availableTools()
+	
+	// Connect to session-scoped MCP servers.
+	var mcpClient sessionMcpClient
+	if len(p.MCPServers) > 0 {
+		specs, err := parseMcpServers(p.MCPServers)
+		if err != nil {
+			logger.Debugf("session/load: failed to parse MCP servers: %v", err)
+		} else if len(specs) > 0 {
+			client, err := sessionmcp.New(specs)
+			if err != nil {
+				logger.Debugf("session/load: failed to connect MCP servers: %v", err)
+			} else {
+				mcpClient = client
+				tools = append(tools, client.ToolDefinitions()...)
+			}
+		}
+	}
+	
 	a.mu.Lock()
 	a.sessions[p.SessionID] = &sessionState{
 		ID: p.SessionID, Cwd: p.Cwd, Model: model, Mode: mode,
 		Messages: persisted.Messages, Title: persisted.Title, UpdatedAt: persisted.UpdatedAt,
-		tools: a.availableTools(),
+		tools: tools, sessionMcp: mcpClient,
 	}
 	a.mu.Unlock()
 
@@ -232,11 +281,30 @@ func (a *Agent) ResumeSession(_ context.Context, p acp.LoadSessionParams) (acp.L
 	if mode == "" {
 		mode = ModeDefault
 	}
+	tools := a.availableTools()
+	
+	// Connect to session-scoped MCP servers.
+	var mcpClient sessionMcpClient
+	if len(p.MCPServers) > 0 {
+		specs, err := parseMcpServers(p.MCPServers)
+		if err != nil {
+			logger.Debugf("session/resume: failed to parse MCP servers: %v", err)
+		} else if len(specs) > 0 {
+			client, err := sessionmcp.New(specs)
+			if err != nil {
+				logger.Debugf("session/resume: failed to connect MCP servers: %v", err)
+			} else {
+				mcpClient = client
+				tools = append(tools, client.ToolDefinitions()...)
+			}
+		}
+	}
+	
 	a.mu.Lock()
 	a.sessions[p.SessionID] = &sessionState{
 		ID: p.SessionID, Cwd: p.Cwd, Model: model, Mode: mode,
 		Messages: persisted.Messages, Title: persisted.Title, UpdatedAt: persisted.UpdatedAt,
-		tools: a.availableTools(),
+		tools: tools, sessionMcp: mcpClient,
 	}
 	a.mu.Unlock()
 	return acp.LoadSessionResponse{Models: a.modelState(model), Modes: modesState(mode)}, nil
@@ -321,6 +389,10 @@ func (a *Agent) CloseSession(_ context.Context, p acp.CloseSessionParams) (any, 
 		s.cancelCurrent()
 	}
 	s.cancelMu.Unlock()
+	// Dispose session MCP client if present.
+	if s.sessionMcp != nil {
+		s.sessionMcp.Dispose()
+	}
 	_ = a.Store.Save(sessionstore.PersistedSession{
 		SessionID: s.ID, Cwd: s.Cwd, Messages: s.Messages,
 		Title: s.Title, UpdatedAt: s.UpdatedAt, Model: s.Model, Mode: s.Mode,
@@ -478,8 +550,9 @@ func (a *Agent) Prompt(ctx context.Context, p acp.PromptParams) (acp.PromptRespo
 		SessionID:  p.SessionID,
 		SessionCwd: s.Cwd,
 		MCP:        a.MCP,
-		Vision:     a.Vision,
+		Vision:     a.visionClient(),
 		Mode:       s.Mode,
+		SessionMCP: s.sessionMcp,
 	}
 
 	// Prepare the system prompt once per turn.
@@ -711,6 +784,13 @@ func (a *Agent) availableTools() []definitions.Tool {
 
 func (a *Agent) visionClient() imagepre.VisionClient {
 	if a.Vision == nil {
+		// Lazy-init stdio Vision MCP client if API key is present.
+		apiKey := credentials.Resolve()
+		if apiKey != "" {
+			a.Vision = visionmcp.New(apiKey)
+		}
+	}
+	if a.Vision == nil {
 		return nil
 	}
 	// executor.Vision and imagepre.VisionClient share the same method shape.
@@ -817,4 +897,17 @@ func nowRFC3339() string { return time.Now().UTC().Format(time.RFC3339Nano) }
 func disabledByEnv(name string) bool {
 	v := strings.ToLower(strings.TrimSpace(os.Getenv(name)))
 	return v == "false" || v == "0"
+}
+
+// parseMcpServers decodes an array of MCPServerSpec (json.RawMessage) into []acp.McpServer.
+func parseMcpServers(specs []acp.MCPServerSpec) ([]acp.McpServer, error) {
+out := make([]acp.McpServer, 0, len(specs))
+for _, raw := range specs {
+var srv acp.McpServer
+if err := json.Unmarshal(raw, &srv); err != nil {
+return nil, fmt.Errorf("invalid MCP server spec: %w", err)
+}
+out = append(out, srv)
+}
+return out, nil
 }

@@ -87,9 +87,16 @@ type InitializeResponse struct {
 }
 
 // MCPServerSpec describes a session-scoped MCP server the client wants the
-// agent to connect to. We accept it as raw JSON since glm-acp-agent doesn't
-// (yet) support session MCP integration in this Go port.
+// agent to connect to. We accept it as raw JSON and unmarshal to McpServer.
 type MCPServerSpec = json.RawMessage
+
+// McpServer describes a single MCP server configuration.
+type McpServer struct {
+	Type    string            `json:"type"`            // "http" | "sse" | "stdio"
+	Name    string            `json:"name"`
+	URL     string            `json:"url,omitempty"`
+	Headers map[string]string `json:"headers,omitempty"`
+}
 
 // NewSessionParams is the argument to `session/new`.
 type NewSessionParams struct {
