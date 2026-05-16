@@ -39,7 +39,7 @@ const (
 	LevelOff
 )
 
-// String returns the lowercase name of l.
+// String returns the uppercase name of l.
 func (l Level) String() string {
 	switch l {
 	case LevelTrace:
