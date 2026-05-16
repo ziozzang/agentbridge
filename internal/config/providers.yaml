@@ -1,0 +1,156 @@
+# ACP Harness — default provider templates.
+#
+# Each entry under `providers:` is selectable via the env variable
+# ACP_HARNESS_PROVIDER=<name>. Values use shell-style ${VAR} expansion so a
+# single template can pick up its credential from the user's environment.
+#
+# Override this file with ACP_HARNESS_PROVIDERS_FILE=/path/to/my.yaml or by
+# placing a file at $XDG_CONFIG_HOME/acp-harness/providers.yaml.
+
+providers:
+  # --------- GLM / Z.AI Coding Plan (Chat Completions compat) -------------
+  glm:
+    kind: glm
+    base_url: ${ACP_GLM_BASE_URL:-https://api.z.ai/api/coding/paas/v4}
+    api_key: ${Z_AI_API_KEY:-${ACP_HARNESS_API_KEY}}
+    default_model: ${ACP_GLM_MODEL:-glm-5.1}
+    max_tokens: 8192
+    context_window: 200000
+    models:
+      - id: glm-5.1
+        name: GLM-5.1
+        description: Latest GLM reasoning model with thinking mode
+      - id: glm-5-turbo
+        name: GLM-5 Turbo
+        description: Faster Coding Plan reasoning model
+      - id: glm-4.7
+        name: GLM-4.7
+        description: 200K-context reasoning model
+      - id: glm-4.5-air
+        name: GLM-4.5 Air
+        description: Lightweight, lower-latency model
+
+  # --------- OpenAI Chat Completions --------------------------------------
+  openai:
+    kind: openai-chat
+    base_url: ${OPENAI_BASE_URL:-https://api.openai.com/v1}
+    api_key: ${OPENAI_API_KEY:-${ACP_HARNESS_API_KEY}}
+    default_model: ${OPENAI_MODEL:-gpt-4.1-mini}
+    max_tokens: 4096
+    context_window: 1000000
+    models:
+      - id: gpt-4.1
+        name: GPT-4.1
+        description: General-purpose flagship
+      - id: gpt-4.1-mini
+        name: GPT-4.1 mini
+        description: Cost-efficient general model
+      - id: gpt-4o
+        name: GPT-4o
+        description: Multimodal flagship
+      - id: gpt-4o-mini
+        name: GPT-4o mini
+        description: Lower-cost multimodal
+
+  # --------- OpenAI Responses API ----------------------------------------
+  openai-responses:
+    kind: openai-responses
+    base_url: ${OPENAI_BASE_URL:-https://api.openai.com}
+    api_key: ${OPENAI_API_KEY:-${ACP_HARNESS_API_KEY}}
+    default_model: ${OPENAI_MODEL:-gpt-5}
+    max_tokens: 4096
+    context_window: 400000
+    models:
+      - id: gpt-5
+        name: GPT-5
+        description: Responses-API flagship
+      - id: gpt-5-mini
+        name: GPT-5 mini
+        description: Smaller Responses model
+      - id: o4-mini
+        name: o4-mini
+        description: Reasoning-focused Responses model
+
+  # --------- Anthropic Messages ------------------------------------------
+  anthropic:
+    kind: anthropic
+    base_url: ${ANTHROPIC_BASE_URL:-https://api.anthropic.com}
+    api_key: ${ANTHROPIC_API_KEY:-${ACP_HARNESS_API_KEY}}
+    default_model: ${ANTHROPIC_MODEL:-claude-sonnet-4-5}
+    max_tokens: 8192
+    context_window: 200000
+    extra:
+      anthropic_version: "2023-06-01"
+    models:
+      - id: claude-opus-4-5
+        name: Claude Opus 4.5
+        description: Flagship reasoning model
+      - id: claude-sonnet-4-5
+        name: Claude Sonnet 4.5
+        description: Balanced general model
+      - id: claude-haiku-4-5
+        name: Claude Haiku 4.5
+        description: Fast lightweight model
+
+  # --------- Ollama (native /api/chat) -----------------------------------
+  ollama:
+    kind: ollama
+    base_url: ${OLLAMA_BASE_URL:-http://localhost:11434}
+    default_model: ${OLLAMA_MODEL:-llama3.1}
+    max_tokens: 4096
+    context_window: 32000
+    models:
+      - id: llama3.1
+        name: Llama 3.1
+      - id: qwen2.5
+        name: Qwen 2.5
+      - id: deepseek-r1
+        name: DeepSeek R1
+
+  # --------- OpenRouter (Chat Completions + Referer header) --------------
+  openrouter:
+    kind: openai-chat
+    base_url: ${OPENROUTER_BASE_URL:-https://openrouter.ai/api/v1}
+    api_key: ${OPENROUTER_API_KEY:-${ACP_HARNESS_API_KEY}}
+    default_model: ${OPENROUTER_MODEL:-anthropic/claude-sonnet-4.5}
+    max_tokens: 4096
+    context_window: 200000
+    headers:
+      HTTP-Referer: ${OPENROUTER_REFERER:-https://github.com/ziozzang/glm-acp}
+      X-Title: ${OPENROUTER_APP_TITLE:-acp-harness}
+    models:
+      - id: anthropic/claude-sonnet-4.5
+        name: Claude Sonnet 4.5 (via OpenRouter)
+      - id: openai/gpt-4.1
+        name: GPT-4.1 (via OpenRouter)
+      - id: deepseek/deepseek-chat
+        name: DeepSeek Chat (via OpenRouter)
+      - id: google/gemini-2.5-pro
+        name: Gemini 2.5 Pro (via OpenRouter)
+
+  # --------- LiteLLM proxy (OpenAI-compatible) ---------------------------
+  litellm:
+    kind: openai-chat
+    base_url: ${LITELLM_BASE_URL:-http://localhost:4000/v1}
+    api_key: ${LITELLM_API_KEY:-${ACP_HARNESS_API_KEY}}
+    default_model: ${LITELLM_MODEL:-gpt-4.1}
+    max_tokens: 4096
+    context_window: 200000
+
+  # --------- Codex (OpenAI Responses behind OAuth) ----------------------
+  # Resolve the API key via the Codex OAuth refresh-token flow (see
+  # `internal/oauth/codex`). Configure ACP_HARNESS_CODEX_REFRESH_TOKEN or
+  # a token file at ~/.config/acp-harness/codex-token.json.
+  codex:
+    kind: openai-responses
+    base_url: ${CODEX_BASE_URL:-https://api.openai.com}
+    api_key: oauth:codex
+    default_model: ${CODEX_MODEL:-gpt-5-codex}
+    max_tokens: 4096
+    context_window: 400000
+    models:
+      - id: gpt-5-codex
+        name: GPT-5 Codex
+        description: OpenAI Codex preview (Responses + OAuth)
+      - id: gpt-5
+        name: GPT-5
