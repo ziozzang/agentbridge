@@ -20,6 +20,10 @@ import (
 	"github.com/ziozzang/agentbridge/internal/tools/definitions"
 )
 
+// ErrNativeCompactionUnavailable tells callers to fall back to their generic
+// compaction strategy without treating the provider as unhealthy.
+var ErrNativeCompactionUnavailable = errors.New("provider-native compaction is not available")
+
 // ModelInfo describes a model advertised to ACP clients.
 type ModelInfo struct {
 	ModelID     string `json:"modelId"`
@@ -53,11 +57,13 @@ type ToolCallMsgFunction struct {
 // that is the most ubiquitous on-the-wire format; adapters translate to
 // other formats (Anthropic, Responses, Ollama) as needed.
 type Message struct {
-	Role       string        `json:"role"`
-	Content    any           `json:"content,omitempty"`
-	Name       string        `json:"name,omitempty"`
-	ToolCalls  []ToolCallMsg `json:"tool_calls,omitempty"`
-	ToolCallID string        `json:"tool_call_id,omitempty"`
+	Type             string        `json:"type,omitempty"`
+	Role             string        `json:"role"`
+	Content          any           `json:"content,omitempty"`
+	Name             string        `json:"name,omitempty"`
+	ToolCalls        []ToolCallMsg `json:"tool_calls,omitempty"`
+	ToolCallID       string        `json:"tool_call_id,omitempty"`
+	EncryptedContent string        `json:"encrypted_content,omitempty"`
 }
 
 // Usage mirrors the ACP token-usage shape.
@@ -85,6 +91,14 @@ type StreamOptions struct {
 	Tools []definitions.Tool
 }
 
+// CompactOptions tunes provider-native conversation compaction.
+type CompactOptions struct {
+	Model        string
+	Tools        []definitions.Tool
+	TargetTokens int
+	Reason       string
+}
+
 // Provider is the harness-side abstraction every adapter implements.
 type Provider interface {
 	Name() string
@@ -93,6 +107,12 @@ type Provider interface {
 	DefaultModel() string
 	ContextWindow(model string) int
 	StreamChat(ctx context.Context, messages []Message, opts StreamOptions) (<-chan Chunk, <-chan error)
+}
+
+// ConversationCompactor is implemented by providers with a native compaction
+// endpoint, such as Codex's /responses/compact API.
+type ConversationCompactor interface {
+	CompactConversation(ctx context.Context, messages []Message, opts CompactOptions) ([]Message, error)
 }
 
 // Config carries the user-provided / template-derived knobs every adapter

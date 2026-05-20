@@ -118,16 +118,32 @@ type respReasoning struct {
 	Effort string `json:"effort,omitempty"`
 }
 
+type respCompactRequest struct {
+	Model          string          `json:"model"`
+	Input          []respInputItem `json:"input"`
+	Instructions   string          `json:"instructions,omitempty"`
+	Tools          []respTool      `json:"tools,omitempty"`
+	ParallelTools  bool            `json:"parallel_tool_calls"`
+	Reasoning      *respReasoning  `json:"reasoning,omitempty"`
+	ServiceTier    string          `json:"service_tier,omitempty"`
+	PromptCacheKey string          `json:"prompt_cache_key,omitempty"`
+}
+
+type respCompactResponse struct {
+	Output []respInputItem `json:"output"`
+}
+
 // respInputItem covers the four "input" shapes we emit. The unused fields
 // stay zero and omitempty keeps the JSON tight.
 type respInputItem struct {
-	Type    string     `json:"type,omitempty"`
-	Role    string     `json:"role,omitempty"`
-	Content []respPart `json:"content,omitempty"`
-	CallID  string     `json:"call_id,omitempty"`
-	Name    string     `json:"name,omitempty"`
-	Args    string     `json:"arguments,omitempty"`
-	Output  string     `json:"output,omitempty"`
+	Type             string     `json:"type,omitempty"`
+	Role             string     `json:"role,omitempty"`
+	Content          []respPart `json:"content,omitempty"`
+	CallID           string     `json:"call_id,omitempty"`
+	Name             string     `json:"name,omitempty"`
+	Args             string     `json:"arguments,omitempty"`
+	Output           string     `json:"output,omitempty"`
+	EncryptedContent string     `json:"encrypted_content,omitempty"`
 }
 
 type respPart struct {
@@ -409,10 +425,87 @@ func (c *Client) StreamChat(ctx context.Context, messages []provider.Message, op
 	return chunks, errs
 }
 
+// CompactConversation uses provider-native Responses compaction when enabled.
+// Codex exposes this as POST /responses/compact and returns replacement
+// history, including a provider-private `compaction` item.
+func (c *Client) CompactConversation(ctx context.Context, messages []provider.Message, opts provider.CompactOptions) ([]provider.Message, error) {
+	mode := strings.ToLower(firstNonEmpty(c.extraString("compaction"), c.extraString("compact_conversation")))
+	if mode == "" || mode == "off" || mode == "false" || mode == "0" || mode == "disabled" {
+		return nil, provider.ErrNativeCompactionUnavailable
+	}
+	if mode != "responses_compact" && mode != "responses/compact" && mode != "compact" && mode != "true" && mode != "1" && mode != "on" {
+		return nil, fmt.Errorf("unsupported compaction mode %q", mode)
+	}
+	model := opts.Model
+	if model == "" {
+		model = c.DefaultModel()
+	}
+	instructions, input := translateMessages(messages)
+	if instructions == "" {
+		instructions = c.extraString("instructions")
+	}
+	req := respCompactRequest{
+		Model:          model,
+		Input:          input,
+		Instructions:   instructions,
+		Tools:          c.requestTools(opts.Tools),
+		ParallelTools:  c.extraBool("parallel_tool_calls", false),
+		Reasoning:      c.reasoning(),
+		ServiceTier:    c.extraString("service_tier"),
+		PromptCacheKey: c.extraString("prompt_cache_key"),
+	}
+	body, err := json.Marshal(req)
+	if err != nil {
+		return nil, err
+	}
+	url := strings.TrimRight(c.cfg.BaseURL, "/") + c.compactPath()
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
+	if err != nil {
+		return nil, err
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+	httpReq.Header.Set("Accept", "application/json")
+	if c.cfg.APIKey != "" {
+		httpReq.Header.Set(c.cfg.AuthHeader, c.cfg.AuthPrefix+c.cfg.APIKey)
+	}
+	for k, v := range c.cfg.Headers {
+		httpReq.Header.Set(k, v)
+	}
+	client := c.HTTPClient
+	if client == nil {
+		client = http.DefaultClient
+	}
+	resp, err := client.Do(httpReq)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode/100 != 2 {
+		b, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		return nil, parseAPIError(c.Name(), model, resp.StatusCode, b)
+	}
+	var out respCompactResponse
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		return nil, err
+	}
+	return compactItemsToMessages(out.Output), nil
+}
+
 func (c *Client) responsesPath() string {
 	path := c.extraString("responses_path")
 	if path == "" {
 		return "/v1/responses"
+	}
+	if !strings.HasPrefix(path, "/") {
+		path = "/" + path
+	}
+	return path
+}
+
+func (c *Client) compactPath() string {
+	path := c.extraString("compact_path")
+	if path == "" {
+		path = strings.TrimRight(c.responsesPath(), "/") + "/compact"
 	}
 	if !strings.HasPrefix(path, "/") {
 		path = "/" + path
@@ -640,6 +733,10 @@ func normalizeWebSearchLocation(in map[string]any) map[string]any {
 func translateMessages(in []provider.Message) (instructions string, items []respInputItem) {
 	var sysParts []string
 	for _, m := range in {
+		if m.Type == "compaction" {
+			items = append(items, respInputItem{Type: "compaction", EncryptedContent: m.EncryptedContent})
+			continue
+		}
 		switch m.Role {
 		case "system":
 			if s := contentToString(m.Content); s != "" {
@@ -678,6 +775,41 @@ func translateMessages(in []provider.Message) (instructions string, items []resp
 		}
 	}
 	return strings.Join(sysParts, "\n\n"), items
+}
+
+func compactItemsToMessages(items []respInputItem) []provider.Message {
+	out := make([]provider.Message, 0, len(items))
+	for _, item := range items {
+		switch item.Type {
+		case "compaction":
+			if item.EncryptedContent != "" {
+				out = append(out, provider.Message{Type: "compaction", EncryptedContent: item.EncryptedContent})
+			}
+		case "message", "":
+			text := partsToText(item.Content)
+			switch item.Role {
+			case "user":
+				if text != "" {
+					out = append(out, provider.Message{Role: "user", Content: text})
+				}
+			case "assistant":
+				if text != "" {
+					out = append(out, provider.Message{Role: "assistant", Content: text})
+				}
+			}
+		}
+	}
+	return out
+}
+
+func partsToText(parts []respPart) string {
+	var out []string
+	for _, part := range parts {
+		if part.Text != "" {
+			out = append(out, part.Text)
+		}
+	}
+	return strings.Join(out, "\n")
 }
 
 func translateTools(in []definitions.Tool) []respTool {

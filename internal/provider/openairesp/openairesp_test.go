@@ -81,6 +81,60 @@ func TestStreamChatResponsesEnd2End(t *testing.T) {
 	}
 }
 
+func TestCompactConversationUsesResponsesCompactEndpoint(t *testing.T) {
+	var gotPath string
+	var gotBody map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		if err := json.NewDecoder(r.Body).Decode(&gotBody); err != nil {
+			t.Fatal(err)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"output":[{"type":"message","role":"user","content":[{"type":"input_text","text":"keep me"}]},{"type":"compaction","encrypted_content":"encrypted-summary"}]}`))
+	}))
+	defer srv.Close()
+
+	c := New(provider.Config{
+		Name:    "codex-test",
+		BaseURL: srv.URL,
+		APIKey:  "key",
+		Extra: map[string]any{
+			"responses_path":   "/responses",
+			"compaction":       "responses_compact",
+			"compact_path":     "/responses/compact",
+			"prompt_cache_key": "thread-1",
+			"reasoning_effort": "medium",
+		},
+	})
+	c.HTTPClient = srv.Client()
+	out, err := c.CompactConversation(context.Background(), []provider.Message{
+		{Role: "system", Content: "system instructions"},
+		{Role: "user", Content: "keep me"},
+		{Role: "assistant", Content: "old answer"},
+	}, provider.CompactOptions{Model: "gpt-5.5"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if gotPath != "/responses/compact" {
+		t.Fatalf("path = %q", gotPath)
+	}
+	if gotBody["model"] != "gpt-5.5" || gotBody["instructions"] != "system instructions" {
+		t.Fatalf("bad compact request body: %#v", gotBody)
+	}
+	if gotBody["prompt_cache_key"] != "thread-1" {
+		t.Fatalf("prompt_cache_key missing: %#v", gotBody)
+	}
+	if len(out) != 2 {
+		t.Fatalf("expected two compacted messages, got %#v", out)
+	}
+	if out[0].Role != "user" || out[0].Content != "keep me" {
+		t.Fatalf("user message not preserved: %#v", out[0])
+	}
+	if out[1].Type != "compaction" || out[1].EncryptedContent != "encrypted-summary" {
+		t.Fatalf("compaction item not preserved: %#v", out[1])
+	}
+}
+
 func TestResponsesContextOverflow(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(400)

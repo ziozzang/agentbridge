@@ -257,6 +257,14 @@ AGENTBRIDGE_PROVIDER=codex agentbridge
 Codex provider는 `~/.codex/auth.json` 또는 `AGENTBRIDGE_CODEX_*` token
 override를 사용합니다.
 
+Codex native conversation compaction은 기본적으로 `/responses/compact`
+endpoint를 사용합니다. 다음처럼 끄거나 경로를 바꿀 수 있습니다.
+
+```bash
+CODEX_COMPACTION=disabled AGENTBRIDGE_PROVIDER=codex agentbridge
+CODEX_COMPACT_PATH=/responses/compact AGENTBRIDGE_PROVIDER=codex agentbridge
+```
+
 Codex provider는 Codex CLI의 현재 기본값과 맞춰 native web search를 cached
 mode로 켭니다. 다음 환경 변수로 조정할 수 있습니다.
 

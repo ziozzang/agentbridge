@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math"
 	"sort"
@@ -11,6 +12,7 @@ import (
 	"github.com/ziozzang/agentbridge/internal/logger"
 	"github.com/ziozzang/agentbridge/internal/provider"
 	"github.com/ziozzang/agentbridge/internal/provider/glm"
+	"github.com/ziozzang/agentbridge/internal/tools/definitions"
 )
 
 const (
@@ -36,10 +38,33 @@ var defaultCompactionSettings = compactionSettings{
 	KeepRecentTokens: 20_000,
 }
 
-func (a *Agent) compactPromptMessages(ctx context.Context, messages []glm.Message, model string, targetTokens int, reason string) compactResult {
+func (a *Agent) compactPromptMessages(ctx context.Context, messages []glm.Message, model string, tools []definitions.Tool, targetTokens int, reason string) compactResult {
 	before := estimateMessagesTokens(messages)
 	if len(messages) <= 3 {
 		return compactResult{Messages: messages, TokensBefore: before}
+	}
+	if a.Provider != nil {
+		if compactor, ok := a.Provider.(provider.ConversationCompactor); ok {
+			compacted, err := compactor.CompactConversation(ctx, messages, provider.CompactOptions{
+				Model:        model,
+				Tools:        tools,
+				TargetTokens: targetTokens,
+				Reason:       reason,
+			})
+			if err == nil && len(compacted) > 0 {
+				if compacted[0].Role != "system" && compacted[0].Type != "system" {
+					compacted = append([]glm.Message{messages[0]}, compacted...)
+				}
+				return compactResult{
+					Messages:     compacted,
+					TokensBefore: before,
+					Compacted:    true,
+				}
+			}
+			if err != nil && !errors.Is(err, provider.ErrNativeCompactionUnavailable) {
+				logger.Warnf("compaction: provider-native compaction failed, using summary fallback: %v", err)
+			}
+		}
 	}
 	settings := defaultCompactionSettings
 	if targetTokens > 0 && settings.KeepRecentTokens > targetTokens/2 {
@@ -177,6 +202,7 @@ func estimateMessageTokens(msg glm.Message) int {
 			chars += len(call.Function.Name) + len(call.Function.Arguments)
 		}
 	}
+	chars += len(msg.EncryptedContent)
 	return int(math.Ceil(float64(chars) / 4))
 }
 

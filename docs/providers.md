@@ -267,6 +267,14 @@ AGENTBRIDGE_PROVIDER=codex agentbridge
 The Codex provider reads Codex CLI auth from `~/.codex/auth.json` or
 `AGENTBRIDGE_CODEX_*` token overrides.
 
+Codex native conversation compaction is enabled by default via the
+`/responses/compact` endpoint. Override or disable it with:
+
+```bash
+CODEX_COMPACTION=disabled AGENTBRIDGE_PROVIDER=codex agentbridge
+CODEX_COMPACT_PATH=/responses/compact AGENTBRIDGE_PROVIDER=codex agentbridge
+```
+
 Codex-style native web search is enabled for the Codex provider by default in
 cached mode, matching Codex CLI's current default. Override it with:
 

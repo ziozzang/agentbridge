@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/ziozzang/agentbridge/internal/acp"
+	"github.com/ziozzang/agentbridge/internal/provider"
 	"github.com/ziozzang/agentbridge/internal/provider/glm"
 )
 
@@ -230,7 +231,7 @@ func TestCompactPromptMessagesUsesStructuredSummaryAndRecentHistory(t *testing.T
 	}
 	messages = append(messages, glm.Message{Role: "user", Content: "recent request"})
 
-	result := a.compactPromptMessages(context.Background(), messages, "glm-test", 12000, "test compaction")
+	result := a.compactPromptMessages(context.Background(), messages, "glm-test", nil, 12000, "test compaction")
 	if !result.Compacted {
 		t.Fatal("expected compaction")
 	}
@@ -249,5 +250,43 @@ func TestCompactPromptMessagesUsesStructuredSummaryAndRecentHistory(t *testing.T
 	}
 	if got := result.Messages[len(result.Messages)-1].Content; got != "recent request" {
 		t.Fatalf("recent history not preserved, last content=%v", got)
+	}
+}
+
+type nativeCompactorProvider struct {
+	provider.Provider
+	gotOptions provider.CompactOptions
+}
+
+func (p *nativeCompactorProvider) CompactConversation(_ context.Context, _ []provider.Message, opts provider.CompactOptions) ([]provider.Message, error) {
+	p.gotOptions = opts
+	return []provider.Message{
+		{Role: "user", Content: "preserved"},
+		{Type: "compaction", EncryptedContent: "encrypted-summary"},
+	}, nil
+}
+
+func TestCompactPromptMessagesPrefersProviderNativeCompaction(t *testing.T) {
+	p := &nativeCompactorProvider{}
+	a := New(nil)
+	a.Provider = p
+	messages := []glm.Message{
+		{Role: "system", Content: "system"},
+		{Role: "user", Content: "old"},
+		{Role: "assistant", Content: "answer"},
+		{Role: "user", Content: "new"},
+	}
+	result := a.compactPromptMessages(context.Background(), messages, "gpt-5.5", nil, 1000, "test native")
+	if !result.Compacted {
+		t.Fatal("expected provider-native compaction")
+	}
+	if result.Messages[0].Role != "system" || result.Messages[0].Content != "system" {
+		t.Fatalf("system message should be prepended to provider replacement: %#v", result.Messages)
+	}
+	if len(result.Messages) != 3 || result.Messages[2].Type != "compaction" {
+		t.Fatalf("provider replacement history not used: %#v", result.Messages)
+	}
+	if p.gotOptions.Model != "gpt-5.5" || p.gotOptions.Reason != "test native" {
+		t.Fatalf("bad native compact options: %#v", p.gotOptions)
 	}
 }

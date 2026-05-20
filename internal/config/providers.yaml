@@ -519,6 +519,8 @@ providers:
       version: ${CODEX_CLIENT_VERSION:-agentbridge}
     extra:
       responses_path: ${CODEX_RESPONSES_PATH:-/responses}
+      compaction: ${CODEX_COMPACTION:-responses_compact}
+      compact_path: ${CODEX_COMPACT_PATH:-/responses/compact}
       instructions: ${CODEX_INSTRUCTIONS:-You are a concise coding assistant.}
       prompt_cache_key: ${CODEX_PROMPT_CACHE_KEY:-agentbridge}
       reasoning_effort: ${CODEX_REASONING_EFFORT:-medium}
