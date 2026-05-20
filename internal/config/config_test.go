@@ -92,6 +92,37 @@ func TestLoadEmbeddedGLMKeyFromNestedDefault(t *testing.T) {
 	}
 }
 
+func TestLoadEmbeddedLiteLLMOpenAIAliases(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(t.TempDir(), "missing"))
+	_ = os.Unsetenv("ACP_HARNESS_PROVIDERS_FILE")
+	t.Setenv("LITELLM_BASE_URL", "")
+	t.Setenv("LITELLM_API_KEY", "")
+	t.Setenv("LITELLM_MODEL", "")
+	t.Setenv("LITELLM_OPENAI_BASE_URL", "http://litellm.example/v1")
+	t.Setenv("LITELLM_OPENAI_API_KEY", "litellm-key")
+
+	m, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := m.Resolve("litellm")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.BaseURL != "http://litellm.example/v1" {
+		t.Errorf("base url = %q", cfg.BaseURL)
+	}
+	if cfg.APIKey != "litellm-key" {
+		t.Errorf("key = %q", cfg.APIKey)
+	}
+	if cfg.DefaultModel != "kimi-k2.6" {
+		t.Errorf("default model = %q", cfg.DefaultModel)
+	}
+	if len(cfg.Models) == 0 || cfg.Models[0].ModelID != "kimi-k2.6" {
+		t.Errorf("models = %+v", cfg.Models)
+	}
+}
+
 func TestResolveAppliesEnvOverrides(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(t.TempDir(), "missing"))
 	_ = os.Unsetenv("ACP_HARNESS_PROVIDERS_FILE")
