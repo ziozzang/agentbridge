@@ -117,7 +117,7 @@ tools can also be exposed directly through MCP `POST /mcp` and `/v1/mcp`.
 | `plugin:jina` | optional `JINA_API_KEY` | Jina Reader, Search, Embeddings, Rerank | `jina_reader`, `jina_search`, `jina_embed`, `jina_rerank`; HTTP `/v1/embeddings`, `/v1/rerank` |
 | `plugin:ollama_search` | `OLLAMA_API_KEY` | Ollama Cloud web search/fetch | `ollama_search`, `ollama_fetch` |
 | `plugin:xai` | xAI OAuth or `XAI_API_KEY` | xAI Responses `x_search`, Images generations/edits | `xai_x_search`, `xai_image_generate`, `xai_image_edit` |
-| `plugin:openai_embed` | `AGENTBRIDGE_EMBEDDINGS_API_KEY` or mapped key envs | OpenAI-compatible `/embeddings` gateways | `embed`; HTTP `/v1/embeddings`; aliases from `embeddings.json` |
+| `plugin:openai_embed` | `AGENTBRIDGE_EMBEDDINGS_API_KEY` or mapped key envs | OpenAI-compatible `/embeddings` gateways | `embed`; HTTP `/v1/embeddings`; aliases from router `extra.embeddings` |
 | `plugin:sqlite` | local filesystem | SQLite catalog/query | `sqlite_list`, `sqlite_load`, `sqlite_unload`, `sqlite_tables`, `sqlite_schema`, `sqlite_query`, `sqlite_exec` when enabled |
 | `plugin:duckdb` | local process | Reserved placeholder | `duckdb_status` |
 

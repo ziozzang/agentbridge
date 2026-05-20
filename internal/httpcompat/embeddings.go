@@ -6,10 +6,10 @@ import (
 	"io"
 	"net/http"
 	"os"
-	"path/filepath"
 	"strings"
 	"time"
 
+	"github.com/ziozzang/agentbridge/internal/config"
 	"github.com/ziozzang/agentbridge/internal/plugins"
 	"github.com/ziozzang/agentbridge/internal/provider"
 )
@@ -188,25 +188,12 @@ func openAIEmbeddingModelInfosFromEnv() []provider.ModelInfo {
 			Provider:    owner,
 		})
 	}
-	if path := firstNonEmpty(os.Getenv("AGENTBRIDGE_EMBEDDINGS_FILE"), os.Getenv("AGENTBRIDGE_EMBEDDINGS_MAP"), defaultEmbeddingsMappingPath()); path != "" {
-		if data, err := os.ReadFile(path); err == nil {
-			var mf struct {
-				Default string `json:"default"`
-				Models  map[string]struct {
-					Model       string `json:"model"`
-					Provider    string `json:"provider"`
-					OwnedBy     string `json:"owned_by"`
-					Description string `json:"description"`
-				} `json:"models"`
-			}
-			if json.Unmarshal(data, &mf) == nil {
-				for alias, route := range mf.Models {
-					add(alias, firstNonEmpty(os.ExpandEnv(route.OwnedBy), os.ExpandEnv(route.Provider)), os.ExpandEnv(route.Description))
-				}
-				if len(out) == 0 {
-					add(mf.Default, "", "")
-				}
-			}
+	if mf, ok := configuredEmbeddingMap(); ok {
+		for alias, route := range mf.Models {
+			add(alias, firstNonEmpty(os.ExpandEnv(route.OwnedBy), os.ExpandEnv(route.Provider)), os.ExpandEnv(route.Description))
+		}
+		if len(out) == 0 {
+			add(mf.Default, "", "")
 		}
 	}
 	if len(out) == 0 {
@@ -215,11 +202,45 @@ func openAIEmbeddingModelInfosFromEnv() []provider.ModelInfo {
 	return out
 }
 
-func defaultEmbeddingsMappingPath() string {
-	if dir, err := os.UserConfigDir(); err == nil && dir != "" {
-		return filepath.Join(dir, "agentbridge", "embeddings.json")
+type embeddingMapFile struct {
+	Default string `json:"default"`
+	Models  map[string]struct {
+		Model       string `json:"model"`
+		Provider    string `json:"provider"`
+		OwnedBy     string `json:"owned_by"`
+		Description string `json:"description"`
+	} `json:"models"`
+}
+
+func configuredEmbeddingMap() (embeddingMapFile, bool) {
+	return routerEmbeddingMap()
+}
+
+func routerEmbeddingMap() (embeddingMapFile, bool) {
+	manifest, err := config.Load()
+	if err != nil {
+		return embeddingMapFile{}, false
 	}
-	return ""
+	router, err := manifest.Resolve("router")
+	if err != nil || router.Extra == nil {
+		return embeddingMapFile{}, false
+	}
+	raw, ok := router.Extra["embeddings"]
+	if !ok {
+		raw, ok = router.Extra["embedding_routes"]
+	}
+	if !ok || raw == nil {
+		return embeddingMapFile{}, false
+	}
+	data, err := json.Marshal(raw)
+	if err != nil {
+		return embeddingMapFile{}, false
+	}
+	var mf embeddingMapFile
+	if json.Unmarshal(data, &mf) != nil {
+		return embeddingMapFile{}, false
+	}
+	return mf, len(mf.Models) > 0 || strings.TrimSpace(mf.Default) != ""
 }
 
 func defaultEmbeddingModel(active *plugins.Active) string {

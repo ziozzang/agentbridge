@@ -427,29 +427,31 @@ func TestEmbeddingsEndpointUsesActiveJinaPlugin(t *testing.T) {
 	}
 }
 
-func TestEmbeddingModelMappingExposesProviderOwners(t *testing.T) {
+func TestRouterEmbeddingMappingExposesProviderOwners(t *testing.T) {
 	dir := t.TempDir()
-	mapping := filepath.Join(dir, "embeddings.json")
-	if err := os.WriteFile(mapping, []byte(`{
-  "models": {
-    "embeddinggemma-300m": {
-      "base_url": "http://127.0.0.1:28080/v1",
-      "model": "embeddinggemma-300m",
-      "provider": "local",
-      "description": "Local embedding model"
-    },
-    "pplx-embed-v1-0.6b": {
-      "base_url": "https://openrouter.ai/api/v1",
-      "model": "perplexity/pplx-embed-v1-0.6b",
-      "provider": "openrouter"
-    }
-  }
-}`), 0o644); err != nil {
+	cfgDir := filepath.Join(dir, "agentbridge")
+	if err := os.MkdirAll(cfgDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	cfg := `providers:
+  router:
+    extra:
+      embeddings:
+        default: router-embed
+        models:
+          router-embed:
+            base_url: http://127.0.0.1:28080/v1
+            model: upstream-router-embed
+            provider: router-local
+            description: Router configured embedding
+`
+	if err := os.WriteFile(filepath.Join(cfgDir, "config.yaml"), []byte(cfg), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("AGENTBRIDGE_PLUGINS", "openai_embed")
-	t.Setenv("AGENTBRIDGE_EMBEDDINGS_FILE", mapping)
-	t.Setenv("XDG_CONFIG_HOME", filepath.Join(t.TempDir(), "missing"))
+	t.Setenv("XDG_CONFIG_HOME", dir)
+	_ = os.Unsetenv("AGENTBRIDGE_EMBEDDINGS_FILE")
+	_ = os.Unsetenv("AGENTBRIDGE_EMBEDDINGS_MAP")
 
 	srv := httptest.NewServer(NewHandler())
 	defer srv.Close()
@@ -461,13 +463,10 @@ func TestEmbeddingModelMappingExposesProviderOwners(t *testing.T) {
 	defer resp.Body.Close()
 	body, _ := io.ReadAll(resp.Body)
 	text := string(body)
-	if !strings.Contains(text, `"id":"embeddinggemma-300m"`) || !strings.Contains(text, `"owned_by":"local"`) {
-		t.Fatalf("local embedding model not exposed correctly: %s", text)
+	if !strings.Contains(text, `"id":"router-embed"`) || !strings.Contains(text, `"owned_by":"router-local"`) {
+		t.Fatalf("router embedding model not exposed correctly: %s", text)
 	}
-	if !strings.Contains(text, `"id":"pplx-embed-v1-0.6b"`) || !strings.Contains(text, `"owned_by":"openrouter"`) {
-		t.Fatalf("openrouter embedding model not exposed correctly: %s", text)
-	}
-	if strings.Contains(text, `perplexity/pplx-embed-v1-0.6b`) {
+	if strings.Contains(text, `upstream-router-embed`) {
 		t.Fatalf("upstream model should not be exposed as public id: %s", text)
 	}
 }

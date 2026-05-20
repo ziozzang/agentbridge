@@ -158,58 +158,34 @@ agentbridge
 | `AGENTBRIDGE_EMBEDDINGS_BASE_URL` | OpenAI 호환 API base. `LITELLM_BASE_URL`, `OPENAI_BASE_URL`, `http://localhost:4000/v1` 순서로 fallback. |
 | `AGENTBRIDGE_EMBEDDINGS_API_KEY` | Bearer token. `LITELLM_API_KEY`, `OPENAI_API_KEY`, `AGENTBRIDGE_API_KEY` fallback. |
 | `AGENTBRIDGE_EMBEDDINGS_MODEL` | 기본 embedding model. `LITELLM_EMBEDDINGS_MODEL`, `OPENAI_EMBEDDINGS_MODEL`, `text-embedding-3-small` fallback. |
-| `AGENTBRIDGE_EMBEDDINGS_FILE` | 외부 model mapping 파일. 있으면 기본값은 `$XDG_CONFIG_HOME/agentbridge/embeddings.json`. |
 
 도구:
 
 - `embed`
 
 외부 model mapping은 gateway가 OpenAI와 다른 model ID를 노출하거나, alias별로
-다른 endpoint에 라우팅해야 할 때 사용합니다. 이 파일은 JSON이고 기본 위치는
-`$XDG_CONFIG_HOME/agentbridge/embeddings.json`입니다. 일반적인 Linux 환경에서는
-`~/.config/agentbridge/embeddings.json`입니다.
+다른 endpoint에 라우팅해야 할 때 사용합니다. chat/model route와 embedding
+route가 따로 놀지 않도록 `config.yaml`의 `providers.router.extra.embeddings`에
+두는 것을 권장합니다.
 
-```json
-{
-  "default": "fast",
-  "models": {
-    "embeddinggemma-300m": {
-      "base_url": "http://10.2.2.10:28080/v1",
-      "model": "embeddinggemma-300m",
-      "provider": "local",
-      "description": "Local embeddinggemma-300m via AgentBridge"
-    },
-    "pplx-embed-v1-0.6b": {
-      "base_url": "https://openrouter.ai/api/v1",
-      "api_key_env": "OPENROUTER_API_KEY",
-      "model": "perplexity/pplx-embed-v1-0.6b",
-      "provider": "openrouter",
-      "description": "Perplexity embedding model via OpenRouter",
-      "headers": {
-        "HTTP-Referer": "http://10.2.2.10:8766",
-        "X-Title": "AgentBridge"
-      }
-    },
-    "llama-nemotron-embed-vl-1b-v2": {
-      "base_url": "https://openrouter.ai/api/v1",
-      "api_key_env": "OPENROUTER_API_KEY",
-      "model": "nvidia/llama-nemotron-embed-vl-1b-v2:free",
-      "provider": "openrouter",
-      "description": "NVIDIA Llama Nemotron Embed VL 1B v2 via OpenRouter",
-      "headers": {
-        "HTTP-Referer": "http://10.2.2.10:8766",
-        "X-Title": "AgentBridge"
-      }
-    }
-  }
-}
+```yaml
+providers:
+  router:
+    extra:
+      embeddings:
+        default: fast
+        models:
+          embeddinggemma-300m:
+            base_url: http://127.0.0.1:28080/v1
+            model: embeddinggemma-300m
+            provider: local
 ```
 
 사용자가 넘기는 `model` 값은 upstream model ID일 수도 있고 mapping alias일 수도
 있습니다. Mapping field는 `${VAR}` 환경 변수 확장을 지원합니다. 파일에
 `api_key`를 직접 넣기보다는 `api_key_env`를 쓰는 것을 권장합니다. `provider`
 또는 `owned_by`는 `GET /v1/models`의 `owned_by` 값으로 내려갑니다.
-`description`은 model metadata로 내려갑니다. Mapping 파일이 없으면
+`description`은 model metadata로 내려갑니다. Router embedding route가 없으면
 `AGENTBRIDGE_EMBEDDINGS_BASE_URL`, `AGENTBRIDGE_EMBEDDINGS_API_KEY`,
 `AGENTBRIDGE_EMBEDDINGS_MODEL`이 하나의 기본 route를 정의합니다.
 

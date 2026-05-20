@@ -106,7 +106,6 @@ Preferred environment variables use the `AGENTBRIDGE_*` prefix:
 | `AGENTBRIDGE_PROVIDERS_FILE` | Provider YAML override. |
 | `AGENTBRIDGE_ROUTER_FILE` | Model-router route YAML/JSON override. |
 | `AGENTBRIDGE_PLUGINS` | Comma-separated plugins, e.g. `sqlite,jina,openai_embed`. |
-| `AGENTBRIDGE_EMBEDDINGS_FILE` | OpenAI-compatible embedding alias map, usually `~/.config/agentbridge/embeddings.json`. |
 | `AGENTBRIDGE_LOG_LEVEL` | `trace`, `debug`, `info`, `warn`, `error`, or `off`. |
 | `AGENTBRIDGE_LOG_FILE` | Optional log file path. |
 | `AGENTBRIDGE_SESSION_DIR` | Session persistence directory. |

@@ -172,9 +172,10 @@ func (c *Client) StreamChat(ctx context.Context, messages []provider.Message, op
 		logger.Debugf("%s.streamChat: model=%s baseURL=%s messages=%d tools=%d",
 			c.Name(), model, c.cfg.BaseURL, len(messages), len(toolList))
 
+		outboundMessages := c.applyPromptCache(messages, model)
 		req := chatRequest{
 			Model:           model,
-			Messages:        messages,
+			Messages:        outboundMessages,
 			Tools:           toolList,
 			ToolChoice:      "auto",
 			Stream:          true,
@@ -370,6 +371,102 @@ func (c *Client) extraBody(model string) map[string]any {
 	}
 	if len(out) == 0 {
 		return nil
+	}
+	return out
+}
+
+func (c *Client) applyPromptCache(messages []provider.Message, model string) []provider.Message {
+	if !c.shouldApplyPromptCache(model) || len(messages) == 0 {
+		return messages
+	}
+	out := append([]provider.Message(nil), messages...)
+	marker := map[string]any{"type": "ephemeral"}
+	if c.extraString("prompt_cache_ttl") == "1h" || c.extraString("cache_control_ttl") == "1h" {
+		marker["ttl"] = "1h"
+	}
+	breakpoints := 0
+	if out[0].Role == "system" {
+		out[0] = markMessageCacheControl(out[0], marker)
+		breakpoints++
+	}
+	remaining := 4 - breakpoints
+	for i := len(out) - 1; i >= 0 && remaining > 0; i-- {
+		if out[i].Role == "system" || out[i].Role == "tool" {
+			continue
+		}
+		out[i] = markMessageCacheControl(out[i], marker)
+		remaining--
+	}
+	return out
+}
+
+func (c *Client) shouldApplyPromptCache(model string) bool {
+	mode := strings.ToLower(firstNonEmpty(c.extraString("prompt_cache"), c.extraString("cache_control")))
+	switch mode {
+	case "off", "false", "0", "disabled", "none":
+		return false
+	case "on", "true", "1", "system_and_3", "anthropic":
+		return true
+	}
+	name := strings.ToLower(c.Name())
+	base := strings.ToLower(c.cfg.BaseURL)
+	m := strings.ToLower(model)
+	isClaude := strings.Contains(m, "claude")
+	isQwen := strings.Contains(m, "qwen")
+	isOpenRouter := strings.Contains(base, "openrouter.ai")
+	isNous := strings.Contains(base, "nousresearch")
+	if isClaude && (isOpenRouter || isNous) {
+		return true
+	}
+	if isQwen && (isNous || name == "alibaba" || name == "opencode" || name == "opencode-zen" || name == "opencode-go") {
+		return true
+	}
+	return false
+}
+
+func markMessageCacheControl(msg provider.Message, marker map[string]any) provider.Message {
+	if msg.Role == "tool" {
+		return msg
+	}
+	markerCopy := copyMap(marker)
+	switch content := msg.Content.(type) {
+	case string:
+		msg.Content = []map[string]any{{"type": "text", "text": content, "cache_control": markerCopy}}
+	case []any:
+		parts := append([]any(nil), content...)
+		if len(parts) == 0 {
+			parts = append(parts, map[string]any{"type": "text", "text": "", "cache_control": markerCopy})
+			msg.Content = parts
+			return msg
+		}
+		last := parts[len(parts)-1]
+		if m, ok := last.(map[string]any); ok {
+			cp := copyMap(m)
+			cp["cache_control"] = markerCopy
+			parts[len(parts)-1] = cp
+		}
+		msg.Content = parts
+	case []map[string]any:
+		parts := append([]map[string]any(nil), content...)
+		if len(parts) == 0 {
+			parts = append(parts, map[string]any{"type": "text", "text": "", "cache_control": markerCopy})
+			msg.Content = parts
+			return msg
+		}
+		cp := copyMap(parts[len(parts)-1])
+		cp["cache_control"] = markerCopy
+		parts[len(parts)-1] = cp
+		msg.Content = parts
+	case nil:
+		msg.Content = []map[string]any{{"type": "text", "text": "", "cache_control": markerCopy}}
+	}
+	return msg
+}
+
+func copyMap(in map[string]any) map[string]any {
+	out := make(map[string]any, len(in))
+	for k, v := range in {
+		out[k] = v
 	}
 	return out
 }

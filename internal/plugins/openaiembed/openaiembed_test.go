@@ -83,3 +83,51 @@ func TestEmbedUsesExternalModelMapping(t *testing.T) {
 		t.Fatalf("payload = %#v", got)
 	}
 }
+
+func TestEmbedUsesRouterEmbeddingMapping(t *testing.T) {
+	var got map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "Bearer router-key" {
+			t.Fatalf("auth = %q", r.Header.Get("Authorization"))
+		}
+		if err := json.NewDecoder(r.Body).Decode(&got); err != nil {
+			t.Fatal(err)
+		}
+		_, _ = w.Write([]byte(`{"object":"list","data":[{"embedding":[0.4]}]}`))
+	}))
+	defer srv.Close()
+
+	dir := t.TempDir()
+	cfgDir := filepath.Join(dir, "agentbridge")
+	if err := os.MkdirAll(cfgDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	cfg := `providers:
+  router:
+    extra:
+      embeddings:
+        default: small
+        models:
+          small:
+            base_url: ` + srv.URL + `
+            api_key: router-key
+            model: upstream-router-small
+            dimensions: 32
+`
+	if err := os.WriteFile(filepath.Join(cfgDir, "config.yaml"), []byte(cfg), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("XDG_CONFIG_HOME", dir)
+	_ = os.Unsetenv("AGENTBRIDGE_CONFIG_FILE")
+	_ = os.Unsetenv("AGENTBRIDGE_PROVIDERS_FILE")
+	_ = os.Unsetenv("AGENTBRIDGE_EMBEDDINGS_FILE")
+	_ = os.Unsetenv("AGENTBRIDGE_EMBEDDINGS_MAP")
+
+	p := New(Config{HTTPClient: srv.Client()})
+	if _, err := p.Call(context.Background(), "embed", json.RawMessage(`{"input":"hello"}`)); err != nil {
+		t.Fatal(err)
+	}
+	if got["model"] != "upstream-router-small" || got["dimensions"].(float64) != 32 {
+		t.Fatalf("payload = %#v", got)
+	}
+}

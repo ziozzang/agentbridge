@@ -284,3 +284,45 @@ func TestDeepSeekReasoningOnlyForThinkingModels(t *testing.T) {
 		t.Fatalf("deepseek-reasoner missing extra_body.thinking: %#v", bodies[1])
 	}
 }
+
+func TestPromptCacheControlMarksSystemAndLastThreeChatMessages(t *testing.T) {
+	var body map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		w.Header().Set("Content-Type", "text/event-stream")
+		fmt.Fprint(w, "data: [DONE]\n\n")
+	}))
+	defer srv.Close()
+	c := New(provider.Config{
+		Name: "alibaba", BaseURL: srv.URL, APIKey: "k",
+	})
+	c.HTTPClient = srv.Client()
+	chunks, errs := c.StreamChat(context.Background(), []provider.Message{
+		{Role: "system", Content: "S"},
+		{Role: "user", Content: "U1"},
+		{Role: "assistant", Content: "A1"},
+		{Role: "user", Content: "U2"},
+		{Role: "assistant", Content: "A2"},
+	}, provider.StreamOptions{Model: "qwen3.6-plus"})
+	for range chunks {
+	}
+	if err := <-errs; err != nil {
+		t.Fatal(err)
+	}
+	messages, _ := body["messages"].([]any)
+	marked := 0
+	for _, raw := range messages {
+		msg, _ := raw.(map[string]any)
+		content, _ := msg["content"].([]any)
+		if len(content) == 0 {
+			continue
+		}
+		part, _ := content[len(content)-1].(map[string]any)
+		if cache, ok := part["cache_control"].(map[string]any); ok && cache["type"] == "ephemeral" {
+			marked++
+		}
+	}
+	if marked != 4 {
+		t.Fatalf("cache_control marked messages = %d body=%#v", marked, body)
+	}
+}

@@ -36,7 +36,6 @@ YAML/JSON 파일로 설정합니다.
 | `AGENTBRIDGE_MCP_FILE` | 외부 MCP server JSON/YAML 설정 파일. |
 | `AGENTBRIDGE_DISABLED_MCPS` | 설정에 있어도 끌 MCP server 이름 목록. |
 | `AGENTBRIDGE_ROUTER_FILE` | Router route JSON/YAML 파일. |
-| `AGENTBRIDGE_EMBEDDINGS_FILE` | Embedding model mapping JSON. 있으면 기본값은 `$XDG_CONFIG_HOME/agentbridge/embeddings.json`. |
 
 ## Provider별 변수
 
@@ -163,6 +162,13 @@ Hermes에서 가져온 provider별 knob는 provider `extra` 또는 내장 templa
 | `DEEPSEEK_REASONING_EFFORT` | `deepseek` | DeepSeek thinking-capable model에만 전송하며 `xhigh`는 `max`로 변환합니다. |
 | `TOKENHUB_REASONING_EFFORT`, `LM_REASONING_EFFORT` | `tencent-tokenhub`, `lmstudio` | Chat Completions top-level `reasoning_effort`. |
 
+OpenAI-chat provider도 upstream이 지원하는 경우 Anthropic-style
+`cache_control` breakpoint를 사용할 수 있습니다. AgentBridge는
+OpenRouter/Nous의 Claude route와 Alibaba/OpenCode/Nous의 Qwen route에서 이를
+자동으로 켭니다. 사용자 정의 OpenAI 호환 provider에서는
+`extra.prompt_cache: on`을 설정하세요. upstream이 1시간 TTL을 지원하면
+`extra.prompt_cache_ttl: 1h`도 사용할 수 있습니다.
+
 HTTP `/v1/chat/completions`, `/v1/responses`, Anthropic 호환 `/v1/messages`,
 A2A 요청에서는 `metadata.prompt_cache_key`, `metadata.service_tier`,
 `metadata.reasoning_effort`, session id(`metadata.session_id`, `sessionId`,
@@ -172,27 +178,25 @@ top-level `prompt_cache_key`도 provider request로 전달됩니다.
 ## Embedding Model Mapping
 
 `openai_embed`는 여러 사용자-facing embedding alias를 서로 다른 OpenAI 호환
-upstream으로 라우팅할 수 있습니다. JSON 파일을
-`$XDG_CONFIG_HOME/agentbridge/embeddings.json`에 두거나
-`AGENTBRIDGE_EMBEDDINGS_FILE`로 지정합니다.
+upstream으로 라우팅할 수 있습니다. 이제 model router 설정과 같은
+`config.yaml`에 두는 것을 권장합니다.
 
-```json
-{
-  "default": "jina-embeddings-v5-text-nano",
-  "models": {
-    "embeddinggemma-300m": {
-      "base_url": "http://10.2.2.10:28080/v1",
-      "model": "embeddinggemma-300m",
-      "provider": "local"
-    },
-    "pplx-embed-v1-0.6b": {
-      "base_url": "https://openrouter.ai/api/v1",
-      "api_key_env": "OPENROUTER_API_KEY",
-      "model": "perplexity/pplx-embed-v1-0.6b",
-      "provider": "openrouter"
-    }
-  }
-}
+```yaml
+providers:
+  router:
+    extra:
+      embeddings:
+        default: jina-embeddings-v5-text-nano
+        models:
+          embeddinggemma-300m:
+            base_url: http://127.0.0.1:28080/v1
+            model: embeddinggemma-300m
+            provider: local
+          pplx-embed-v1-0.6b:
+            base_url: https://openrouter.ai/api/v1
+            api_key_env: OPENROUTER_API_KEY
+            model: perplexity/pplx-embed-v1-0.6b
+            provider: openrouter
 ```
 
 map key는 `POST /v1/embeddings`에서 받는 public model ID이며

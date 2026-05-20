@@ -171,58 +171,34 @@ Variables:
 | `AGENTBRIDGE_EMBEDDINGS_BASE_URL` | OpenAI-compatible API base. Falls back to `LITELLM_BASE_URL`, `OPENAI_BASE_URL`, then `http://localhost:4000/v1`. |
 | `AGENTBRIDGE_EMBEDDINGS_API_KEY` | Bearer token. Falls back to `LITELLM_API_KEY`, `OPENAI_API_KEY`, `AGENTBRIDGE_API_KEY`. |
 | `AGENTBRIDGE_EMBEDDINGS_MODEL` | Default embedding model. Falls back to `LITELLM_EMBEDDINGS_MODEL`, `OPENAI_EMBEDDINGS_MODEL`, then `text-embedding-3-small`. |
-| `AGENTBRIDGE_EMBEDDINGS_FILE` | External model mapping file. Defaults to `$XDG_CONFIG_HOME/agentbridge/embeddings.json` when present. |
 
 Tool:
 
 - `embed`
 
 External model mapping is useful when a gateway exposes different model IDs
-than OpenAI, or when aliases should route to different endpoints. This file is
-JSON and defaults to `$XDG_CONFIG_HOME/agentbridge/embeddings.json`
-(`~/.config/agentbridge/embeddings.json` on most Linux systems):
+than OpenAI, or when aliases should route to different endpoints. Prefer
+placing mappings in `providers.router.extra.embeddings` in `config.yaml` so
+chat/model routes and embedding routes live together:
 
-```json
-{
-  "default": "fast",
-  "models": {
-    "embeddinggemma-300m": {
-      "base_url": "http://10.2.2.10:28080/v1",
-      "model": "embeddinggemma-300m",
-      "provider": "local",
-      "description": "Local embeddinggemma-300m via AgentBridge"
-    },
-    "pplx-embed-v1-0.6b": {
-      "base_url": "https://openrouter.ai/api/v1",
-      "api_key_env": "OPENROUTER_API_KEY",
-      "model": "perplexity/pplx-embed-v1-0.6b",
-      "provider": "openrouter",
-      "description": "Perplexity embedding model via OpenRouter",
-      "headers": {
-        "HTTP-Referer": "http://10.2.2.10:8766",
-        "X-Title": "AgentBridge"
-      }
-    },
-    "llama-nemotron-embed-vl-1b-v2": {
-      "base_url": "https://openrouter.ai/api/v1",
-      "api_key_env": "OPENROUTER_API_KEY",
-      "model": "nvidia/llama-nemotron-embed-vl-1b-v2:free",
-      "provider": "openrouter",
-      "description": "NVIDIA Llama Nemotron Embed VL 1B v2 via OpenRouter",
-      "headers": {
-        "HTTP-Referer": "http://10.2.2.10:8766",
-        "X-Title": "AgentBridge"
-      }
-    }
-  }
-}
+```yaml
+providers:
+  router:
+    extra:
+      embeddings:
+        default: fast
+        models:
+          embeddinggemma-300m:
+            base_url: http://127.0.0.1:28080/v1
+            model: embeddinggemma-300m
+            provider: local
 ```
 
 The user-facing `model` argument can be either an upstream model ID or a
 mapping alias. Mapping fields support `${VAR}` environment expansion. Prefer
-`api_key_env` over storing `api_key` directly in the file. `provider` (or
+`api_key_env` over storing `api_key` directly in config. `provider` (or
 `owned_by`) controls the `owned_by` value returned from `GET /v1/models`;
-`description` is returned as model metadata. Without a mapping file,
+`description` is returned as model metadata. Without router embedding routes,
 `AGENTBRIDGE_EMBEDDINGS_BASE_URL`, `AGENTBRIDGE_EMBEDDINGS_API_KEY`, and
 `AGENTBRIDGE_EMBEDDINGS_MODEL` define one default route.
 

@@ -12,10 +12,10 @@ import (
 	"io"
 	"net/http"
 	"os"
-	"path/filepath"
 	"strings"
 	"time"
 
+	"github.com/ziozzang/agentbridge/internal/config"
 	"github.com/ziozzang/agentbridge/internal/plugins"
 )
 
@@ -63,10 +63,9 @@ type mappingFile struct {
 // ConfigFromEnv builds Config from AgentBridge and common OpenAI/LiteLLM vars.
 func ConfigFromEnv() Config {
 	return Config{
-		APIKey:      envFirst("AGENTBRIDGE_EMBEDDINGS_API_KEY", "LITELLM_API_KEY", "LITELLM_OPENAI_API_KEY", "OPENAI_API_KEY", "AGENTBRIDGE_API_KEY"),
-		BaseURL:     envFirst("AGENTBRIDGE_EMBEDDINGS_BASE_URL", "LITELLM_BASE_URL", "LITELLM_OPENAI_BASE_URL", "OPENAI_BASE_URL"),
-		Model:       envFirst("AGENTBRIDGE_EMBEDDINGS_MODEL", "LITELLM_EMBEDDINGS_MODEL", "OPENAI_EMBEDDINGS_MODEL"),
-		MappingFile: envFirst("AGENTBRIDGE_EMBEDDINGS_FILE", "AGENTBRIDGE_EMBEDDINGS_MAP"),
+		APIKey:  envFirst("AGENTBRIDGE_EMBEDDINGS_API_KEY", "LITELLM_API_KEY", "LITELLM_OPENAI_API_KEY", "OPENAI_API_KEY", "AGENTBRIDGE_API_KEY"),
+		BaseURL: envFirst("AGENTBRIDGE_EMBEDDINGS_BASE_URL", "LITELLM_BASE_URL", "LITELLM_OPENAI_BASE_URL", "OPENAI_BASE_URL"),
+		Model:   envFirst("AGENTBRIDGE_EMBEDDINGS_MODEL", "LITELLM_EMBEDDINGS_MODEL", "OPENAI_EMBEDDINGS_MODEL"),
 	}
 }
 
@@ -83,7 +82,7 @@ func New(cfg Config) *Plugin {
 		cfg.BaseURL = defaultBaseURL
 	}
 	if cfg.Mappings == nil {
-		mappings, def, err := loadMappings(cfg.MappingFile)
+		mappings, def, err := loadConfiguredMappings(cfg.MappingFile)
 		cfg.Mappings = mappings
 		cfg.DefaultMap = def
 		if err != nil {
@@ -110,7 +109,7 @@ func (p *Plugin) Tools() []plugins.ToolDef {
 	return []plugins.ToolDef{{
 		Name:        "embed",
 		Description: "Create embeddings through an OpenAI-compatible /embeddings endpoint such as LiteLLM.",
-		Parameters:  json.RawMessage(`{"type":"object","properties":{"input":{"type":"string","description":"Single input text."},"inputs":{"type":"array","items":{"type":"string"},"description":"Multiple input texts."},"model":{"type":"string","description":"Embedding model or alias from AGENTBRIDGE_EMBEDDINGS_FILE. Defaults to AGENTBRIDGE_EMBEDDINGS_MODEL, mapping default, or text-embedding-3-small."},"encoding_format":{"type":"string","description":"Optional OpenAI encoding_format, e.g. float or base64."},"dimensions":{"type":"integer","description":"Optional output dimensions when supported by the model."}}}`),
+		Parameters:  json.RawMessage(`{"type":"object","properties":{"input":{"type":"string","description":"Single input text."},"inputs":{"type":"array","items":{"type":"string"},"description":"Multiple input texts."},"model":{"type":"string","description":"Embedding model or alias from router embedding routes. Defaults to AGENTBRIDGE_EMBEDDINGS_MODEL, router default, or text-embedding-3-small."},"encoding_format":{"type":"string","description":"Optional OpenAI encoding_format, e.g. float or base64."},"dimensions":{"type":"integer","description":"Optional output dimensions when supported by the model."}}}`),
 	}}
 }
 
@@ -240,9 +239,6 @@ func (p *Plugin) resolveRoute(name string) resolvedRoute {
 
 func loadMappings(path string) (map[string]ModelMapping, string, error) {
 	if path == "" {
-		path = defaultMappingPath()
-	}
-	if path == "" {
 		return nil, "", nil
 	}
 	data, err := os.ReadFile(path)
@@ -259,11 +255,41 @@ func loadMappings(path string) (map[string]ModelMapping, string, error) {
 	return mf.Models, mf.Default, nil
 }
 
-func defaultMappingPath() string {
-	if dir, err := os.UserConfigDir(); err == nil && dir != "" {
-		return filepath.Join(dir, "agentbridge", "embeddings.json")
+func loadConfiguredMappings(path string) (map[string]ModelMapping, string, error) {
+	if path != "" {
+		return loadMappings(path)
 	}
-	return ""
+	if mappings, def, ok := loadRouterMappings(); ok {
+		return mappings, def, nil
+	}
+	return nil, "", nil
+}
+
+func loadRouterMappings() (map[string]ModelMapping, string, bool) {
+	manifest, err := config.Load()
+	if err != nil {
+		return nil, "", false
+	}
+	router, err := manifest.Resolve("router")
+	if err != nil || router.Extra == nil {
+		return nil, "", false
+	}
+	raw, ok := router.Extra["embeddings"]
+	if !ok {
+		raw, ok = router.Extra["embedding_routes"]
+	}
+	if !ok || raw == nil {
+		return nil, "", false
+	}
+	data, err := json.Marshal(raw)
+	if err != nil {
+		return nil, "", false
+	}
+	var mf mappingFile
+	if err := json.Unmarshal(data, &mf); err != nil || len(mf.Models) == 0 {
+		return nil, "", false
+	}
+	return mf.Models, mf.Default, true
 }
 
 func envFirst(names ...string) string {

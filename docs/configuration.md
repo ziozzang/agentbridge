@@ -38,7 +38,6 @@ Legacy `ACP_HARNESS_*` variables remain supported as aliases.
 | `AGENTBRIDGE_MCP_FILE` | External MCP server config file, JSON or YAML. |
 | `AGENTBRIDGE_DISABLED_MCPS` | Comma-separated configured MCP server names to suppress. |
 | `AGENTBRIDGE_ROUTER_FILE` | Router route file, JSON or YAML. |
-| `AGENTBRIDGE_EMBEDDINGS_FILE` | Embedding model mapping JSON. Defaults to `$XDG_CONFIG_HOME/agentbridge/embeddings.json` when present. |
 
 ## Per-Provider Variables
 
@@ -165,6 +164,12 @@ or the embedded template environment variables:
 | `DEEPSEEK_REASONING_EFFORT` | `deepseek` | Sent only for DeepSeek thinking-capable models; `xhigh` maps to `max`. |
 | `TOKENHUB_REASONING_EFFORT`, `LM_REASONING_EFFORT` | `tencent-tokenhub`, `lmstudio` | Top-level Chat Completions `reasoning_effort`. |
 
+OpenAI-chat providers can also use Anthropic-style `cache_control`
+breakpoints when the upstream supports them. AgentBridge auto-enables this
+for OpenRouter/Nous Claude routes and Qwen routes through Alibaba/OpenCode/Nous.
+For a custom OpenAI-compatible provider, set `extra.prompt_cache: on`; set
+`extra.prompt_cache_ttl: 1h` when the upstream supports the longer TTL.
+
 HTTP `/v1/chat/completions`, `/v1/responses`, Anthropic-compatible `/v1/messages`,
 and A2A calls can also pass `metadata.prompt_cache_key`,
 `metadata.service_tier`, `metadata.reasoning_effort`, or a session id
@@ -175,27 +180,25 @@ provider request.
 ## Embedding Model Mapping
 
 `openai_embed` can route multiple user-facing embedding aliases to different
-OpenAI-compatible upstreams. Put the JSON file at
-`$XDG_CONFIG_HOME/agentbridge/embeddings.json`, or set
-`AGENTBRIDGE_EMBEDDINGS_FILE`.
+OpenAI-compatible upstreams. Prefer keeping those routes beside the model
+router in `config.yaml`:
 
-```json
-{
-  "default": "jina-embeddings-v5-text-nano",
-  "models": {
-    "embeddinggemma-300m": {
-      "base_url": "http://10.2.2.10:28080/v1",
-      "model": "embeddinggemma-300m",
-      "provider": "local"
-    },
-    "pplx-embed-v1-0.6b": {
-      "base_url": "https://openrouter.ai/api/v1",
-      "api_key_env": "OPENROUTER_API_KEY",
-      "model": "perplexity/pplx-embed-v1-0.6b",
-      "provider": "openrouter"
-    }
-  }
-}
+```yaml
+providers:
+  router:
+    extra:
+      embeddings:
+        default: jina-embeddings-v5-text-nano
+        models:
+          embeddinggemma-300m:
+            base_url: http://127.0.0.1:28080/v1
+            model: embeddinggemma-300m
+            provider: local
+          pplx-embed-v1-0.6b:
+            base_url: https://openrouter.ai/api/v1
+            api_key_env: OPENROUTER_API_KEY
+            model: perplexity/pplx-embed-v1-0.6b
+            provider: openrouter
 ```
 
 The map key is the public model ID accepted by `POST /v1/embeddings` and
