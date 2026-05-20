@@ -75,7 +75,7 @@ OLLAMA_API_KEY=... \
 
 Each TCP client connection is one ACP JSON-RPC stream. `--pool-size`
 limits the number of concurrent active connections; excess connections
-are rejected.
+wait until a slot becomes available.
 
 ## Documentation
 

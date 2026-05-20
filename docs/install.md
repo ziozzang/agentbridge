@@ -56,7 +56,7 @@ OLLAMA_MODEL=gpt-oss:120b \
 The TCP stream uses the same newline-delimited JSON-RPC ACP protocol as
 stdio. Each accepted connection gets an independent agent instance.
 `--pool-size` caps concurrent active connections; once the pool is full,
-new TCP connections are closed.
+new TCP connections wait until a slot becomes available.
 
 ## First-time setup
 

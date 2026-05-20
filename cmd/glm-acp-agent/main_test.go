@@ -79,7 +79,7 @@ func TestServeListenerHandlesACPConnection(t *testing.T) {
 	}
 }
 
-func TestServeListenerRejectsWhenPoolFull(t *testing.T) {
+func TestServeListenerWaitsWhenPoolFull(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
@@ -95,16 +95,36 @@ func TestServeListenerRejectsWhenPoolFull(t *testing.T) {
 	}
 	defer first.Close()
 
+	req := `{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":1}}` + "\n"
+	if _, err := first.Write([]byte(req)); err != nil {
+		t.Fatal(err)
+	}
+	var firstResp map[string]any
+	if err := json.NewDecoder(first).Decode(&firstResp); err != nil {
+		t.Fatal(err)
+	}
+
 	second, err := net.Dial("tcp", ln.Addr().String())
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer second.Close()
-	_ = second.SetReadDeadline(time.Now().Add(2 * time.Second))
+	if _, err := second.Write([]byte(req)); err != nil {
+		t.Fatal(err)
+	}
+	_ = second.SetReadDeadline(time.Now().Add(100 * time.Millisecond))
 	buf := make([]byte, 1)
 	n, err := second.Read(buf)
-	if err == nil || n != 0 {
-		t.Fatalf("expected rejected connection to close, n=%d err=%v", n, err)
+	if ne, ok := err.(net.Error); !ok || !ne.Timeout() || n != 0 {
+		t.Fatalf("expected second connection to wait, n=%d err=%v", n, err)
+	}
+	if err := first.Close(); err != nil {
+		t.Fatal(err)
+	}
+	_ = second.SetReadDeadline(time.Now().Add(2 * time.Second))
+	var secondResp map[string]any
+	if err := json.NewDecoder(second).Decode(&secondResp); err != nil {
+		t.Fatal(err)
 	}
 
 	cancel()

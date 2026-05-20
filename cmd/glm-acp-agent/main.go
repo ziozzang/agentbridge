@@ -136,8 +136,14 @@ func serveListener(ctx context.Context, ln net.Listener, poolSize int) error {
 		_ = ln.Close()
 	}()
 	for {
+		select {
+		case sem <- struct{}{}:
+		case <-ctx.Done():
+			return nil
+		}
 		c, err := ln.Accept()
 		if err != nil {
+			<-sem
 			select {
 			case <-ctx.Done():
 				return nil
@@ -149,21 +155,15 @@ func serveListener(ctx context.Context, ln net.Listener, poolSize int) error {
 			}
 			return <-errCh
 		}
-		select {
-		case sem <- struct{}{}:
-			go func() {
-				defer func() {
-					<-sem
-					_ = c.Close()
-				}()
-				if err := runACP(c, c); err != nil {
-					logger.Warnf("tcp acp connection ended: %v", err)
-				}
+		go func() {
+			defer func() {
+				<-sem
+				_ = c.Close()
 			}()
-		default:
-			logger.Warnf("tcp acp connection rejected: pool full (%d)", poolSize)
-			_ = c.Close()
-		}
+			if err := runACP(c, c); err != nil {
+				logger.Warnf("tcp acp connection ended: %v", err)
+			}
+		}()
 	}
 }
 
