@@ -4,7 +4,7 @@ import (
 	"errors"
 	"strings"
 
-	"github.com/ziozzang/glm-acp/internal/provider"
+	"github.com/ziozzang/agentbridge/internal/provider"
 )
 
 func (h *handler) responsesMessages(req responsesRequest) ([]provider.Message, error) {

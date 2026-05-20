@@ -1,10 +1,10 @@
 // Package duckdbplugin is a placeholder DuckDB plugin. A full DuckDB
 // integration requires CGO and a multi-megabyte runtime, which is at odds
-// with the harness's static-binary design goal. This stub keeps the
+// with AgentBridge's static-binary design goal. This stub keeps the
 // `duckdb` plugin name reserved and returns a structured error message
 // pointing users to the LiteLLM/MotherDuck options.
 //
-// Activation:    add `duckdb` to ACP_HARNESS_PLUGINS.
+// Activation:    add `duckdb` to AGENTBRIDGE_PLUGINS.
 //
 // To enable a real DuckDB integration, replace this implementation with a
 // CGO-backed one (e.g. github.com/marcboeker/go-duckdb) gated by a build
@@ -17,7 +17,7 @@ import (
 	"encoding/json"
 	"errors"
 
-	"github.com/ziozzang/glm-acp/internal/plugins"
+	"github.com/ziozzang/agentbridge/internal/plugins"
 )
 
 // Name is the plugin identifier.

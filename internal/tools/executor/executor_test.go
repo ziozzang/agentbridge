@@ -10,8 +10,8 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/ziozzang/glm-acp/internal/acp"
-	"github.com/ziozzang/glm-acp/internal/tools/zaimcp"
+	"github.com/ziozzang/agentbridge/internal/acp"
+	"github.com/ziozzang/agentbridge/internal/tools/zaimcp"
 )
 
 // fakeConn records every notification, and answers Call requests with the

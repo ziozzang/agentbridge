@@ -7,9 +7,9 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/ziozzang/glm-acp/internal/acp"
-	"github.com/ziozzang/glm-acp/internal/glm"
-	"github.com/ziozzang/glm-acp/internal/protocol/sessionstore"
+	"github.com/ziozzang/agentbridge/internal/acp"
+	"github.com/ziozzang/agentbridge/internal/glm"
+	"github.com/ziozzang/agentbridge/internal/protocol/sessionstore"
 )
 
 // fakeConn satisfies what executor.SessionConn / agent.Conn needs.

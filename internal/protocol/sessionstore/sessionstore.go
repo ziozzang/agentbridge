@@ -1,7 +1,7 @@
 // Package sessionstore persists chat sessions as one JSON file per session.
-// It mirrors the TypeScript SessionStore: the directory is honoured via
-// $ACP_GLM_SESSION_DIR / $XDG_STATE_HOME, file mode 0600 inside a 0700
-// directory, schema version 1.
+// The directory is honoured via $AGENTBRIDGE_SESSION_DIR, legacy
+// $ACP_GLM_SESSION_DIR, or $XDG_STATE_HOME. Files are mode 0600 inside a
+// 0700 directory, schema version 1.
 package sessionstore
 
 import (
@@ -13,7 +13,7 @@ import (
 	"regexp"
 	"sort"
 
-	"github.com/ziozzang/glm-acp/internal/glm"
+	"github.com/ziozzang/agentbridge/internal/glm"
 )
 
 // SchemaVersion is the persistence format version.
@@ -46,9 +46,11 @@ type Store struct {
 	Dir string
 }
 
-// DefaultDir resolves the directory we write session files to, honouring
-// $ACP_GLM_SESSION_DIR / $XDG_STATE_HOME.
+// DefaultDir resolves the directory we write session files to.
 func DefaultDir() string {
+	if v := os.Getenv("AGENTBRIDGE_SESSION_DIR"); v != "" {
+		return v
+	}
 	if v := os.Getenv("ACP_GLM_SESSION_DIR"); v != "" {
 		return v
 	}
@@ -60,7 +62,7 @@ func DefaultDir() string {
 		}
 		base = filepath.Join(home, ".local", "state")
 	}
-	return filepath.Join(base, "glm-acp-agent", "sessions")
+	return filepath.Join(base, "agentbridge", "sessions")
 }
 
 // New returns a Store rooted at the default directory.

@@ -1,159 +1,150 @@
-# glm-acp — a generic, high-quality ACP harness
+# AgentBridge
 
-[![Go tests](https://img.shields.io/badge/go%20test-passing-brightgreen)](#testing)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](#license)
+AgentBridge is a provider-neutral protocol bridge and compatibility gateway
+for AI agents. It exposes ACP, A2A, MCP Streamable HTTP, OpenAI-compatible
+HTTP APIs, Anthropic-compatible Messages, AG-UI, and gRPC over one shared
+provider backend.
 
-`glm-acp` is an [**Agent Client Protocol**](https://github.com/zed-industries/agent-client-protocol)
-(ACP) coding agent written in Go. It runs on stdio as a JSON-RPC 2.0 /
-newline-delimited JSON server, or as a TCP server for long-running pooled
-deployments, and bridges any ACP-aware editor
-(e.g. Zed) to a wide range of LLM providers — OpenAI Chat Completions,
-OpenAI Responses, Anthropic Messages, Ollama, Z.AI/GLM, OpenRouter,
-LiteLLM, Codex OAuth — through a single small static binary.
+The project started as `glm-acp`. It has been renamed because the runtime is
+no longer GLM-specific and no longer limited to ACP. Legacy environment
+variables and on-disk paths are still accepted where practical.
 
-> The project started as a focused GLM adapter. It is now a *provider-
-> neutral harness*; the binary name `glm-acp-agent` and Go module path
-> are kept for backwards compatibility.
+한국어 문서는 [README.ko.md](README.ko.md)를 보세요.
 
 ## Highlights
 
-- **One agent, many providers.** Switch upstream model with a single env
-  variable (`ACP_HARNESS_PROVIDER=openai|anthropic|ollama|glm|…`).
-- **Provider templates** in `internal/config/providers.yaml`, overridable
-  per-user in `$XDG_CONFIG_HOME/acp-harness/providers.yaml`.
-- **Plugin system** activated with `ACP_HARNESS_PLUGINS=sqlite[,…]`.
-  Ships with a pure-Go SQLite catalogue browser
-  (`sqlite_list/load/query/…`).
-- **OpenAI/Codex OAuth** support: use `oauth:openai` or `oauth:codex`;
-  the harness refreshes access tokens automatically against the OpenAI
-  OAuth endpoint when refresh metadata is available.
-- **Structured logging** with level, file sink, and size-based rotation
-  (`ACP_HARNESS_LOG_*`). Stdout stays pure JSON-RPC.
-- **Local tools** built in: `read_file`, `write_file`, `list_files`,
-  `run_command`, `web_search`, `web_reader`, `image_analysis`. Writes
-  and shell commands always ask the ACP client for permission.
-- **Persistent sessions** under `$XDG_STATE_HOME/glm-acp-agent/sessions/`.
-- **Optional TCP server mode** with a bounded connection pool for shared
-  daemon-style deployments.
-- **Container-first**: ships with a multi-stage `Dockerfile`.
-- **Designed for editors**: lean memory and CPU profile; back-pressure-
-  aware channel design; no polling loops.
+- **Many protocols, one backend**: ACP stdio/TCP, A2A JSON-RPC, MCP
+  Streamable HTTP, OpenAI Chat Completions, OpenAI Responses,
+  Anthropic Messages, AG-UI SSE, and gRPC.
+- **Many providers**: GLM/Z.AI, OpenAI, OpenAI Responses, Anthropic,
+  Ollama, OpenRouter, LiteLLM-compatible gateways, Codex OAuth, and
+  Claude Code CLI.
+- **Long-running server modes**: bounded TCP ACP pool, HTTP compatibility
+  listener, and gRPC listener.
+- **Observability**: structured leveled logs with rotation plus Prometheus
+  metrics on `/metrics`.
+- **OpenAPI and Swagger**: `/openapi.json`, `/v1/openapi.json`, and
+  `/swagger`.
+- **Plugins**: optional SQLite and DuckDB extension surface.
+- **Backwards compatibility**: `ACP_HARNESS_*`, `ACP_GLM_*`,
+  `Z_AI_API_KEY`, and old credential/session paths remain supported.
 
-## Quick start
+## Quick Start
 
 ```bash
-go build -o glm-acp-agent ./cmd/glm-acp-agent
-
-# OpenAI Chat (or LiteLLM / OpenRouter / vLLM with OPENAI_BASE_URL …)
-ACP_HARNESS_PROVIDER=openai \
-ACP_HARNESS_API_KEY=sk-... \
-ACP_HARNESS_MODEL=gpt-4o-mini \
-./glm-acp-agent
-
-# Anthropic
-ACP_HARNESS_PROVIDER=anthropic \
-ACP_HARNESS_API_KEY=sk-ant-... \
-ACP_HARNESS_MODEL=claude-sonnet-4-5 \
-./glm-acp-agent
-
-# Local Ollama
-ACP_HARNESS_PROVIDER=ollama ACP_HARNESS_MODEL=llama3.1 ./glm-acp-agent
-
-# Z.AI / GLM (default; back-compat with the legacy tool)
-Z_AI_API_KEY=sk-... ACP_HARNESS_PROVIDER=glm ./glm-acp-agent
+go build -o agentbridge ./cmd/agentbridge
 ```
 
-By default, editors spawn the agent and speak ACP over stdio. For a
-long-running daemon, use TCP server mode:
+Run as an ACP stdio agent:
 
 ```bash
-ACP_HARNESS_PROVIDER=ollama \
-OLLAMA_BASE_URL=https://ollama.com \
-OLLAMA_MODEL=gpt-oss:120b \
-OLLAMA_API_KEY=... \
-./glm-acp-agent --server --listen 127.0.0.1:8765 --pool-size 4 --wait-size 2
+AGENTBRIDGE_PROVIDER=openai \
+AGENTBRIDGE_API_KEY="$OPENAI_API_KEY" \
+AGENTBRIDGE_MODEL=gpt-4.1-mini \
+./agentbridge
 ```
 
-Each TCP client connection is one ACP JSON-RPC stream. `--pool-size`
-limits active connections. `--wait-size` limits queued connections and
-defaults to half of `--pool-size`; connections beyond that queue are
-rejected.
-
-You can also expose HTTP compatibility endpoints on a separate listener:
+Run the HTTP compatibility gateway:
 
 ```bash
-./glm-acp-agent --http-listen 127.0.0.1:8766
+AGENTBRIDGE_PROVIDER=glm \
+Z_AI_API_KEY="$Z_AI_API_KEY" \
+AGENTBRIDGE_GLM_MODEL=glm-5.1 \
+./agentbridge --http-listen 127.0.0.1:8766
 ```
 
-Supported routes include `/v1/chat/completions`, `/v1/responses`,
-`/v1/messages`, `/v1/a2a/rpc`, `/v1/mcp`, `/v1/agui/run`,
-`/openapi.json`, `/swagger`, and `/metrics` (core compatibility paths are also
-accepted without `/v1`). They use the same active provider configuration
-as ACP server mode. HTTP responses include `request_id` and
-`X-Request-Id`; clients may provide `X-Request-Id` or
-`metadata.request_id`. Cache hints may be sent via `cache`,
-`cache_control`, `metadata.cache`, or Responses API prompt cache fields;
-the current server reports them back with `cache_status: "bypass"` until
-a real cache backend is configured.
-
-For lower-overhead long-lived clients, expose the gRPC compatibility API:
+Run ACP TCP, HTTP, and gRPC together:
 
 ```bash
-./glm-acp-agent --grpc-listen 127.0.0.1:8767
+./agentbridge \
+  --server --listen 127.0.0.1:8765 --pool-size 6 --wait-size 3 \
+  --http-listen 127.0.0.1:8766 \
+  --grpc-listen 127.0.0.1:8767
 ```
 
-The gRPC service is `glm_acp.v1.AgentService` and currently provides
-`Chat`, `ChatStream`, `A2A`, and `A2AStream`. Requests and responses use
-`google.protobuf.Struct`, so clients can call it without generated project
-stubs while still using standard gRPC/protobuf transport.
+## HTTP Routes
+
+- `POST /v1/chat/completions`
+- `POST /v1/responses`
+- `GET /v1/responses/{id}`
+- `POST /v1/messages`
+- `POST /v1/a2a/rpc`
+- `GET /.well-known/agent-card.json`
+- `POST /v1/mcp`
+- `POST /v1/agui/run`
+- `GET /openapi.json`
+- `GET /swagger`
+- `GET /metrics`
+- `GET /health`
+
+Most compatibility routes are also accepted without the `/v1` prefix.
+
+## gRPC
+
+The gRPC service is `agentbridge.v1.AgentService`.
+
+- `Chat`
+- `ChatStream`
+- `A2A`
+- `A2AStream`
+
+Requests and responses use `google.protobuf.Struct`, so clients can call the
+service without generated project-specific stubs. The standard
+`grpc.health.v1.Health` service is also registered.
+
+## Configuration
+
+Preferred environment variables use the `AGENTBRIDGE_*` prefix:
+
+| Variable | Purpose |
+| --- | --- |
+| `AGENTBRIDGE_PROVIDER` | Active provider. Default: `glm`. |
+| `AGENTBRIDGE_MODEL` | Default model override. |
+| `AGENTBRIDGE_API_KEY` | API key for the active provider. |
+| `AGENTBRIDGE_BASE_URL` | Base URL override. |
+| `AGENTBRIDGE_PROVIDERS_FILE` | Provider YAML override. |
+| `AGENTBRIDGE_PLUGINS` | Comma-separated plugins, e.g. `sqlite`. |
+| `AGENTBRIDGE_LOG_LEVEL` | `trace`, `debug`, `info`, `warn`, `error`, or `off`. |
+| `AGENTBRIDGE_LOG_FILE` | Optional log file path. |
+| `AGENTBRIDGE_SESSION_DIR` | Session persistence directory. |
+
+Legacy aliases such as `ACP_HARNESS_PROVIDER`, `ACP_HARNESS_API_KEY`,
+`ACP_GLM_MODEL`, and `ACP_GLM_SESSION_DIR` remain accepted.
 
 ## Documentation
 
-| Topic | Doc |
+| English | Korean |
 | --- | --- |
-| Install / build | [docs/install.md](docs/install.md) |
-| Environment variables and YAML | [docs/configuration.md](docs/configuration.md) |
-| Provider catalogue and how to add one | [docs/providers.md](docs/providers.md) |
-| Plugins (sqlite, duckdb, custom) | [docs/plugins.md](docs/plugins.md) |
-| Running and writing tests | [docs/testing.md](docs/testing.md) |
-| Architecture for AI agents working on the repo | [AGENTS.md](AGENTS.md) |
+| [Install](docs/install.md) | [설치](docs/ko/install.md) |
+| [Configuration](docs/configuration.md) | [설정](docs/ko/configuration.md) |
+| [Providers](docs/providers.md) | [프로바이더](docs/ko/providers.md) |
+| [Plugins](docs/plugins.md) | [플러그인](docs/ko/plugins.md) |
+| [Testing](docs/testing.md) | [테스트](docs/ko/testing.md) |
 
-## Repository layout
+## Repository Layout
 
+```text
+cmd/agentbridge                 entrypoint binary
+internal/acp                    ACP protocol and JSON-RPC transport
+internal/agent                  ACP agent, sessions, prompt loop
+internal/config                 provider templates and config loader
+internal/grpccompat             gRPC compatibility service
+internal/httpcompat             HTTP, A2A, MCP, AG-UI, OpenAPI, metrics
+internal/provider               provider abstraction and adapters
+internal/plugins                optional tool plugins
+internal/tools                  built-in and MCP tool clients
+docs/                           English documentation
+docs/ko/                        Korean documentation
 ```
-cmd/glm-acp-agent              entrypoint binary (stdio, TCP server, --setup)
-internal/acp                   ACP protocol types + JSON-RPC transport
-internal/agent                 ACP Agent, prompt loop, sessions
-internal/config                provider templates + layered loader
-internal/credentials           XDG credentials + back-compat Z_AI_API_KEY
-internal/glm                   legacy GLM HTTP client + type aliases
-internal/logger                leveled logger with file sink + rotation
-internal/oauth/codex           `oauth:codex` token resolver
-internal/plugins               plugin core (sqlite, duckdb)
-internal/protocol              image preprocess, session store, system prompt
-internal/provider              provider abstraction + adapters
-internal/tools                 tool schemas + executor + MCP clients
-docs/                          user-facing documentation
-```
-
-## Compatibility & back-compat
-
-Existing GLM-only setups continue to work unchanged: `Z_AI_API_KEY`,
-`ACP_GLM_MODEL`, `ACP_GLM_BASE_URL`, `ACP_GLM_THINKING`,
-`ACP_GLM_MAX_TOKENS`, `ACP_GLM_DEBUG`, `ACP_GLM_SESSION_DIR`, and
-`ACP_GLM_AVAILABLE_MODELS` are still honoured. The default
-provider is still `glm`.
 
 ## Testing
 
 ```bash
 go test ./...
 go vet ./...
+go build -o agentbridge ./cmd/agentbridge
 ```
-
-About two dozen packages, finishing in well under a minute. See
-[docs/testing.md](docs/testing.md) for details.
 
 ## License
 
-MIT, matching the upstream `glm-acp-agent` package.
+MIT.

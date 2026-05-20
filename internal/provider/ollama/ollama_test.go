@@ -7,7 +7,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/ziozzang/glm-acp/internal/provider"
+	"github.com/ziozzang/agentbridge/internal/provider"
 )
 
 func TestStreamChatOllamaEnd2End(t *testing.T) {

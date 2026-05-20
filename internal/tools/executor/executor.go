@@ -17,9 +17,9 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/ziozzang/glm-acp/internal/acp"
-	"github.com/ziozzang/glm-acp/internal/credentials"
-	"github.com/ziozzang/glm-acp/internal/tools/zaimcp"
+	"github.com/ziozzang/agentbridge/internal/acp"
+	"github.com/ziozzang/agentbridge/internal/credentials"
+	"github.com/ziozzang/agentbridge/internal/tools/zaimcp"
 )
 
 // SessionConn is the subset of acp.Conn that an Executor needs. Tests inject
@@ -630,7 +630,7 @@ func stringArg(v any) string {
 func requireKey() (string, error) {
 	k := credentials.Resolve()
 	if k == "" {
-		return "", errors.New("No API key found. Set Z_AI_API_KEY, or run `glm-acp-agent --setup` to store one.")
+		return "", errors.New("No API key found. Set Z_AI_API_KEY, or run `agentbridge --setup` to store one.")
 	}
 	return k, nil
 }
@@ -773,65 +773,64 @@ func valueOr(m map[string]any, key, fallback string) string {
 // ---------------------------------------------------------------------------
 
 func (e *Executor) mcpTool(ctx context.Context, id string, toolName string, args map[string]any) Result {
-e.sendUpdate(map[string]any{
-"sessionUpdate": "tool_call",
-"toolCallId":    id,
-"title":         "Call MCP tool: " + toolName,
-"kind":          "mcp",
-"status":        "in_progress",
-"locations":     []any{},
-"rawInput":      args,
-})
-result, err := e.SessionMCP.CallTool(ctx, toolName, args)
-if err != nil {
-e.markFailed(id, err.Error())
-return Result{Content: "Error calling MCP tool: " + err.Error()}
+	e.sendUpdate(map[string]any{
+		"sessionUpdate": "tool_call",
+		"toolCallId":    id,
+		"title":         "Call MCP tool: " + toolName,
+		"kind":          "mcp",
+		"status":        "in_progress",
+		"locations":     []any{},
+		"rawInput":      args,
+	})
+	result, err := e.SessionMCP.CallTool(ctx, toolName, args)
+	if err != nil {
+		e.markFailed(id, err.Error())
+		return Result{Content: "Error calling MCP tool: " + err.Error()}
+	}
+	e.sendUpdate(map[string]any{
+		"sessionUpdate": "tool_call_update",
+		"toolCallId":    id,
+		"status":        "completed",
+		"content":       []any{map[string]any{"type": "content", "content": map[string]any{"type": "text", "text": result}}},
+		"rawOutput":     map[string]any{"content": result},
+	})
+	return Result{Content: result}
 }
-e.sendUpdate(map[string]any{
-"sessionUpdate": "tool_call_update",
-"toolCallId":    id,
-"status":        "completed",
-"content":       []any{map[string]any{"type": "content", "content": map[string]any{"type": "text", "text": result}}},
-"rawOutput":     map[string]any{"content": result},
-})
-return Result{Content: result}
-}
-
 
 // pluginTool dispatches a `plugin__<name>__<tool>` call through the
 // configured PluginDispatcher and reports tool_call updates to the client.
 func (e *Executor) pluginTool(ctx context.Context, id string, toolName string, args map[string]any, rawArgs string) Result {
-e.sendUpdate(map[string]any{
-"sessionUpdate": "tool_call",
-"toolCallId":    id,
-"title":         "Call plugin tool: " + toolName,
-"kind":          "plugin",
-"status":        "in_progress",
-"locations":     []any{},
-"rawInput":      args,
-})
-raw := json.RawMessage(rawArgs)
-if len(raw) == 0 {
-raw = json.RawMessage(`{}`)
-}
-result, ok, err := e.Plugins.Dispatch(ctx, toolName, raw)
-if !ok {
-// Should never happen because the prefix check matched, but be
-// defensive: fall through to the generic failure branch.
-msg := fmt.Sprintf("Error: plugin not active for %q", toolName)
-e.markFailed(id, msg)
-return Result{Content: msg}
-}
-if err != nil {
-e.markFailed(id, err.Error())
-return Result{Content: "Error calling plugin tool: " + err.Error()}
-}
-e.sendUpdate(map[string]any{
-"sessionUpdate": "tool_call_update",
-"toolCallId":    id,
-"status":        "completed",
-"content":       []any{map[string]any{"type": "content", "content": map[string]any{"type": "text", "text": result}}},
-"rawOutput":     map[string]any{"content": result},
-})
-return Result{Content: result}
+	e.sendUpdate(map[string]any{
+		"sessionUpdate": "tool_call",
+		"toolCallId":    id,
+		"title":         "Call plugin tool: " + toolName,
+		"kind":          "plugin",
+		"status":        "in_progress",
+		"locations":     []any{},
+		"rawInput":      args,
+	})
+	raw := json.RawMessage(rawArgs)
+	if len(raw) == 0 {
+		raw = json.RawMessage(`{}`)
+	}
+	result, ok, err := e.Plugins.Dispatch(ctx, toolName, raw)
+	if !ok {
+		// Should never happen because the prefix check matched, but be
+		// defensive: fall through to the generic failure branch.
+		msg := fmt.Sprintf("Error: plugin not active for %q", toolName)
+		e.markFailed(id, msg)
+		return Result{Content: msg}
+	}
+	if err != nil {
+		e.markFailed(id, err.Error())
+		return Result{Content: "Error calling plugin tool: " + err.Error()}
+	}
+	e.sendUpdate(map[string]any{
+		"sessionUpdate": "tool_call_update",
+		"toolCallId":    id,
+		"status":        "completed",
+		"content":       []any{map[string]any{"type": "content", "content": map[string]any{"type": "text", "text": result}}},
+		"rawOutput":     map[string]any{"content": result},
+	})
+	return Result{Content: result}
 }

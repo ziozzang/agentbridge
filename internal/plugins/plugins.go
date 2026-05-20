@@ -2,8 +2,9 @@
 // new tool definitions (function-call schemas) that the agent advertises to
 // the model and routes invocations to.
 //
-// Plugins are activated by listing them in ACP_HARNESS_PLUGINS, comma-
-// separated. The activation is order-preserving but case-insensitive.
+// Plugins are activated by listing them in AGENTBRIDGE_PLUGINS, comma-
+// separated. ACP_HARNESS_PLUGINS remains a supported alias. The activation
+// is order-preserving but case-insensitive.
 //
 // Concrete plugins live in subpackages (e.g. plugins/sqlite) and register
 // themselves at init time.
@@ -18,8 +19,8 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/ziozzang/glm-acp/internal/logger"
-	"github.com/ziozzang/glm-acp/internal/tools/definitions"
+	"github.com/ziozzang/agentbridge/internal/logger"
+	"github.com/ziozzang/agentbridge/internal/tools/definitions"
 )
 
 // ToolDef is a plugin-contributed tool schema.
@@ -32,7 +33,7 @@ type ToolDef struct {
 // Plugin is the harness extension contract.
 type Plugin interface {
 	// Name is the short identifier the user passes in
-	// ACP_HARNESS_PLUGINS (e.g. "sqlite").
+	// AGENTBRIDGE_PLUGINS (e.g. "sqlite").
 	Name() string
 	// Tools returns the function-call schemas this plugin contributes.
 	Tools() []ToolDef
@@ -73,11 +74,11 @@ type Active struct {
 	byName  map[string]Plugin
 }
 
-// LoadActive reads ACP_HARNESS_PLUGINS and instantiates each requested
+// LoadActive reads AGENTBRIDGE_PLUGINS and instantiates each requested
 // plugin. Unknown names are logged as a warning and skipped so a typo does
 // not bring the agent down.
 func LoadActive() *Active {
-	spec := os.Getenv("ACP_HARNESS_PLUGINS")
+	spec := envFirst("AGENTBRIDGE_PLUGINS", "ACP_HARNESS_PLUGINS")
 	a := &Active{byName: map[string]Plugin{}}
 	if spec == "" {
 		return a
@@ -100,6 +101,15 @@ func LoadActive() *Active {
 		logger.Infof("plugin %q activated", name)
 	}
 	return a
+}
+
+func envFirst(names ...string) string {
+	for _, name := range names {
+		if v := os.Getenv(name); v != "" {
+			return v
+		}
+	}
+	return ""
 }
 
 // plainNames is registryNames() but expected to be called while holding

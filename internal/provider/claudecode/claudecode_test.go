@@ -7,7 +7,7 @@ import (
 	"runtime"
 	"testing"
 
-	"github.com/ziozzang/glm-acp/internal/provider"
+	"github.com/ziozzang/agentbridge/internal/provider"
 )
 
 func TestStreamChatInvokesClaudeJSON(t *testing.T) {

@@ -5,7 +5,7 @@ import (
 	"errors"
 	"net/http"
 
-	"github.com/ziozzang/glm-acp/internal/provider"
+	"github.com/ziozzang/agentbridge/internal/provider"
 )
 
 func (h *handler) mcp(w http.ResponseWriter, r *http.Request) {
@@ -29,7 +29,7 @@ func (h *handler) mcp(w http.ResponseWriter, r *http.Request) {
 	case "initialize":
 		writeJSONRPC(w, http.StatusOK, jsonRPCResponse{JSONRPC: "2.0", ID: req.ID, Result: map[string]any{
 			"protocolVersion": "2025-06-18",
-			"serverInfo":      map[string]any{"name": "glm-acp-agent", "version": "1"},
+			"serverInfo":      map[string]any{"name": "agentbridge", "version": "1"},
 			"capabilities": map[string]any{
 				"tools":     map[string]any{"listChanged": false},
 				"resources": map[string]any{},
@@ -40,7 +40,7 @@ func (h *handler) mcp(w http.ResponseWriter, r *http.Request) {
 		writeJSONRPC(w, http.StatusOK, jsonRPCResponse{JSONRPC: "2.0", ID: req.ID, Result: map[string]any{
 			"tools": []map[string]any{{
 				"name":        "chat",
-				"description": "Send a prompt to the configured glm-acp provider.",
+				"description": "Send a prompt to the configured AgentBridge provider.",
 				"inputSchema": map[string]any{
 					"type": "object",
 					"properties": map[string]any{

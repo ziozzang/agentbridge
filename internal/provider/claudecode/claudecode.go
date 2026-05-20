@@ -14,8 +14,8 @@ import (
 	"os/exec"
 	"strings"
 
-	"github.com/ziozzang/glm-acp/internal/provider"
-	"github.com/ziozzang/glm-acp/internal/tools/definitions"
+	"github.com/ziozzang/agentbridge/internal/provider"
+	"github.com/ziozzang/agentbridge/internal/tools/definitions"
 )
 
 // Kind is the registry key for the Claude Code CLI provider.

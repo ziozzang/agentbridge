@@ -1,15 +1,17 @@
-// Package config loads the ACP harness's layered configuration.
+// Package config loads AgentBridge's layered configuration.
 //
 // Sources (later wins):
 //  1. Embedded defaults (internal/config/providers.yaml).
-//  2. User file at $XDG_CONFIG_HOME/acp-harness/providers.yaml (or
-//     ~/.config/acp-harness/providers.yaml).
-//  3. Override file specified by ACP_HARNESS_PROVIDERS_FILE.
+//  2. User file at $XDG_CONFIG_HOME/agentbridge/providers.yaml (or
+//     ~/.config/agentbridge/providers.yaml), with acp-harness as a legacy fallback.
+//  3. Override file specified by AGENTBRIDGE_PROVIDERS_FILE
+//     or legacy ACP_HARNESS_PROVIDERS_FILE.
 //  4. Environment variable expansion (${VAR[:-default]}) applied at load
 //     time over the merged YAML before unmarshalling.
 //
-// The active provider is selected by ACP_HARNESS_PROVIDER (default: "glm"
-// for back-compat with the original GLM port).
+// The active provider is selected by AGENTBRIDGE_PROVIDER (default: "glm"
+// for back-compat with the original GLM port). ACP_HARNESS_PROVIDER remains
+// a supported alias.
 package config
 
 import (
@@ -22,7 +24,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"github.com/ziozzang/glm-acp/internal/provider"
+	"github.com/ziozzang/agentbridge/internal/provider"
 )
 
 //go:embed providers.yaml
@@ -108,8 +110,7 @@ func readMergedYAML() ([]byte, error) {
 		return nil, fmt.Errorf("config: embedded defaults: %w", err)
 	}
 
-	// User file at XDG_CONFIG_HOME/acp-harness/providers.yaml
-	if user := userProvidersPath(); user != "" {
+	for _, user := range userProvidersPaths() {
 		if data, err := os.ReadFile(user); err == nil {
 			var u map[string]any
 			if err := yaml.Unmarshal(data, &u); err == nil {
@@ -119,7 +120,7 @@ func readMergedYAML() ([]byte, error) {
 	}
 
 	// Override file from env
-	if override := os.Getenv("ACP_HARNESS_PROVIDERS_FILE"); override != "" {
+	if override := envFirst("AGENTBRIDGE_PROVIDERS_FILE", "ACP_HARNESS_PROVIDERS_FILE"); override != "" {
 		data, err := os.ReadFile(override)
 		if err != nil {
 			return nil, fmt.Errorf("config: open %s: %w", override, err)
@@ -138,14 +139,20 @@ func readMergedYAML() ([]byte, error) {
 	return out, nil
 }
 
-func userProvidersPath() string {
+func userProvidersPaths() []string {
 	if h := os.Getenv("XDG_CONFIG_HOME"); h != "" {
-		return filepath.Join(h, "acp-harness", "providers.yaml")
+		return []string{
+			filepath.Join(h, "agentbridge", "providers.yaml"),
+			filepath.Join(h, "acp-harness", "providers.yaml"),
+		}
 	}
 	if h, err := os.UserHomeDir(); err == nil {
-		return filepath.Join(h, ".config", "acp-harness", "providers.yaml")
+		return []string{
+			filepath.Join(h, ".config", "agentbridge", "providers.yaml"),
+			filepath.Join(h, ".config", "acp-harness", "providers.yaml"),
+		}
 	}
-	return ""
+	return nil
 }
 
 // deepMerge recursively overlays src onto dst. Maps merge key-by-key,
@@ -245,7 +252,7 @@ func isEnvNameChar(c byte) bool {
 // SelectedProviderName returns the user's chosen provider name, falling
 // back to "glm" for back-compat with the original port.
 func SelectedProviderName() string {
-	if v := os.Getenv("ACP_HARNESS_PROVIDER"); v != "" {
+	if v := envFirst("AGENTBRIDGE_PROVIDER", "ACP_HARNESS_PROVIDER"); v != "" {
 		return v
 	}
 	if v := os.Getenv("ACP_PROVIDER"); v != "" {
@@ -266,21 +273,31 @@ func (m *Manifest) Resolve(name string) (provider.Config, error) {
 		return provider.Config{}, fmt.Errorf("config: unknown provider %q (known: %v)", name, m.Names())
 	}
 	// Late env overrides (these take precedence over YAML).
-	if v := os.Getenv("ACP_HARNESS_MODEL"); v != "" {
+	if v := envFirst("AGENTBRIDGE_MODEL", "ACP_HARNESS_MODEL"); v != "" {
 		cfg.DefaultModel = v
 	}
-	if v := os.Getenv("ACP_HARNESS_BASE_URL"); v != "" {
+	if v := envFirst("AGENTBRIDGE_BASE_URL", "ACP_HARNESS_BASE_URL"); v != "" {
 		cfg.BaseURL = v
 	}
-	if v := os.Getenv("ACP_HARNESS_API_KEY"); v != "" {
+	if v := envFirst("AGENTBRIDGE_API_KEY", "ACP_HARNESS_API_KEY"); v != "" {
 		cfg.APIKey = v
 	}
-	// Per-provider key override: ACP_HARNESS_<UPPER>_API_KEY.
-	envName := "ACP_HARNESS_" + strings.ToUpper(strings.NewReplacer("-", "_").Replace(name)) + "_API_KEY"
-	if v := os.Getenv(envName); v != "" {
+	// Per-provider key override: AGENTBRIDGE_<UPPER>_API_KEY, with
+	// ACP_HARNESS_<UPPER>_API_KEY retained as an alias.
+	suffix := strings.ToUpper(strings.NewReplacer("-", "_").Replace(name)) + "_API_KEY"
+	if v := envFirst("AGENTBRIDGE_"+suffix, "ACP_HARNESS_"+suffix); v != "" {
 		cfg.APIKey = v
 	}
 	return cfg, nil
+}
+
+func envFirst(names ...string) string {
+	for _, name := range names {
+		if v := os.Getenv(name); v != "" {
+			return v
+		}
+	}
+	return ""
 }
 
 // Names returns the sorted list of configured provider names.

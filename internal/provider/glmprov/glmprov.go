@@ -11,8 +11,8 @@ import (
 	"context"
 	"regexp"
 
-	"github.com/ziozzang/glm-acp/internal/provider"
-	"github.com/ziozzang/glm-acp/internal/provider/openaichat"
+	"github.com/ziozzang/agentbridge/internal/provider"
+	"github.com/ziozzang/agentbridge/internal/provider/openaichat"
 )
 
 // Kind is the registry key for the GLM provider preset.
@@ -58,11 +58,11 @@ type thinkingProvider struct {
 	base *openaichat.Client
 }
 
-func (p *thinkingProvider) Name() string                              { return "glm" }
-func (p *thinkingProvider) Kind() string                              { return Kind }
-func (p *thinkingProvider) AvailableModels() []provider.ModelInfo     { return p.base.AvailableModels() }
-func (p *thinkingProvider) DefaultModel() string                      { return p.base.DefaultModel() }
-func (p *thinkingProvider) ContextWindow(model string) int            { return p.base.ContextWindow(model) }
+func (p *thinkingProvider) Name() string                          { return "glm" }
+func (p *thinkingProvider) Kind() string                          { return Kind }
+func (p *thinkingProvider) AvailableModels() []provider.ModelInfo { return p.base.AvailableModels() }
+func (p *thinkingProvider) DefaultModel() string                  { return p.base.DefaultModel() }
+func (p *thinkingProvider) ContextWindow(model string) int        { return p.base.ContextWindow(model) }
 
 func (p *thinkingProvider) StreamChat(ctx context.Context, msgs []provider.Message, opts provider.StreamOptions) (<-chan provider.Chunk, <-chan error) {
 	// Per-request toggle: clone the underlying config so concurrent

@@ -1,19 +1,19 @@
-# Testing
+# 테스트
 
-Run the full suite:
+전체 테스트:
 
 ```bash
 go test ./...
 ```
 
-Run static checks and build:
+정적 검사와 빌드:
 
 ```bash
 go vet ./...
 go build -o agentbridge ./cmd/agentbridge
 ```
 
-Package-level iteration:
+패키지 단위 반복:
 
 ```bash
 go test ./internal/httpcompat
@@ -21,7 +21,7 @@ go test ./internal/grpccompat
 go test ./internal/provider/openaichat
 ```
 
-Real GLM gRPC smoke test:
+실제 GLM gRPC smoke:
 
 ```bash
 ACP_GRPC_REAL_SMOKE=1 \
@@ -31,7 +31,7 @@ Z_AI_API_KEY=... \
 go test ./internal/grpccompat -run TestRealGLMSmoke -count=1 -v
 ```
 
-Manual HTTP smoke:
+수동 HTTP smoke:
 
 ```bash
 AGENTBRIDGE_PROVIDER=glm Z_AI_API_KEY=... \
@@ -42,8 +42,8 @@ curl -sS http://127.0.0.1:8766/openapi.json
 curl -sS http://127.0.0.1:8766/metrics
 ```
 
-Regression policy:
+회귀 테스트 원칙:
 
-- Add tests beside the package you change.
-- Mock upstream LLM APIs with `httptest.Server`.
-- Keep real-provider tests opt-in through environment variables.
+- 변경한 package 근처에 테스트를 추가합니다.
+- upstream LLM API는 `httptest.Server`로 mock합니다.
+- 실제 provider 테스트는 환경 변수로 opt-in 하도록 둡니다.

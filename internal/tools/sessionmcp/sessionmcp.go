@@ -17,9 +17,9 @@ import (
 	"sync"
 	"sync/atomic"
 
-	"github.com/ziozzang/glm-acp/internal/acp"
-	"github.com/ziozzang/glm-acp/internal/logger"
-	"github.com/ziozzang/glm-acp/internal/tools/definitions"
+	"github.com/ziozzang/agentbridge/internal/acp"
+	"github.com/ziozzang/agentbridge/internal/logger"
+	"github.com/ziozzang/agentbridge/internal/tools/definitions"
 )
 
 const protocolVersion = "2025-06-18"
@@ -166,7 +166,7 @@ func (s *serverState) initialize(ctx context.Context) error {
 		"params": jsonObject{
 			"protocolVersion": protocolVersion,
 			"capabilities":    jsonObject{},
-			"clientInfo":      jsonObject{"name": "glm-acp-agent", "version": "1.0.0"},
+			"clientInfo":      jsonObject{"name": "agentbridge", "version": "1.0.0"},
 		},
 	}
 	_, sessionID, err := s.fetchJSONRPC(ctx, "initialize", req, "")

@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ziozzang/glm-acp/internal/acp"
+	"github.com/ziozzang/agentbridge/internal/acp"
 )
 
 func TestDiagnostic_ImageWithDataIsRedacted(t *testing.T) {

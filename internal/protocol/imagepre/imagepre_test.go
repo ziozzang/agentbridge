@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ziozzang/glm-acp/internal/acp"
+	"github.com/ziozzang/agentbridge/internal/acp"
 )
 
 type fakeVision struct {

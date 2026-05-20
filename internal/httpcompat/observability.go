@@ -7,7 +7,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/ziozzang/glm-acp/internal/logger"
+	"github.com/ziozzang/agentbridge/internal/logger"
 )
 
 var httpMetrics = &metricsRegistry{
@@ -100,27 +100,27 @@ func (m *metricsRegistry) prometheus() string {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	var b strings.Builder
-	fmt.Fprintf(&b, "# HELP glm_acp_http_requests_total Total HTTP requests.\n")
-	fmt.Fprintf(&b, "# TYPE glm_acp_http_requests_total counter\n")
-	fmt.Fprintf(&b, "glm_acp_http_requests_total %d\n", m.requests)
-	fmt.Fprintf(&b, "# HELP glm_acp_http_failures_total Total HTTP 5xx responses.\n")
-	fmt.Fprintf(&b, "# TYPE glm_acp_http_failures_total counter\n")
-	fmt.Fprintf(&b, "glm_acp_http_failures_total %d\n", m.failures)
-	fmt.Fprintf(&b, "# HELP glm_acp_http_inflight_requests Current HTTP requests in flight.\n")
-	fmt.Fprintf(&b, "# TYPE glm_acp_http_inflight_requests gauge\n")
-	fmt.Fprintf(&b, "glm_acp_http_inflight_requests %d\n", m.inflight)
-	fmt.Fprintf(&b, "# HELP glm_acp_http_request_duration_seconds_sum Total HTTP request duration.\n")
-	fmt.Fprintf(&b, "# TYPE glm_acp_http_request_duration_seconds_sum counter\n")
-	fmt.Fprintf(&b, "glm_acp_http_request_duration_seconds_sum %.6f\n", m.durations.Seconds())
-	fmt.Fprintf(&b, "# HELP glm_acp_http_route_responses_total HTTP responses by route and status.\n")
-	fmt.Fprintf(&b, "# TYPE glm_acp_http_route_responses_total counter\n")
+	fmt.Fprintf(&b, "# HELP agentbridge_http_requests_total Total HTTP requests.\n")
+	fmt.Fprintf(&b, "# TYPE agentbridge_http_requests_total counter\n")
+	fmt.Fprintf(&b, "agentbridge_http_requests_total %d\n", m.requests)
+	fmt.Fprintf(&b, "# HELP agentbridge_http_failures_total Total HTTP 5xx responses.\n")
+	fmt.Fprintf(&b, "# TYPE agentbridge_http_failures_total counter\n")
+	fmt.Fprintf(&b, "agentbridge_http_failures_total %d\n", m.failures)
+	fmt.Fprintf(&b, "# HELP agentbridge_http_inflight_requests Current HTTP requests in flight.\n")
+	fmt.Fprintf(&b, "# TYPE agentbridge_http_inflight_requests gauge\n")
+	fmt.Fprintf(&b, "agentbridge_http_inflight_requests %d\n", m.inflight)
+	fmt.Fprintf(&b, "# HELP agentbridge_http_request_duration_seconds_sum Total HTTP request duration.\n")
+	fmt.Fprintf(&b, "# TYPE agentbridge_http_request_duration_seconds_sum counter\n")
+	fmt.Fprintf(&b, "agentbridge_http_request_duration_seconds_sum %.6f\n", m.durations.Seconds())
+	fmt.Fprintf(&b, "# HELP agentbridge_http_route_responses_total HTTP responses by route and status.\n")
+	fmt.Fprintf(&b, "# TYPE agentbridge_http_route_responses_total counter\n")
 	for key, count := range m.counts {
 		parts := strings.SplitN(key, "|", 2)
-		fmt.Fprintf(&b, "glm_acp_http_route_responses_total{route=%q,status=%q} %d\n", parts[0], parts[1], count)
+		fmt.Fprintf(&b, "agentbridge_http_route_responses_total{route=%q,status=%q} %d\n", parts[0], parts[1], count)
 	}
-	fmt.Fprintf(&b, "# HELP glm_acp_process_start_time_seconds Process start time.\n")
-	fmt.Fprintf(&b, "# TYPE glm_acp_process_start_time_seconds gauge\n")
-	fmt.Fprintf(&b, "glm_acp_process_start_time_seconds %d\n", m.start.Unix())
+	fmt.Fprintf(&b, "# HELP agentbridge_process_start_time_seconds Process start time.\n")
+	fmt.Fprintf(&b, "# TYPE agentbridge_process_start_time_seconds gauge\n")
+	fmt.Fprintf(&b, "agentbridge_process_start_time_seconds %d\n", m.start.Unix())
 	return b.String()
 }
 

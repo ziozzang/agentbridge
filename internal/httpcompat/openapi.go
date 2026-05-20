@@ -13,7 +13,7 @@ func (h *handler) openapi(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{
 		"openapi": "3.1.1",
 		"info": map[string]any{
-			"title":   "glm-acp compatibility API",
+			"title":   "AgentBridge compatibility API",
 			"version": "1.0.0",
 		},
 		"servers": []map[string]any{{"url": "/"}},
@@ -70,7 +70,7 @@ func (h *handler) swaggerUI(w http.ResponseWriter, r *http.Request) {
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <title>glm-acp API</title>
+  <title>AgentBridge API</title>
   <link rel="stylesheet" href="https://unpkg.com/swagger-ui-dist@5/swagger-ui.css">
 </head>
 <body>

@@ -9,17 +9,17 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/ziozzang/glm-acp/internal/acp"
+	"github.com/ziozzang/agentbridge/internal/acp"
 )
 
 // fakeMCPServer is a tiny in-memory MCP simulator.
 type fakeMCPServer struct {
-	mu          sync.Mutex
-	sessionID   string
-	initCount   int
-	listCount   int
-	callCount   int
-	tools       []map[string]any
+	mu        sync.Mutex
+	sessionID string
+	initCount int
+	listCount int
+	callCount int
+	tools     []map[string]any
 }
 
 func (f *fakeMCPServer) handler(w http.ResponseWriter, r *http.Request) {

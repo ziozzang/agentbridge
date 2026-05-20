@@ -12,7 +12,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/ziozzang/glm-acp/internal/acp"
+	"github.com/ziozzang/agentbridge/internal/acp"
 )
 
 // VisionClient is the minimal interface expected from a vision provider.
@@ -125,7 +125,7 @@ func textBlock(text string) acp.ContentBlock {
 }
 
 func materializeImage(data, mime string, idx int) (string, func(), error) {
-	dir, err := os.MkdirTemp("", "glm-acp-image-")
+	dir, err := os.MkdirTemp("", "agentbridge-image-")
 	if err != nil {
 		return "", nil, err
 	}

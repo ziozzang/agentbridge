@@ -15,16 +15,16 @@ import (
 	"sync"
 	"time"
 
-	"github.com/ziozzang/glm-acp/internal/config"
-	"github.com/ziozzang/glm-acp/internal/credentials"
-	codexoauth "github.com/ziozzang/glm-acp/internal/oauth/codex"
-	"github.com/ziozzang/glm-acp/internal/provider"
-	_ "github.com/ziozzang/glm-acp/internal/provider/anthropic"
-	_ "github.com/ziozzang/glm-acp/internal/provider/claudecode"
-	_ "github.com/ziozzang/glm-acp/internal/provider/glmprov"
-	_ "github.com/ziozzang/glm-acp/internal/provider/ollama"
-	_ "github.com/ziozzang/glm-acp/internal/provider/openaichat"
-	_ "github.com/ziozzang/glm-acp/internal/provider/openairesp"
+	"github.com/ziozzang/agentbridge/internal/config"
+	"github.com/ziozzang/agentbridge/internal/credentials"
+	codexoauth "github.com/ziozzang/agentbridge/internal/oauth/codex"
+	"github.com/ziozzang/agentbridge/internal/provider"
+	_ "github.com/ziozzang/agentbridge/internal/provider/anthropic"
+	_ "github.com/ziozzang/agentbridge/internal/provider/claudecode"
+	_ "github.com/ziozzang/agentbridge/internal/provider/glmprov"
+	_ "github.com/ziozzang/agentbridge/internal/provider/ollama"
+	_ "github.com/ziozzang/agentbridge/internal/provider/openaichat"
+	_ "github.com/ziozzang/agentbridge/internal/provider/openairesp"
 )
 
 // NewHandler returns an HTTP handler for OpenAI/Anthropic-style compatibility
@@ -215,8 +215,8 @@ func (h *handler) a2aAgentCard(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"protocolVersion":    "1.0",
-		"name":               "glm-acp-agent",
-		"description":        "A2A bridge backed by the configured glm-acp provider",
+		"name":               "agentbridge",
+		"description":        "A2A bridge backed by the configured AgentBridge provider",
 		"url":                base + "/a2a/rpc",
 		"preferredTransport": "JSONRPC",
 		"capabilities": map[string]any{

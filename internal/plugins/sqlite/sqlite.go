@@ -3,11 +3,13 @@
 // `*.sqlite3` files, lets the model list/load/unload them, then inspects
 // schemas and runs read-only queries.
 //
-// Activation:    add `sqlite` to ACP_HARNESS_PLUGINS.
-// Catalog dirs:  ACP_HARNESS_SQLITE_DIRS (comma-separated). Defaults to
-//                $XDG_DATA_HOME/acp-harness/sqlite or
-//                ~/.local/share/acp-harness/sqlite.
-// Read-only by default. Set ACP_HARNESS_SQLITE_RW=1 to allow INSERT/UPDATE/
+// Activation:    add `sqlite` to AGENTBRIDGE_PLUGINS.
+// Catalog dirs:  AGENTBRIDGE_SQLITE_DIRS (comma-separated). Defaults to
+//
+//	$XDG_DATA_HOME/agentbridge/sqlite or
+//	~/.local/share/agentbridge/sqlite.
+//
+// Read-only by default. Set AGENTBRIDGE_SQLITE_RW=1 to allow INSERT/UPDATE/
 // DELETE/CREATE/DROP statements via sqlite_exec.
 //
 // Tools exposed via plugin__sqlite__<name>:
@@ -34,24 +36,24 @@ import (
 
 	_ "modernc.org/sqlite"
 
-	"github.com/ziozzang/glm-acp/internal/logger"
-	"github.com/ziozzang/glm-acp/internal/plugins"
+	"github.com/ziozzang/agentbridge/internal/logger"
+	"github.com/ziozzang/agentbridge/internal/plugins"
 )
 
-// Name is the plugin identifier and the segment used in ACP_HARNESS_PLUGINS.
+// Name is the plugin identifier and the segment used in AGENTBRIDGE_PLUGINS.
 const Name = "sqlite"
 
 func init() {
 	plugins.Register(Name, func() plugins.Plugin {
-		return New(defaultCatalogDirs(), envIsTrue("ACP_HARNESS_SQLITE_RW"))
+		return New(defaultCatalogDirs(), envIsTrue("AGENTBRIDGE_SQLITE_RW", "ACP_HARNESS_SQLITE_RW"))
 	})
 }
 
 // Plugin is the concrete SQLite plugin.
 type Plugin struct {
-	dirs       []string
-	readOnly   bool
-	mu         sync.Mutex
+	dirs        []string
+	readOnly    bool
+	mu          sync.Mutex
 	openHandles map[string]*sql.DB
 }
 
@@ -103,7 +105,7 @@ func (p *Plugin) Tools() []plugins.ToolDef {
 		},
 		{
 			Name:        "sqlite_exec",
-			Description: "Execute an INSERT/UPDATE/DELETE statement. Disabled by default; requires ACP_HARNESS_SQLITE_RW=1.",
+			Description: "Execute an INSERT/UPDATE/DELETE statement. Disabled by default; requires AGENTBRIDGE_SQLITE_RW=1.",
 			Parameters:  json.RawMessage(`{"type":"object","properties":{"file":{"type":"string"},"sql":{"type":"string"}},"required":["file","sql"]}`),
 		},
 	}
@@ -416,7 +418,7 @@ func (p *Plugin) handleQuery(ctx context.Context, args json.RawMessage) (string,
 
 func (p *Plugin) handleExec(ctx context.Context, args json.RawMessage) (string, error) {
 	if p.readOnly {
-		return "", errors.New("sqlite_exec is disabled (read-only mode); set ACP_HARNESS_SQLITE_RW=1 to enable")
+		return "", errors.New("sqlite_exec is disabled (read-only mode); set AGENTBRIDGE_SQLITE_RW=1 to enable")
 	}
 	var a fileArg
 	if err := json.Unmarshal(args, &a); err != nil {
@@ -488,7 +490,7 @@ func tableList(ctx context.Context, db *sql.DB) ([]string, error) {
 }
 
 func defaultCatalogDirs() []string {
-	if v := os.Getenv("ACP_HARNESS_SQLITE_DIRS"); v != "" {
+	if v := envFirst("AGENTBRIDGE_SQLITE_DIRS", "ACP_HARNESS_SQLITE_DIRS"); v != "" {
 		var out []string
 		for _, p := range strings.Split(v, ",") {
 			p = strings.TrimSpace(p)
@@ -499,17 +501,26 @@ func defaultCatalogDirs() []string {
 		return out
 	}
 	if h := os.Getenv("XDG_DATA_HOME"); h != "" {
-		return []string{filepath.Join(h, "acp-harness", "sqlite")}
+		return []string{filepath.Join(h, "agentbridge", "sqlite")}
 	}
 	if h, err := os.UserHomeDir(); err == nil {
-		return []string{filepath.Join(h, ".local", "share", "acp-harness", "sqlite")}
+		return []string{filepath.Join(h, ".local", "share", "agentbridge", "sqlite")}
 	}
 	return nil
 }
 
-func envIsTrue(name string) bool {
-	v := strings.ToLower(strings.TrimSpace(os.Getenv(name)))
+func envIsTrue(names ...string) bool {
+	v := strings.ToLower(strings.TrimSpace(envFirst(names...)))
 	return v == "1" || v == "true" || v == "yes" || v == "on"
+}
+
+func envFirst(names ...string) string {
+	for _, name := range names {
+		if v := os.Getenv(name); v != "" {
+			return v
+		}
+	}
+	return ""
 }
 
 // normalizeSQLValue converts driver-specific scan values into JSON-safe

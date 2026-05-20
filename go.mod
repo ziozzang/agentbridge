@@ -1,4 +1,4 @@
-module github.com/ziozzang/glm-acp
+module github.com/ziozzang/agentbridge
 
 go 1.25.0
 

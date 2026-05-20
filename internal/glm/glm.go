@@ -1,5 +1,5 @@
 // Package glm wraps the OpenAI-compatible Z.AI Coding Plan API for the
-// glm-acp-agent. It exposes a streaming chat-completions interface with the
+// agentbridge. It exposes a streaming chat-completions interface with the
 // GLM-specific "thinking" extension.
 package glm
 
@@ -16,10 +16,10 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/ziozzang/glm-acp/internal/credentials"
-	"github.com/ziozzang/glm-acp/internal/logger"
-	"github.com/ziozzang/glm-acp/internal/provider"
-	"github.com/ziozzang/glm-acp/internal/tools/definitions"
+	"github.com/ziozzang/agentbridge/internal/credentials"
+	"github.com/ziozzang/agentbridge/internal/logger"
+	"github.com/ziozzang/agentbridge/internal/provider"
+	"github.com/ziozzang/agentbridge/internal/tools/definitions"
 )
 
 // DefaultBaseURL is the default Z.AI Coding Plan endpoint.
@@ -46,9 +46,9 @@ var BuiltinAvailableModels = []ModelInfo{
 }
 
 // AvailableModels resolves the list of models advertised to clients, honouring
-// the ACP_GLM_AVAILABLE_MODELS override.
+// AGENTBRIDGE_GLM_AVAILABLE_MODELS and legacy ACP_GLM_AVAILABLE_MODELS.
 func AvailableModels() []ModelInfo {
-	override := os.Getenv("ACP_GLM_AVAILABLE_MODELS")
+	override := envFirst("AGENTBRIDGE_GLM_AVAILABLE_MODELS", "ACP_GLM_AVAILABLE_MODELS")
 	if override == "" {
 		return append([]ModelInfo(nil), BuiltinAvailableModels...)
 	}
@@ -78,9 +78,9 @@ func AvailableModels() []ModelInfo {
 	return out
 }
 
-// DefaultModelEnv returns the default model id, applying ACP_GLM_MODEL.
+// DefaultModelEnv returns the default model id.
 func DefaultModelEnv() string {
-	if v := os.Getenv("ACP_GLM_MODEL"); v != "" {
+	if v := envFirst("AGENTBRIDGE_GLM_MODEL", "ACP_GLM_MODEL"); v != "" {
 		return v
 	}
 	return DefaultModel
@@ -89,9 +89,9 @@ func DefaultModelEnv() string {
 var thinkingPattern = regexp.MustCompile(`(?i)^glm-(?:4\.[567]|5)`)
 
 // ThinkingEnabled reports whether GLM "thinking" mode should be enabled for a
-// given model. The user can force on/off via ACP_GLM_THINKING.
+// given model. The user can force on/off via AGENTBRIDGE_GLM_THINKING.
 func ThinkingEnabled(model string) bool {
-	if v, ok := os.LookupEnv("ACP_GLM_THINKING"); ok {
+	if v, ok := lookupEnvFirst("AGENTBRIDGE_GLM_THINKING", "ACP_GLM_THINKING"); ok {
 		lv := strings.ToLower(strings.TrimSpace(v))
 		return lv == "true" || lv == "1"
 	}
@@ -100,7 +100,7 @@ func ThinkingEnabled(model string) bool {
 
 // MaxTokensEnv returns the configured per-call max output tokens.
 func MaxTokensEnv() int {
-	if v := os.Getenv("ACP_GLM_MAX_TOKENS"); v != "" {
+	if v := envFirst("AGENTBRIDGE_GLM_MAX_TOKENS", "ACP_GLM_MAX_TOKENS"); v != "" {
 		if n, err := strconv.Atoi(v); err == nil && n > 0 {
 			return n
 		}
@@ -108,12 +108,30 @@ func MaxTokensEnv() int {
 	return DefaultMaxTokens
 }
 
-// BaseURLEnv returns the API base URL, applying ACP_GLM_BASE_URL.
+// BaseURLEnv returns the API base URL.
 func BaseURLEnv() string {
-	if v := os.Getenv("ACP_GLM_BASE_URL"); v != "" {
+	if v := envFirst("AGENTBRIDGE_GLM_BASE_URL", "ACP_GLM_BASE_URL"); v != "" {
 		return v
 	}
 	return DefaultBaseURL
+}
+
+func envFirst(names ...string) string {
+	for _, name := range names {
+		if v := os.Getenv(name); v != "" {
+			return v
+		}
+	}
+	return ""
+}
+
+func lookupEnvFirst(names ...string) (string, bool) {
+	for _, name := range names {
+		if v, ok := os.LookupEnv(name); ok {
+			return v, true
+		}
+	}
+	return "", false
 }
 
 // ToolCall is an assembled GLM function-call arriving from the stream.
@@ -155,7 +173,7 @@ type Client struct {
 func New() (*Client, error) {
 	key := credentials.Resolve()
 	if key == "" {
-		return nil, errors.New("No API key found. Set the Z_AI_API_KEY environment variable, or run `glm-acp-agent --setup` to store one.")
+		return nil, errors.New("No API key found. Set the Z_AI_API_KEY environment variable, or run `agentbridge --setup` to store one.")
 	}
 	return &Client{
 		APIKey:     key,

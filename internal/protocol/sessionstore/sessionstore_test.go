@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ziozzang/glm-acp/internal/glm"
+	"github.com/ziozzang/agentbridge/internal/glm"
 )
 
 func ptr(s string) *string { return &s }

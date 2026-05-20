@@ -12,7 +12,7 @@ func TestPathHonorsXDGConfigHome(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("XDG_CONFIG_HOME", dir)
 	got := Path()
-	want := filepath.Join(dir, "glm-acp-agent", "credentials.json")
+	want := filepath.Join(dir, "agentbridge", "credentials.json")
 	if got != want {
 		t.Errorf("Path() = %q, want %q", got, want)
 	}

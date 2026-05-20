@@ -1,14 +1,15 @@
 // Package codexoauth implements the OpenAI Codex OAuth-style token
-// resolver. When a provider config uses `api_key: oauth:codex`, the harness
+// resolver. When a provider config uses `api_key: oauth:codex`, AgentBridge
 // resolves the live access token by reading the cached token JSON (Codex
 // CLI format) and, when it has expired, exchanging the refresh token at
 // OpenAI's OAuth endpoint.
 //
 // The expected cache path is:
 //
+//	$AGENTBRIDGE_CODEX_TOKEN_FILE        if set, or else
 //	$ACP_HARNESS_CODEX_TOKEN_FILE        if set, or else
-//	$XDG_CONFIG_HOME/acp-harness/codex-token.json or else
-//	~/.config/acp-harness/codex-token.json
+//	$XDG_CONFIG_HOME/agentbridge/codex-token.json or else
+//	~/.config/agentbridge/codex-token.json
 //
 // Token file shape:
 //
@@ -18,7 +19,7 @@
 //	  "expires_at":   "2026-01-01T00:00:00Z"
 //	}
 //
-// Alternatively, ACP_HARNESS_CODEX_ACCESS_TOKEN may be set to skip the
+// Alternatively, AGENTBRIDGE_CODEX_ACCESS_TOKEN may be set to skip the
 // refresh dance.
 package codexoauth
 
@@ -37,12 +38,12 @@ import (
 )
 
 // DefaultTokenURL is the OpenAI OAuth refresh endpoint used by the Codex
-// CLI. It can be overridden via ACP_HARNESS_CODEX_TOKEN_URL.
+// CLI. It can be overridden via AGENTBRIDGE_CODEX_TOKEN_URL.
 const DefaultTokenURL = "https://auth.openai.com/oauth/token"
 
 // DefaultClientID is a generic Codex-like public client ID, used only if
 // the token file does not record one. Override with
-// ACP_HARNESS_CODEX_CLIENT_ID.
+// AGENTBRIDGE_CODEX_CLIENT_ID.
 const DefaultClientID = "app_codex_default"
 
 // Token is the cached Codex OAuth token.
@@ -80,10 +81,10 @@ func NewForFlavour(flavour, tokenPath string) *Resolver {
 	if flavour == "" {
 		flavour = "codex"
 	}
-	envPrefix := "ACP_HARNESS_" + strings.ToUpper(flavour)
+	envPrefix := "AGENTBRIDGE_" + strings.ToUpper(flavour)
 	fileName := flavour + "-token.json"
 	if tokenPath == "" {
-		tokenPath = defaultTokenPath(envPrefix+"_TOKEN_FILE", fileName)
+		tokenPath = defaultTokenPath(envPrefix+"_TOKEN_FILE", "ACP_HARNESS_"+strings.ToUpper(flavour)+"_TOKEN_FILE", fileName)
 		if flavour == "codex" && !fileExists(tokenPath) {
 			if p := defaultCodexAuthPath(); fileExists(p) {
 				tokenPath = p
@@ -101,18 +102,18 @@ func NewForFlavour(flavour, tokenPath string) *Resolver {
 // DefaultTokenPath returns the on-disk token file path according to env
 // variables and XDG defaults.
 func DefaultTokenPath() string {
-	return defaultTokenPath("ACP_HARNESS_CODEX_TOKEN_FILE", "codex-token.json")
+	return defaultTokenPath("AGENTBRIDGE_CODEX_TOKEN_FILE", "ACP_HARNESS_CODEX_TOKEN_FILE", "codex-token.json")
 }
 
-func defaultTokenPath(envName, fileName string) string {
-	if v := os.Getenv(envName); v != "" {
+func defaultTokenPath(envName, legacyEnvName, fileName string) string {
+	if v := envFirst(envName, legacyEnvName); v != "" {
 		return v
 	}
 	if h := os.Getenv("XDG_CONFIG_HOME"); h != "" {
-		return filepath.Join(h, "acp-harness", fileName)
+		return filepath.Join(h, "agentbridge", fileName)
 	}
 	if h, err := os.UserHomeDir(); err == nil {
-		return filepath.Join(h, ".config", "acp-harness", fileName)
+		return filepath.Join(h, ".config", "agentbridge", fileName)
 	}
 	return ""
 }
@@ -131,21 +132,21 @@ func (r *Resolver) Resolve(ctx context.Context) (string, error) {
 // ChatGPT account id, refreshing the token when needed.
 func (r *Resolver) ResolveToken(ctx context.Context) (*Token, error) {
 	// Highest-priority override: explicit access token from env.
-	if v := os.Getenv(r.env("ACCESS_TOKEN")); v != "" {
-		return &Token{AccessToken: v, AccountID: os.Getenv(r.env("ACCOUNT_ID"))}, nil
+	if v := envFirst(r.env("ACCESS_TOKEN"), r.legacyEnv("ACCESS_TOKEN")); v != "" {
+		return &Token{AccessToken: v, AccountID: envFirst(r.env("ACCOUNT_ID"), r.legacyEnv("ACCOUNT_ID"))}, nil
 	}
 	tok, err := r.loadCached()
 	if err != nil {
 		return nil, err
 	}
-	if v := os.Getenv(r.env("ACCOUNT_ID")); v != "" {
+	if v := envFirst(r.env("ACCOUNT_ID"), r.legacyEnv("ACCOUNT_ID")); v != "" {
 		tok.AccountID = v
 	}
 	if !tok.expiringSoon() {
 		return tok, nil
 	}
 	if tok.RefreshToken == "" {
-		if v := os.Getenv(r.env("REFRESH_TOKEN")); v != "" {
+		if v := envFirst(r.env("REFRESH_TOKEN"), r.legacyEnv("REFRESH_TOKEN")); v != "" {
 			tok.RefreshToken = v
 		} else {
 			return nil, fmt.Errorf("%s oauth: access token expired and no refresh token available", r.label)
@@ -169,7 +170,7 @@ func (r *Resolver) loadCached() (*Token, error) {
 		return r.tok, nil
 	}
 	if r.path == "" || !fileExists(r.path) {
-		if rt := os.Getenv(r.env("REFRESH_TOKEN")); rt != "" {
+		if rt := envFirst(r.env("REFRESH_TOKEN"), r.legacyEnv("REFRESH_TOKEN")); rt != "" {
 			r.tok = &Token{RefreshToken: rt}
 			return r.tok, nil
 		}
@@ -220,14 +221,14 @@ func (r *Resolver) persist(t *Token) error {
 
 func (r *Resolver) refresh(ctx context.Context, t *Token) (*Token, error) {
 	tokenURL := t.TokenURL
-	if v := os.Getenv(r.env("TOKEN_URL")); v != "" {
+	if v := envFirst(r.env("TOKEN_URL"), r.legacyEnv("TOKEN_URL")); v != "" {
 		tokenURL = v
 	}
 	if tokenURL == "" {
 		tokenURL = DefaultTokenURL
 	}
 	clientID := t.ClientID
-	if v := os.Getenv(r.env("CLIENT_ID")); v != "" {
+	if v := envFirst(r.env("CLIENT_ID"), r.legacyEnv("CLIENT_ID")); v != "" {
 		clientID = v
 	}
 	if clientID == "" {
@@ -310,7 +311,23 @@ func defaultCodexAuthPath() string {
 
 func (r *Resolver) env(suffix string) string {
 	if r.envPrefix == "" {
-		return "ACP_HARNESS_CODEX_" + suffix
+		return "AGENTBRIDGE_CODEX_" + suffix
 	}
 	return r.envPrefix + "_" + suffix
+}
+
+func (r *Resolver) legacyEnv(suffix string) string {
+	if r.envPrefix == "" {
+		return "ACP_HARNESS_CODEX_" + suffix
+	}
+	return "ACP_HARNESS_" + strings.TrimPrefix(r.envPrefix, "AGENTBRIDGE_") + "_" + suffix
+}
+
+func envFirst(names ...string) string {
+	for _, name := range names {
+		if v := os.Getenv(name); v != "" {
+			return v
+		}
+	}
+	return ""
 }

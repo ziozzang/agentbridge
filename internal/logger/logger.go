@@ -3,17 +3,15 @@
 //
 // Configuration knobs (all optional):
 //
-//	ACP_HARNESS_LOG_LEVEL=trace|debug|info|warn|error   (default: warn)
-//	ACP_HARNESS_LOG_FILE=/path/to/agent.log             (default: stderr only)
-//	ACP_HARNESS_LOG_MAX_BYTES=10485760                  (rotation threshold)
-//	ACP_HARNESS_LOG_MAX_FILES=5                         (retention; >=1)
-//	ACP_HARNESS_LOG_BOTH=1                              (also write to stderr)
+//	AGENTBRIDGE_LOG_LEVEL=trace|debug|info|warn|error   (default: warn)
+//	AGENTBRIDGE_LOG_FILE=/path/to/agent.log             (default: stderr only)
+//	AGENTBRIDGE_LOG_MAX_BYTES=10485760                  (rotation threshold)
+//	AGENTBRIDGE_LOG_MAX_FILES=5                         (retention; >=1)
+//	AGENTBRIDGE_LOG_BOTH=1                              (also write to stderr)
 //
 // Back-compat:
 //
-//	ACP_GLM_DEBUG=1 still enables debug-level output. The original
-//	Debug/Warn/Error API is preserved, and SetOutput/SetDebug continue
-//	to work for tests.
+//	ACP_HARNESS_LOG_* and ACP_GLM_DEBUG remain supported aliases.
 package logger
 
 import (
@@ -145,19 +143,19 @@ func loadFromEnvLocked() error {
 		return nil
 	}
 	levelLoaded = true
-	level = ParseLevel(os.Getenv("ACP_HARNESS_LOG_LEVEL"))
+	level = ParseLevel(envFirst("AGENTBRIDGE_LOG_LEVEL", "ACP_HARNESS_LOG_LEVEL"))
 	// Back-compat: ACP_GLM_DEBUG=true forces DEBUG.
 	if isTrue(os.Getenv("ACP_GLM_DEBUG")) || debugForced {
 		if level > LevelDebug {
 			level = LevelDebug
 		}
 	}
-	path := os.Getenv("ACP_HARNESS_LOG_FILE")
+	path := envFirst("AGENTBRIDGE_LOG_FILE", "ACP_HARNESS_LOG_FILE")
 	if path == "" {
 		return nil
 	}
-	maxBytes := parseIntDefault(os.Getenv("ACP_HARNESS_LOG_MAX_BYTES"), 10*1024*1024)
-	maxFiles := parseIntDefault(os.Getenv("ACP_HARNESS_LOG_MAX_FILES"), 5)
+	maxBytes := parseIntDefault(envFirst("AGENTBRIDGE_LOG_MAX_BYTES", "ACP_HARNESS_LOG_MAX_BYTES"), 10*1024*1024)
+	maxFiles := parseIntDefault(envFirst("AGENTBRIDGE_LOG_MAX_FILES", "ACP_HARNESS_LOG_MAX_FILES"), 5)
 	if maxFiles < 1 {
 		maxFiles = 1
 	}
@@ -166,7 +164,7 @@ func loadFromEnvLocked() error {
 		return err
 	}
 	rotator = r
-	if isTrue(os.Getenv("ACP_HARNESS_LOG_BOTH")) {
+	if isTrue(envFirst("AGENTBRIDGE_LOG_BOTH", "ACP_HARNESS_LOG_BOTH")) {
 		out = io.MultiWriter(os.Stderr, r)
 	} else {
 		out = r
@@ -216,7 +214,7 @@ func write(lvl Level, msg string) {
 		return
 	}
 	ts := time.Now().UTC().Format("2006-01-02T15:04:05.000Z")
-	fmt.Fprintf(out, "[acp-harness] %s [%s] %s\n", ts, lvl.String(), msg)
+	fmt.Fprintf(out, "[agentbridge] %s [%s] %s\n", ts, lvl.String(), msg)
 }
 
 // Trace logs a trace-level event when enabled.
@@ -271,6 +269,15 @@ func parseIntDefault(s string, def int) int {
 		return def
 	}
 	return n
+}
+
+func envFirst(names ...string) string {
+	for _, name := range names {
+		if v := os.Getenv(name); v != "" {
+			return v
+		}
+	}
+	return ""
 }
 
 // ----- rotatingWriter ----------------------------------------------------

@@ -29,9 +29,9 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/ziozzang/glm-acp/internal/logger"
-	"github.com/ziozzang/glm-acp/internal/provider"
-	"github.com/ziozzang/glm-acp/internal/tools/definitions"
+	"github.com/ziozzang/agentbridge/internal/logger"
+	"github.com/ziozzang/agentbridge/internal/provider"
+	"github.com/ziozzang/agentbridge/internal/tools/definitions"
 )
 
 // Kind is the registry key for this provider.

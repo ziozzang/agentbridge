@@ -9,7 +9,7 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"github.com/ziozzang/glm-acp/internal/acp"
+	"github.com/ziozzang/agentbridge/internal/acp"
 )
 
 // Each call to the chat completions endpoint records the entire request body

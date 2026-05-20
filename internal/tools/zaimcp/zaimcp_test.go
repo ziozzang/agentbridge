@@ -12,12 +12,12 @@ import (
 
 // fakeMCPServer is a tiny in-memory Z.AI MCP simulator.
 type fakeMCPServer struct {
-	mu          sync.Mutex
-	sessionID   string
-	initCount   int
-	listCount   int
-	callCount   int
-	tools       []map[string]any
+	mu           sync.Mutex
+	sessionID    string
+	initCount    int
+	listCount    int
+	callCount    int
+	tools        []map[string]any
 	failNextCall bool // simulate -32601 for first tools/call
 }
 
@@ -107,7 +107,7 @@ func TestCallToolHappyPath(t *testing.T) {
 
 func TestCallToolRetriesOnMethodNotFound(t *testing.T) {
 	f := &fakeMCPServer{
-		tools:       []map[string]any{{"name": "webReader", "inputSchema": map[string]any{"properties": map[string]any{}}}},
+		tools:        []map[string]any{{"name": "webReader", "inputSchema": map[string]any{"properties": map[string]any{}}}},
 		failNextCall: true,
 	}
 	srv := httptest.NewServer(http.HandlerFunc(f.handler))
@@ -174,11 +174,11 @@ func jsonString(v any) string { b, _ := json.Marshal(v); return string(b) }
 
 func TestSnakeToCamel(t *testing.T) {
 	cases := map[string]string{
-		"foo":           "foo",
-		"foo_bar":       "fooBar",
-		"foo_bar_baz":   "fooBarBaz",
-		"already_one":   "alreadyOne",
-		"trailing_":     "trailing",
+		"foo":         "foo",
+		"foo_bar":     "fooBar",
+		"foo_bar_baz": "fooBarBaz",
+		"already_one": "alreadyOne",
+		"trailing_":   "trailing",
 	}
 	for in, want := range cases {
 		if got := snakeToCamel(in); got != want {

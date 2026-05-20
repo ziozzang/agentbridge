@@ -1,7 +1,8 @@
 // Package credentials resolves the Z.AI API key from the environment or the
-// XDG credentials file written by the `--setup` flow. It mirrors the
-// JavaScript implementation: env var wins over the credentials file, and the
-// file is created with mode 0600 in a 0700 parent directory.
+// XDG credentials file written by the `--setup` flow. Env vars win over the
+// credentials file, and the file is created with mode 0600 in a 0700 parent
+// directory. AgentBridge reads the new path first and keeps the old
+// glm-acp-agent path as a migration fallback.
 package credentials
 
 import (
@@ -11,7 +12,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/ziozzang/glm-acp/internal/logger"
+	"github.com/ziozzang/agentbridge/internal/logger"
 )
 
 // fileBody is the JSON shape persisted on disk.
@@ -22,6 +23,17 @@ type fileBody struct {
 // Path returns the absolute path of the credentials JSON file. It honours
 // $XDG_CONFIG_HOME and falls back to "~/.config".
 func Path() string {
+	if xdg := os.Getenv("XDG_CONFIG_HOME"); xdg != "" {
+		return filepath.Join(xdg, "agentbridge", "credentials.json")
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		home = "."
+	}
+	return filepath.Join(home, ".config", "agentbridge", "credentials.json")
+}
+
+func legacyPath() string {
 	if xdg := os.Getenv("XDG_CONFIG_HOME"); xdg != "" {
 		return filepath.Join(xdg, "glm-acp-agent", "credentials.json")
 	}
@@ -41,6 +53,9 @@ func ReadFromFile(path string) (string, error) {
 	raw, err := os.ReadFile(path)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
+			if path == Path() {
+				return ReadFromFile(legacyPath())
+			}
 			return "", nil
 		}
 		return "", nil // mirror TS: any read failure is silent
@@ -55,7 +70,7 @@ func ReadFromFile(path string) (string, error) {
 // Resolve returns the API key from the environment when set, falling back to
 // the credentials file. Returns "" if neither source has a key.
 func Resolve() string {
-	if env := os.Getenv("Z_AI_API_KEY"); env != "" {
+	if env := envFirst("AGENTBRIDGE_API_KEY", "Z_AI_API_KEY"); env != "" {
 		logger.Debugf("resolveApiKey: source=env key=%s", logger.MaskSecret(env))
 		return env
 	}
@@ -66,6 +81,15 @@ func Resolve() string {
 		logger.Debug("resolveApiKey: no key found")
 	}
 	return key
+}
+
+func envFirst(names ...string) string {
+	for _, name := range names {
+		if v := os.Getenv(name); v != "" {
+			return v
+		}
+	}
+	return ""
 }
 
 // Write persists the API key to the credentials file at path (or the default

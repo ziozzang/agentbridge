@@ -3,16 +3,19 @@
 //
 // Endpoint:   POST <BaseURL>/v1/messages
 // Streaming:  text/event-stream with named events
-//             (`event: content_block_delta\ndata: {...}`).
+//
+//	(`event: content_block_delta\ndata: {...}`).
+//
 // Auth:       x-api-key header (no "Bearer " prefix).
-//             anthropic-version header is mandatory.
+//
+//	anthropic-version header is mandatory.
 //
 // The adapter translates between the harness's neutral OpenAI-Chat-shaped
 // messages and Anthropic's content-block format:
-//   * `system` messages → top-level `system` string.
-//   * `assistant.tool_calls[]` → assistant content block `tool_use`.
-//   * `tool` messages → user content block `tool_result`.
-//   * function tool definitions → Anthropic `tools[]` with `input_schema`.
+//   - `system` messages → top-level `system` string.
+//   - `assistant.tool_calls[]` → assistant content block `tool_use`.
+//   - `tool` messages → user content block `tool_result`.
+//   - function tool definitions → Anthropic `tools[]` with `input_schema`.
 package anthropic
 
 import (
@@ -25,9 +28,9 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/ziozzang/glm-acp/internal/logger"
-	"github.com/ziozzang/glm-acp/internal/provider"
-	"github.com/ziozzang/glm-acp/internal/tools/definitions"
+	"github.com/ziozzang/agentbridge/internal/logger"
+	"github.com/ziozzang/agentbridge/internal/provider"
+	"github.com/ziozzang/agentbridge/internal/tools/definitions"
 )
 
 // Kind is the registry key for the Anthropic Messages API.
@@ -102,12 +105,12 @@ func (c *Client) Config() provider.Config { return c.cfg }
 // ----- Request shape ------------------------------------------------------
 
 type messagesRequest struct {
-	Model     string        `json:"model"`
-	Messages  []anthroMsg   `json:"messages"`
-	System    string        `json:"system,omitempty"`
-	Tools     []anthroTool  `json:"tools,omitempty"`
-	MaxTokens int           `json:"max_tokens"`
-	Stream    bool          `json:"stream"`
+	Model     string       `json:"model"`
+	Messages  []anthroMsg  `json:"messages"`
+	System    string       `json:"system,omitempty"`
+	Tools     []anthroTool `json:"tools,omitempty"`
+	MaxTokens int          `json:"max_tokens"`
+	Stream    bool         `json:"stream"`
 }
 
 type anthroMsg struct {

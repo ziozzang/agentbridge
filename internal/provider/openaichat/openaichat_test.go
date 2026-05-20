@@ -8,7 +8,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/ziozzang/glm-acp/internal/provider"
+	"github.com/ziozzang/agentbridge/internal/provider"
 )
 
 func collect(t *testing.T, chunks <-chan provider.Chunk, errs <-chan error) (text, thinking string, tcs []provider.ToolCall, stop string, usage *provider.Usage) {

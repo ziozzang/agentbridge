@@ -17,7 +17,7 @@ func TestBuildContainsAllSections(t *testing.T) {
 		NowOverride:      time.Date(2024, 7, 4, 0, 0, 0, 0, time.UTC),
 	})
 	wantContains := []string{
-		"glm-acp-agent", "<environment>", "/repo", "linux", "/bin/bash",
+		"agentbridge", "<environment>", "/repo", "linux", "/bin/bash",
 		"2024-07-04", "<tools>", "read_file, write_file",
 		"<file_system_guidelines>", "<version_control>", "<code_quality>",
 		"<tone>", "<problem_solving_workflow>", "<image_handling>",

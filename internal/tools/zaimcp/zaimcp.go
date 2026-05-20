@@ -28,10 +28,10 @@ const protocolVersion = "2025-06-18"
 
 // Client is an MCP-over-HTTP+SSE client.
 type Client struct {
-	HTTP    *http.Client
-	mu      sync.Mutex
-	cache   map[string]*sessionState
-	nextID  atomic.Int64
+	HTTP   *http.Client
+	mu     sync.Mutex
+	cache  map[string]*sessionState
+	nextID atomic.Int64
 }
 
 type sessionState struct {
@@ -112,7 +112,7 @@ func (c *Client) ensureSession(ctx context.Context, in CallToolInput) (*sessionS
 		"params": jsonObject{
 			"protocolVersion": protocolVersion,
 			"capabilities":    jsonObject{},
-			"clientInfo":      jsonObject{"name": "glm-acp-agent", "version": "1.0.0"},
+			"clientInfo":      jsonObject{"name": "agentbridge", "version": "1.0.0"},
 		},
 	}
 	_, sessionID, err := c.fetchJSONRPC(ctx, in.Endpoint, in.APIKey, "initialize", initBody, "", "")

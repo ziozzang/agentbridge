@@ -18,8 +18,8 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/ziozzang/glm-acp/internal/logger"
-	"github.com/ziozzang/glm-acp/internal/tools/mcparg"
+	"github.com/ziozzang/agentbridge/internal/logger"
+	"github.com/ziozzang/agentbridge/internal/tools/mcparg"
 )
 
 const protocolVersion = "2025-06-18"
@@ -57,12 +57,12 @@ type discoveredTool struct {
 // New constructs a stdio Vision MCP client with the given API key.
 // The subprocess is spawned lazily on first CallTool.
 func New(apiKey string) *Client {
-	cmd := os.Getenv("ACP_GLM_VISION_MCP_CMD")
+	cmd := envFirst("AGENTBRIDGE_GLM_VISION_MCP_CMD", "ACP_GLM_VISION_MCP_CMD")
 	if cmd == "" {
 		cmd = "npx"
 	}
 	args := []string{"-y", "@z_ai/mcp-server"}
-	if customArgs := os.Getenv("ACP_GLM_VISION_MCP_ARGS"); customArgs != "" {
+	if customArgs := envFirst("AGENTBRIDGE_GLM_VISION_MCP_ARGS", "ACP_GLM_VISION_MCP_ARGS"); customArgs != "" {
 		args = strings.Fields(customArgs)
 	}
 	return &Client{
@@ -71,6 +71,15 @@ func New(apiKey string) *Client {
 		args:    args,
 		pending: map[int]*pendingRequest{},
 	}
+}
+
+func envFirst(names ...string) string {
+	for _, name := range names {
+		if v := os.Getenv(name); v != "" {
+			return v
+		}
+	}
+	return ""
 }
 
 // CallTool invokes a tool on the Vision MCP server. The subprocess is started
@@ -200,7 +209,7 @@ func (c *Client) startAndInitialize(ctx context.Context) error {
 	_, err = c.requestLocked(ctx, "initialize", map[string]any{
 		"protocolVersion": protocolVersion,
 		"capabilities":    map[string]any{},
-		"clientInfo":      map[string]any{"name": "glm-acp-agent", "version": "1.0.0"},
+		"clientInfo":      map[string]any{"name": "agentbridge", "version": "1.0.0"},
 	}, "Vision MCP initialize")
 	if err != nil {
 		c.resetLocked()
@@ -382,7 +391,7 @@ func translateBusinessError(err error) error {
 	msg := err.Error()
 	// Error 1113: invalid API key
 	if strings.Contains(msg, "1113") || strings.Contains(msg, "invalid api key") {
-		return fmt.Errorf("Invalid Z.AI API key for Vision MCP. Reset via `glm-acp-agent --setup`. Original error: %w", err)
+		return fmt.Errorf("Invalid Z.AI API key for Vision MCP. Reset via `agentbridge --setup`. Original error: %w", err)
 	}
 	return err
 }

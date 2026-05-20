@@ -1,7 +1,7 @@
 // Package acp defines the wire-level types and the JSON-RPC 2.0 (ndjson)
 // stdio transport used by the Agent Client Protocol.
 //
-// Types intentionally cover the subset of ACP that glm-acp-agent uses; we
+// Types intentionally cover the subset of ACP that agentbridge uses; we
 // pass-through unrecognised fields so we stay forward-compatible with newer
 // clients.
 package acp
@@ -29,12 +29,12 @@ type AgentInfo struct {
 
 // AuthMethod describes one way a client can authenticate to the agent.
 type AuthMethod struct {
-	Type        string             `json:"type,omitempty"`
-	ID          string             `json:"id"`
-	Name        string             `json:"name"`
-	Description string             `json:"description,omitempty"`
-	Link        string             `json:"link,omitempty"`
-	Vars        []AuthMethodVar    `json:"vars,omitempty"`
+	Type        string          `json:"type,omitempty"`
+	ID          string          `json:"id"`
+	Name        string          `json:"name"`
+	Description string          `json:"description,omitempty"`
+	Link        string          `json:"link,omitempty"`
+	Vars        []AuthMethodVar `json:"vars,omitempty"`
 }
 
 // AuthMethodVar describes a variable the client must collect.
@@ -92,7 +92,7 @@ type MCPServerSpec = json.RawMessage
 
 // McpServer describes a single MCP server configuration.
 type McpServer struct {
-	Type    string            `json:"type"`            // "http" | "sse" | "stdio"
+	Type    string            `json:"type"` // "http" | "sse" | "stdio"
 	Name    string            `json:"name"`
 	URL     string            `json:"url,omitempty"`
 	Headers map[string]string `json:"headers,omitempty"`

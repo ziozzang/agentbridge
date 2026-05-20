@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ziozzang/glm-acp/internal/acp"
+	"github.com/ziozzang/agentbridge/internal/acp"
 )
 
 // TS test: "preprocessImageBlocks prefers base64 data over URI when both are present".
@@ -27,7 +27,7 @@ func TestImagePrefersBase64OverURIWhenBothPresent(t *testing.T) {
 	if src == "https://example.com/should-not-be-used.png" {
 		t.Fatalf("URI was used despite base64 being present")
 	}
-	if src == "" || !strings.Contains(src, "glm-acp-image-") {
+	if src == "" || !strings.Contains(src, "agentbridge-image-") {
 		t.Errorf("expected local materialised path, got %q", src)
 	}
 	if len(res.Cleanups) != 1 {

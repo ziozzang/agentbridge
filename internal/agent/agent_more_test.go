@@ -10,19 +10,19 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"github.com/ziozzang/glm-acp/internal/acp"
-	"github.com/ziozzang/glm-acp/internal/glm"
-	"github.com/ziozzang/glm-acp/internal/protocol/sessionstore"
+	"github.com/ziozzang/agentbridge/internal/acp"
+	"github.com/ziozzang/agentbridge/internal/glm"
+	"github.com/ziozzang/agentbridge/internal/protocol/sessionstore"
 )
 
 // recorderConn captures every outbound session/update and permission call so
 // tests can assert on the agent's notification stream — substantially richer
 // coverage than the I/O-stubbed *acp.Conn used in agent_test.go.
 type recorderConn struct {
-	mu             sync.Mutex
-	updates        []map[string]any
+	mu              sync.Mutex
+	updates         []map[string]any
 	permissionCalls int
-	permissionErr  error
+	permissionErr   error
 }
 
 func (r *recorderConn) SendNotification(method string, params any) error {
@@ -75,8 +75,8 @@ func (r *recorderConn) countUpdates(kind string) int {
 // streamingServer streams a single chat-completions chunk back to the GLM
 // client. Each call returns the canned text/finish_reason combination.
 type streamingServer struct {
-	calls       atomic.Int32
-	responses   []string
+	calls     atomic.Int32
+	responses []string
 }
 
 func (s *streamingServer) handler() http.HandlerFunc {

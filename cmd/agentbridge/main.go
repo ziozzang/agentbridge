@@ -1,17 +1,14 @@
-// glm-acp-agent is the ACP-protocol entry point that bridges Z.AI / Zhipu AI
-// GLM models into any ACP-aware client (e.g. Zed, the ACP CLI). It speaks
-// JSON-RPC 2.0 over newline-delimited JSON on stdio.
+// agentbridge is a provider-neutral protocol bridge and compatibility
+// gateway for AI agents. It speaks ACP over stdio/TCP and can expose A2A,
+// MCP Streamable HTTP, OpenAI-compatible HTTP APIs, AG-UI, and gRPC.
 //
 // Environment variables (all optional unless noted):
 //
-//	Z_AI_API_KEY              REQUIRED for any chat. Or use --setup to store one.
-//	ACP_GLM_MODEL             Default model id (e.g. glm-5.1).
-//	ACP_GLM_AVAILABLE_MODELS  Comma-separated whitelist advertised to the client.
-//	ACP_GLM_BASE_URL          Override Z.AI Coding Plan base URL.
-//	ACP_GLM_MAX_TOKENS        Per-call max output tokens (default 8192).
-//	ACP_GLM_THINKING          Force GLM thinking mode on/off (true/false).
-//	ACP_GLM_DEBUG             true|1 enables verbose stderr debug logging.
-//	ACP_GLM_SESSION_DIR       Directory for persisted session JSON files.
+//	AGENTBRIDGE_PROVIDER      Active provider (default glm).
+//	AGENTBRIDGE_API_KEY       API key for the active provider.
+//	AGENTBRIDGE_MODEL         Default model override.
+//	Z_AI_API_KEY              GLM/Z.AI key alias.
+//	ACP_HARNESS_* / ACP_GLM_* Legacy aliases retained for compatibility.
 //	XDG_CONFIG_HOME           Used to locate the credentials file.
 package main
 
@@ -29,22 +26,24 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/ziozzang/glm-acp/internal/acp"
-	"github.com/ziozzang/glm-acp/internal/agent"
-	"github.com/ziozzang/glm-acp/internal/credentials"
-	"github.com/ziozzang/glm-acp/internal/grpccompat"
-	"github.com/ziozzang/glm-acp/internal/httpcompat"
-	"github.com/ziozzang/glm-acp/internal/logger"
-	"github.com/ziozzang/glm-acp/internal/protocol/sessionstore"
+	"github.com/ziozzang/agentbridge/internal/acp"
+	"github.com/ziozzang/agentbridge/internal/agent"
+	"github.com/ziozzang/agentbridge/internal/credentials"
+	"github.com/ziozzang/agentbridge/internal/grpccompat"
+	"github.com/ziozzang/agentbridge/internal/httpcompat"
+	"github.com/ziozzang/agentbridge/internal/logger"
+	"github.com/ziozzang/agentbridge/internal/protocol/sessionstore"
 )
 
-const usage = `glm-acp-agent — ACP coding agent backed by Z.AI / Zhipu AI GLM models.
+const usage = `agentbridge — protocol bridge and compatibility gateway for AI agents.
 
 Usage:
-  glm-acp-agent              # speak ACP over stdio (the default mode for IDEs)
-  glm-acp-agent --server     # speak ACP over TCP, one JSON-RPC stream per connection
-  glm-acp-agent --setup      # interactively store a Z.AI API key
-  glm-acp-agent --help       # show this help
+  agentbridge              # speak ACP over stdio (default for IDEs)
+  agentbridge --server     # speak ACP over TCP, one JSON-RPC stream per connection
+  agentbridge --http-listen 127.0.0.1:8766
+  agentbridge --grpc-listen 127.0.0.1:8767
+  agentbridge --setup      # interactively store a GLM/Z.AI API key
+  agentbridge --help       # show this help
 
 Server flags:
   --listen ADDR              TCP listen address (default "127.0.0.1:8765")
@@ -54,15 +53,15 @@ Server flags:
   --grpc-listen ADDR         optional gRPC compatibility API listen address
 
 Environment:
-  Z_AI_API_KEY               (required for chat) Z.AI Coding Plan API key
-  ACP_GLM_MODEL              default model id (e.g. glm-5.1)
-  ACP_GLM_AVAILABLE_MODELS   comma-separated whitelist advertised to clients
-  ACP_GLM_BASE_URL           override the Z.AI Coding Plan base URL
-  ACP_GLM_MAX_TOKENS         per-call max output tokens (default 8192)
-  ACP_GLM_THINKING           force GLM thinking mode on/off (true/false)
-  ACP_GLM_DEBUG              true|1 enables verbose stderr debug logging
-  ACP_GLM_SESSION_DIR        directory for persisted session JSON files
-  XDG_CONFIG_HOME            used to locate the credentials file
+  AGENTBRIDGE_PROVIDER       active provider (default "glm")
+  AGENTBRIDGE_API_KEY        API key for the active provider
+  AGENTBRIDGE_MODEL          default model override
+  AGENTBRIDGE_BASE_URL       base URL override
+  AGENTBRIDGE_PROVIDERS_FILE provider YAML override
+  AGENTBRIDGE_LOG_LEVEL      trace|debug|info|warn|error|off
+  AGENTBRIDGE_SESSION_DIR    directory for persisted session JSON files
+  ACP_HARNESS_* / ACP_GLM_*  legacy aliases retained for compatibility
+  XDG_CONFIG_HOME            used to locate credentials and providers files
 `
 
 func main() {

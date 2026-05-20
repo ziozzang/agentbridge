@@ -13,7 +13,7 @@ import (
 // inline into the system prompt.
 const MaxProjectContextChars = 8 * 1024
 
-const persona = `You are glm-acp-agent, an ACP coding agent backed by the GLM model family (Z.AI / Zhipu AI).
+const persona = `You are agentbridge, an ACP coding agent backed by the GLM model family (Z.AI / Zhipu AI).
 You help developers read, understand, and modify code in their projects.
 You operate over the Agent Client Protocol (ACP); your client is an IDE or
 terminal that renders tool calls and prompts the user for permission before

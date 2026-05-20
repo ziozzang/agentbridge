@@ -1,19 +1,19 @@
-# ACP Harness — default provider templates.
+# AgentBridge — default provider templates.
 #
 # Each entry under `providers:` is selectable via the env variable
-# ACP_HARNESS_PROVIDER=<name>. Values use shell-style ${VAR} expansion so a
+# AGENTBRIDGE_PROVIDER=<name>. Values use shell-style ${VAR} expansion so a
 # single template can pick up its credential from the user's environment.
 #
-# Override this file with ACP_HARNESS_PROVIDERS_FILE=/path/to/my.yaml or by
-# placing a file at $XDG_CONFIG_HOME/acp-harness/providers.yaml.
+# Override this file with AGENTBRIDGE_PROVIDERS_FILE=/path/to/my.yaml or by
+# placing a file at $XDG_CONFIG_HOME/agentbridge/providers.yaml.
 
 providers:
   # --------- GLM / Z.AI Coding Plan (Chat Completions compat) -------------
   glm:
     kind: glm
-    base_url: ${ACP_GLM_BASE_URL:-https://api.z.ai/api/coding/paas/v4}
-    api_key: ${Z_AI_API_KEY:-${ACP_HARNESS_API_KEY}}
-    default_model: ${ACP_GLM_MODEL:-glm-5.1}
+    base_url: ${AGENTBRIDGE_GLM_BASE_URL:-${ACP_GLM_BASE_URL:-https://api.z.ai/api/coding/paas/v4}}
+    api_key: ${Z_AI_API_KEY:-${AGENTBRIDGE_API_KEY:-${ACP_HARNESS_API_KEY}}}
+    default_model: ${AGENTBRIDGE_GLM_MODEL:-${ACP_GLM_MODEL:-glm-5.1}}
     max_tokens: 8192
     context_window: 200000
     models:
@@ -34,7 +34,7 @@ providers:
   openai:
     kind: openai-chat
     base_url: ${OPENAI_BASE_URL:-https://api.openai.com/v1}
-    api_key: ${OPENAI_API_KEY:-${ACP_HARNESS_API_KEY}}
+    api_key: ${OPENAI_API_KEY:-${AGENTBRIDGE_API_KEY:-${ACP_HARNESS_API_KEY}}}
     default_model: ${OPENAI_MODEL:-gpt-4.1-mini}
     max_tokens: 4096
     context_window: 1000000
@@ -56,7 +56,7 @@ providers:
   openai-responses:
     kind: openai-responses
     base_url: ${OPENAI_BASE_URL:-https://api.openai.com}
-    api_key: ${OPENAI_API_KEY:-${ACP_HARNESS_API_KEY}}
+    api_key: ${OPENAI_API_KEY:-${AGENTBRIDGE_API_KEY:-${ACP_HARNESS_API_KEY}}}
     default_model: ${OPENAI_MODEL:-gpt-5}
     max_tokens: 4096
     context_window: 400000
@@ -75,7 +75,7 @@ providers:
   anthropic:
     kind: anthropic
     base_url: ${ANTHROPIC_BASE_URL:-https://api.anthropic.com}
-    api_key: ${ANTHROPIC_API_KEY:-${ACP_HARNESS_API_KEY}}
+    api_key: ${ANTHROPIC_API_KEY:-${AGENTBRIDGE_API_KEY:-${ACP_HARNESS_API_KEY}}}
     default_model: ${ANTHROPIC_MODEL:-claude-sonnet-4-5}
     max_tokens: 8192
     context_window: 200000
@@ -119,7 +119,7 @@ providers:
   ollama:
     kind: ollama
     base_url: ${OLLAMA_BASE_URL:-http://localhost:11434}
-    api_key: ${OLLAMA_API_KEY:-${ACP_HARNESS_API_KEY}}
+    api_key: ${OLLAMA_API_KEY:-${AGENTBRIDGE_API_KEY:-${ACP_HARNESS_API_KEY}}}
     default_model: ${OLLAMA_MODEL:-llama3.1}
     max_tokens: 4096
     context_window: 32000
@@ -135,13 +135,13 @@ providers:
   openrouter:
     kind: openai-chat
     base_url: ${OPENROUTER_BASE_URL:-https://openrouter.ai/api/v1}
-    api_key: ${OPENROUTER_API_KEY:-${ACP_HARNESS_API_KEY}}
+    api_key: ${OPENROUTER_API_KEY:-${AGENTBRIDGE_API_KEY:-${ACP_HARNESS_API_KEY}}}
     default_model: ${OPENROUTER_MODEL:-anthropic/claude-sonnet-4.5}
     max_tokens: 4096
     context_window: 200000
     headers:
-      HTTP-Referer: ${OPENROUTER_REFERER:-https://github.com/ziozzang/glm-acp}
-      X-Title: ${OPENROUTER_APP_TITLE:-acp-harness}
+      HTTP-Referer: ${OPENROUTER_REFERER:-https://github.com/ziozzang/agentbridge}
+      X-Title: ${OPENROUTER_APP_TITLE:-agentbridge}
     models:
       - id: anthropic/claude-sonnet-4.5
         name: Claude Sonnet 4.5 (via OpenRouter)
@@ -156,14 +156,14 @@ providers:
   litellm:
     kind: openai-chat
     base_url: ${LITELLM_BASE_URL:-http://localhost:4000/v1}
-    api_key: ${LITELLM_API_KEY:-${ACP_HARNESS_API_KEY}}
+    api_key: ${LITELLM_API_KEY:-${AGENTBRIDGE_API_KEY:-${ACP_HARNESS_API_KEY}}}
     default_model: ${LITELLM_MODEL:-gpt-4.1}
     max_tokens: 4096
     context_window: 200000
 
   # --------- Codex (ChatGPT Codex backend behind OAuth) ------------------
   # Resolve the bearer token and ChatGPT account id from Codex CLI auth
-  # (`~/.codex/auth.json`) or ACP_HARNESS_CODEX_* overrides.
+  # (`~/.codex/auth.json`) or AGENTBRIDGE_CODEX_* overrides.
   codex:
     kind: openai-responses
     base_url: ${CODEX_BASE_URL:-https://chatgpt.com/backend-api/codex}
@@ -172,11 +172,11 @@ providers:
     max_tokens: 4096
     context_window: 400000
     headers:
-      version: ${CODEX_CLIENT_VERSION:-glm-acp}
+      version: ${CODEX_CLIENT_VERSION:-agentbridge}
     extra:
       responses_path: ${CODEX_RESPONSES_PATH:-/responses}
       instructions: ${CODEX_INSTRUCTIONS:-You are a concise coding assistant.}
-      prompt_cache_key: ${CODEX_PROMPT_CACHE_KEY:-glm-acp}
+      prompt_cache_key: ${CODEX_PROMPT_CACHE_KEY:-agentbridge}
       reasoning_effort: ${CODEX_REASONING_EFFORT:-medium}
       include_reasoning_encrypted: true
       omit_max_output_tokens: true

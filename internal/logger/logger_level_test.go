@@ -31,11 +31,11 @@ func TestParseLevel(t *testing.T) {
 func TestLevelFilters(t *testing.T) {
 	t.Cleanup(ResetDebug)
 	for _, tc := range []struct {
-		name      string
-		level     Level
-		debug     bool
-		info      bool
-		warn      bool
+		name  string
+		level Level
+		debug bool
+		info  bool
+		warn  bool
 	}{
 		{"trace", LevelTrace, true, true, true},
 		{"debug", LevelDebug, true, true, true},

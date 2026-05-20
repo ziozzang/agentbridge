@@ -8,8 +8,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ziozzang/glm-acp/internal/httpcompat"
-	"github.com/ziozzang/glm-acp/internal/provider"
+	"github.com/ziozzang/agentbridge/internal/httpcompat"
+	"github.com/ziozzang/agentbridge/internal/provider"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/health"
@@ -18,7 +18,7 @@ import (
 	"google.golang.org/protobuf/types/known/structpb"
 )
 
-const ServiceName = "glm_acp.v1.AgentService"
+const ServiceName = "agentbridge.v1.AgentService"
 
 // NewServer returns a gRPC server that accepts google.protobuf.Struct request
 // messages. This keeps the wire protocol standard gRPC/protobuf without

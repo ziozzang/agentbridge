@@ -353,7 +353,7 @@ func TestMCPAGUIOpenAPIMetrics(t *testing.T) {
 		}
 		defer resp.Body.Close()
 		body, _ = io.ReadAll(resp.Body)
-		if !strings.Contains(string(body), "glm_acp_http_requests_total") {
+		if !strings.Contains(string(body), "agentbridge_http_requests_total") {
 			t.Fatalf("bad metrics: %q", string(body))
 		}
 	})

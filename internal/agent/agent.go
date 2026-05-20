@@ -15,37 +15,37 @@ import (
 	"sync"
 	"time"
 
-	"github.com/ziozzang/glm-acp/internal/acp"
-	"github.com/ziozzang/glm-acp/internal/config"
-	"github.com/ziozzang/glm-acp/internal/credentials"
-	"github.com/ziozzang/glm-acp/internal/glm"
-	"github.com/ziozzang/glm-acp/internal/logger"
-	codexoauth "github.com/ziozzang/glm-acp/internal/oauth/codex"
-	"github.com/ziozzang/glm-acp/internal/plugins"
-	_ "github.com/ziozzang/glm-acp/internal/plugins/duckdb" // register duckdb stub
-	_ "github.com/ziozzang/glm-acp/internal/plugins/sqlite" // register sqlite plugin
-	"github.com/ziozzang/glm-acp/internal/protocol/imagepre"
-	"github.com/ziozzang/glm-acp/internal/protocol/sessionstore"
-	"github.com/ziozzang/glm-acp/internal/protocol/systemprompt"
-	"github.com/ziozzang/glm-acp/internal/provider"
-	_ "github.com/ziozzang/glm-acp/internal/provider/anthropic"  // register anthropic
-	_ "github.com/ziozzang/glm-acp/internal/provider/claudecode" // register claude-code-cli
-	_ "github.com/ziozzang/glm-acp/internal/provider/glmprov"    // register glm kind
-	_ "github.com/ziozzang/glm-acp/internal/provider/ollama"     // register ollama
-	_ "github.com/ziozzang/glm-acp/internal/provider/openaichat" // register openai-chat
-	_ "github.com/ziozzang/glm-acp/internal/provider/openairesp" // register openai-responses
-	"github.com/ziozzang/glm-acp/internal/tools/definitions"
-	"github.com/ziozzang/glm-acp/internal/tools/executor"
-	"github.com/ziozzang/glm-acp/internal/tools/sessionmcp"
-	"github.com/ziozzang/glm-acp/internal/tools/visionmcp"
-	"github.com/ziozzang/glm-acp/internal/tools/zaimcp"
+	"github.com/ziozzang/agentbridge/internal/acp"
+	"github.com/ziozzang/agentbridge/internal/config"
+	"github.com/ziozzang/agentbridge/internal/credentials"
+	"github.com/ziozzang/agentbridge/internal/glm"
+	"github.com/ziozzang/agentbridge/internal/logger"
+	codexoauth "github.com/ziozzang/agentbridge/internal/oauth/codex"
+	"github.com/ziozzang/agentbridge/internal/plugins"
+	_ "github.com/ziozzang/agentbridge/internal/plugins/duckdb" // register duckdb stub
+	_ "github.com/ziozzang/agentbridge/internal/plugins/sqlite" // register sqlite plugin
+	"github.com/ziozzang/agentbridge/internal/protocol/imagepre"
+	"github.com/ziozzang/agentbridge/internal/protocol/sessionstore"
+	"github.com/ziozzang/agentbridge/internal/protocol/systemprompt"
+	"github.com/ziozzang/agentbridge/internal/provider"
+	_ "github.com/ziozzang/agentbridge/internal/provider/anthropic"  // register anthropic
+	_ "github.com/ziozzang/agentbridge/internal/provider/claudecode" // register claude-code-cli
+	_ "github.com/ziozzang/agentbridge/internal/provider/glmprov"    // register glm kind
+	_ "github.com/ziozzang/agentbridge/internal/provider/ollama"     // register ollama
+	_ "github.com/ziozzang/agentbridge/internal/provider/openaichat" // register openai-chat
+	_ "github.com/ziozzang/agentbridge/internal/provider/openairesp" // register openai-responses
+	"github.com/ziozzang/agentbridge/internal/tools/definitions"
+	"github.com/ziozzang/agentbridge/internal/tools/executor"
+	"github.com/ziozzang/agentbridge/internal/tools/sessionmcp"
+	"github.com/ziozzang/agentbridge/internal/tools/visionmcp"
+	"github.com/ziozzang/agentbridge/internal/tools/zaimcp"
 )
 
 // Version is reported in the initialize response.
 const Version = "1.0.0"
 
 // AgentName is reported in the initialize response.
-const AgentName = "glm-acp-agent"
+const AgentName = "agentbridge"
 
 // DefaultMaxTurns is the default per-prompt iteration cap.
 const DefaultMaxTurns = 20
@@ -70,7 +70,7 @@ type Notifier interface {
 // Agent is the harness's ACP Agent. It owns the per-session prompt loop,
 // history, model/mode state, and dispatches tool calls back to the
 // connected ACP client. The Provider field abstracts the upstream LLM and
-// is selected at startup via ACP_HARNESS_PROVIDER + provider templates.
+// is selected at startup via AGENTBRIDGE_PROVIDER + provider templates.
 type Agent struct {
 	Conn     Notifier
 	Store    *sessionstore.Store
@@ -141,7 +141,7 @@ func (a *Agent) Initialize(_ context.Context, p acp.InitializeParams) (acp.Initi
 	a.clientCapabilities = p.ClientCapabilities
 	a.mu.Unlock()
 
-	imageAllowed := !disabledByEnv("ACP_GLM_PROMPT_IMAGES")
+	imageAllowed := !disabledByEnv("AGENTBRIDGE_GLM_PROMPT_IMAGES", "ACP_GLM_PROMPT_IMAGES")
 	negotiated := p.ProtocolVersion
 	if negotiated > acp.ProtocolVersion {
 		negotiated = acp.ProtocolVersion
@@ -795,7 +795,7 @@ func (a *Agent) ensureClient() error {
 		return rerr
 	}
 	if cfg.APIKey == "" && cfg.Kind != "ollama" && cfg.Kind != "claude-code-cli" {
-		return errors.New("No API key configured. Set an API key via ACP_HARNESS_API_KEY, ACP_HARNESS_<PROVIDER>_API_KEY, the provider-specific env var (Z_AI_API_KEY/OPENAI_API_KEY/…), or run `glm-acp-agent --setup`.")
+		return errors.New("No API key configured. Set an API key via AGENTBRIDGE_API_KEY, AGENTBRIDGE_<PROVIDER>_API_KEY, a provider-specific env var (Z_AI_API_KEY/OPENAI_API_KEY/…), or run `agentbridge --setup`. Legacy ACP_HARNESS_* variables are still accepted.")
 	}
 	p, err := provider.Build(cfg)
 	if err != nil {
@@ -1014,9 +1014,14 @@ func newSessionID() string {
 
 func nowRFC3339() string { return time.Now().UTC().Format(time.RFC3339Nano) }
 
-func disabledByEnv(name string) bool {
-	v := strings.ToLower(strings.TrimSpace(os.Getenv(name)))
-	return v == "false" || v == "0"
+func disabledByEnv(names ...string) bool {
+	for _, name := range names {
+		if v, ok := os.LookupEnv(name); ok {
+			lv := strings.ToLower(strings.TrimSpace(v))
+			return lv == "false" || lv == "0"
+		}
+	}
+	return false
 }
 
 // parseMcpServers decodes an array of MCPServerSpec (json.RawMessage) into []acp.McpServer.

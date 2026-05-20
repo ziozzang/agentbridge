@@ -8,10 +8,10 @@ current when you change architecture, conventions, or build commands.
 
 ## What this project is
 
-`glm-acp` is a **generic, high-quality ACP (Agent Client Protocol) harness**
+`agentbridge` is a **generic, high-quality ACP (Agent Client Protocol) harness**
 written in Go. The original code was a single-purpose adapter for Z.AI's
 GLM models; it has since been generalised into a provider-agnostic harness
-with a plugin system. The repository name and the binary name (`glm-acp-agent`)
+with a plugin system. The repository name and the binary name (`agentbridge`)
 are kept for back-compat — *but the harness itself is provider-neutral*.
 
 It speaks ACP over stdio (JSON-RPC 2.0 / newline-delimited JSON) and
@@ -56,11 +56,11 @@ Important boundaries:
   legacy HTTP client (`*glm.Client`) is still tested but no longer the
   default runtime path; `agent.Agent.Provider` is the new field.
 - `internal/config` loads layered provider config. Lowest priority is the
-  embedded `providers.yaml`; XDG file and `ACP_HARNESS_PROVIDERS_FILE`
-  override on top; per-provider env vars (`ACP_HARNESS_<NAME>_API_KEY`)
+  embedded `providers.yaml`; XDG file and `AGENTBRIDGE_PROVIDERS_FILE`
+  override on top; per-provider env vars (`AGENTBRIDGE_<NAME>_API_KEY`)
   are applied last.
 - `internal/plugins` is the extension surface. Activation is
-  `ACP_HARNESS_PLUGINS=sqlite,duckdb`. Plugin tools are exposed under
+  `AGENTBRIDGE_PLUGINS=sqlite,duckdb`. Plugin tools are exposed under
   `plugin__<name>__<tool>` and surfaced through the executor.
 - `internal/oauth/codex` resolves `oauth:codex` API keys.
 
@@ -111,7 +111,7 @@ type Plugin interface {
 }
 ```
 
-Activation: `ACP_HARNESS_PLUGINS=sqlite[,duckdb,...]`.
+Activation: `AGENTBRIDGE_PLUGINS=sqlite[,duckdb,...]`.
 
 Plugin tools are auto-prefixed `plugin__<name>__<tool>`. The agent's
 `availableTools()` appends them and the executor dispatches via the
@@ -134,14 +134,14 @@ User-visible knobs are *all* environment variables, organised in tiers:
 
 | Tier | Examples |
 | --- | --- |
-| Top-level | `ACP_HARNESS_PROVIDER`, `ACP_HARNESS_MODEL`, `ACP_HARNESS_API_KEY`, `ACP_HARNESS_BASE_URL` |
-| Per-provider override | `ACP_HARNESS_OPENAI_API_KEY`, `ACP_HARNESS_GLM_BASE_URL`, … |
-| Plugin activation | `ACP_HARNESS_PLUGINS`, `ACP_HARNESS_SQLITE_DIRS`, … |
-| Logging | `ACP_HARNESS_LOG_LEVEL`, `ACP_HARNESS_LOG_FILE`, `ACP_HARNESS_LOG_MAX_BYTES`, `ACP_HARNESS_LOG_MAX_FILES` |
+| Top-level | `AGENTBRIDGE_PROVIDER`, `AGENTBRIDGE_MODEL`, `AGENTBRIDGE_API_KEY`, `AGENTBRIDGE_BASE_URL` |
+| Per-provider override | `AGENTBRIDGE_OPENAI_API_KEY`, `AGENTBRIDGE_GLM_BASE_URL`, … |
+| Plugin activation | `AGENTBRIDGE_PLUGINS`, `AGENTBRIDGE_SQLITE_DIRS`, … |
+| Logging | `AGENTBRIDGE_LOG_LEVEL`, `AGENTBRIDGE_LOG_FILE`, `AGENTBRIDGE_LOG_MAX_BYTES`, `AGENTBRIDGE_LOG_MAX_FILES` |
 | Back-compat | `Z_AI_API_KEY`, `ACP_GLM_MODEL`, `ACP_GLM_DEBUG`, … (still work) |
 
-User override file (optional): `$XDG_CONFIG_HOME/acp-harness/providers.yaml`
-or whatever `ACP_HARNESS_PROVIDERS_FILE` points at.
+User override file (optional): `$XDG_CONFIG_HOME/agentbridge/providers.yaml`
+or whatever `AGENTBRIDGE_PROVIDERS_FILE` points at.
 
 ## Logging
 
@@ -192,13 +192,13 @@ go test ./internal/provider/openaichat/...
 Targeted CI debugging:
 
 ```bash
-ACP_HARNESS_LOG_LEVEL=trace ACP_HARNESS_LOG_FILE=/tmp/harness.log ./glm-acp-agent
+AGENTBRIDGE_LOG_LEVEL=trace AGENTBRIDGE_LOG_FILE=/tmp/harness.log ./agentbridge
 ```
 
 ## Repository layout
 
 ```
-cmd/glm-acp-agent              # entrypoint binary (stdio + --setup)
+cmd/agentbridge              # entrypoint binary (stdio + --setup)
 internal/acp                   # ACP protocol types + JSON-RPC ndjson transport
 internal/agent                 # ACP Agent, prompt loop, sessions
 internal/config                # embedded providers.yaml + layered loader

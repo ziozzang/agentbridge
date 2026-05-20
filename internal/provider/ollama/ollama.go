@@ -2,8 +2,9 @@
 //
 // Endpoint:   POST <BaseURL>/api/chat
 // Streaming:  newline-delimited JSON (one chat-response object per line, not
-//             SSE). Each object has the next delta in `message.content`;
-//             when `done` is true, totals and a final reason are attached.
+//
+//	SSE). Each object has the next delta in `message.content`;
+//	when `done` is true, totals and a final reason are attached.
 //
 // Ollama also serves an OpenAI-compatible endpoint under `/v1/`. Users who
 // prefer that should configure an `openai-chat` provider with
@@ -20,9 +21,9 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/ziozzang/glm-acp/internal/logger"
-	"github.com/ziozzang/glm-acp/internal/provider"
-	"github.com/ziozzang/glm-acp/internal/tools/definitions"
+	"github.com/ziozzang/agentbridge/internal/logger"
+	"github.com/ziozzang/agentbridge/internal/provider"
+	"github.com/ziozzang/agentbridge/internal/tools/definitions"
 )
 
 // Kind is the registry key for this provider.
@@ -85,10 +86,10 @@ func (c *Client) Config() provider.Config { return c.cfg }
 // ----- Request shape ------------------------------------------------------
 
 type chatReq struct {
-	Model    string     `json:"model"`
-	Messages []ollamaMsg `json:"messages"`
-	Tools    []ollamaTool `json:"tools,omitempty"`
-	Stream   bool       `json:"stream"`
+	Model    string         `json:"model"`
+	Messages []ollamaMsg    `json:"messages"`
+	Tools    []ollamaTool   `json:"tools,omitempty"`
+	Stream   bool           `json:"stream"`
 	Options  map[string]any `json:"options,omitempty"`
 }
 
@@ -109,8 +110,8 @@ type ollamaToolCallFn struct {
 }
 
 type ollamaTool struct {
-	Type     string         `json:"type"`
-	Function ollamaToolDef  `json:"function"`
+	Type     string        `json:"type"`
+	Function ollamaToolDef `json:"function"`
 }
 
 type ollamaToolDef struct {
@@ -121,16 +122,16 @@ type ollamaToolDef struct {
 
 // chatRes is one streamed response object.
 type chatRes struct {
-	Model              string `json:"model"`
-	Message            *struct {
+	Model   string `json:"model"`
+	Message *struct {
 		Role      string           `json:"role"`
 		Content   string           `json:"content"`
 		ToolCalls []ollamaToolCall `json:"tool_calls"`
 	} `json:"message"`
-	Done           bool   `json:"done"`
-	DoneReason     string `json:"done_reason"`
-	PromptEvalCount int   `json:"prompt_eval_count"`
-	EvalCount       int   `json:"eval_count"`
+	Done            bool   `json:"done"`
+	DoneReason      string `json:"done_reason"`
+	PromptEvalCount int    `json:"prompt_eval_count"`
+	EvalCount       int    `json:"eval_count"`
 }
 
 // StreamChat implements provider.Provider.

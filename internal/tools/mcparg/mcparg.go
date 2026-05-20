@@ -19,7 +19,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/ziozzang/glm-acp/internal/logger"
+	"github.com/ziozzang/agentbridge/internal/logger"
 )
 
 // DiscoveredTool is a tool exposed by an upstream MCP server along with the

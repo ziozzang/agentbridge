@@ -17,7 +17,7 @@ import (
 	"sort"
 	"sync"
 
-	"github.com/ziozzang/glm-acp/internal/tools/definitions"
+	"github.com/ziozzang/agentbridge/internal/tools/definitions"
 )
 
 // ModelInfo describes a model advertised to ACP clients.
