@@ -8,6 +8,20 @@ AGENTBRIDGE_PLUGINS=sqlite,duckdb,jina,ollama_search,xai,openai_embed agentbridg
 
 Legacy `ACP_HARNESS_PLUGINS` is still accepted.
 
+Disable an activated plugin with:
+
+```bash
+AGENTBRIDGE_DISABLED_PLUGINS=xai,sqlite agentbridge
+```
+
+Search is available over MCP when a search-capable plugin is active:
+
+| Plugin | MCP tool name |
+| --- | --- |
+| `jina` | `plugin__jina__jina_search` |
+| `ollama_search` | `plugin__ollama_search__ollama_search` |
+| `xai` | `plugin__xai__xai_x_search` |
+
 ## SQLite
 
 The SQLite plugin exposes a read-only catalogue browser by default.
@@ -180,8 +194,9 @@ mapping alias. Mapping fields support `${VAR}` environment expansion. Prefer
 
 ## MCP Tool-Only Mode
 
-The HTTP compatibility server exposes active plugins through MCP. This works
-without selecting or calling an LLM provider:
+The HTTP compatibility server exposes active plugins and configured external
+MCP servers through MCP. This works without selecting or calling an LLM
+provider:
 
 ```bash
 AGENTBRIDGE_PLUGINS=xai,openai_embed agentbridge --http-listen 127.0.0.1:8766
@@ -190,6 +205,41 @@ AGENTBRIDGE_PLUGINS=xai,openai_embed agentbridge --http-listen 127.0.0.1:8766
 Use `POST /mcp` or `POST /v1/mcp` with MCP `tools/list` and `tools/call`.
 The `chat` MCP tool still exists, but plugin tools can be listed and called
 independently.
+
+Configure global external MCP servers with `AGENTBRIDGE_MCP_FILE`, or place
+`mcp.yaml` / `mcp.json` under `$XDG_CONFIG_HOME/agentbridge`:
+
+```yaml
+mcp_servers:
+  - name: search
+    type: http
+    url: http://127.0.0.1:8090/mcp
+    headers:
+      Authorization: Bearer ${MCP_TOKEN}
+    enabled: true
+```
+
+`mcpServers` is also accepted as either a list or a name-keyed object for
+compatibility with existing MCP config files. Set `disabled: true`,
+`enabled: false`, or list names in
+`AGENTBRIDGE_DISABLED_MCPS=search,docs` to turn external MCP servers off
+without removing them from the file.
+
+Configured external MCP tools are exposed as `mcp__<server>__<tool>` and are
+available both to ACP sessions and to HTTP MCP clients.
+
+## Prometheus Metrics
+
+`GET /metrics` and `GET /metric` expose Prometheus text metrics. HTTP route
+metrics are always emitted. MCP and plugin tool calls are counted as:
+
+```text
+agentbridge_tool_calls_total{kind="plugin",name="plugin__jina__jina_search",status="ok"} 1
+agentbridge_tool_calls_total{kind="mcp",name="mcp__search__query",status="error"} 1
+```
+
+Tool metrics cover calls through HTTP MCP and model-initiated calls inside ACP
+sessions when the process also serves the metrics endpoint.
 
 ## Security
 

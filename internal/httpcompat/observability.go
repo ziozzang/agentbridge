@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/ziozzang/agentbridge/internal/logger"
+	"github.com/ziozzang/agentbridge/internal/metrics"
 )
 
 var httpMetrics = &metricsRegistry{
@@ -118,6 +119,7 @@ func (m *metricsRegistry) prometheus() string {
 		parts := strings.SplitN(key, "|", 2)
 		fmt.Fprintf(&b, "agentbridge_http_route_responses_total{route=%q,status=%q} %d\n", parts[0], parts[1], count)
 	}
+	b.WriteString(metrics.Prometheus())
 	fmt.Fprintf(&b, "# HELP agentbridge_process_start_time_seconds Process start time.\n")
 	fmt.Fprintf(&b, "# TYPE agentbridge_process_start_time_seconds gauge\n")
 	fmt.Fprintf(&b, "agentbridge_process_start_time_seconds %d\n", m.start.Unix())

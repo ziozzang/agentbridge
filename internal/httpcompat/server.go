@@ -17,6 +17,8 @@ import (
 
 	"github.com/ziozzang/agentbridge/internal/config"
 	"github.com/ziozzang/agentbridge/internal/credentials"
+	"github.com/ziozzang/agentbridge/internal/logger"
+	"github.com/ziozzang/agentbridge/internal/mcpconfig"
 	codexoauth "github.com/ziozzang/agentbridge/internal/oauth/codex"
 	xaioauth "github.com/ziozzang/agentbridge/internal/oauth/xai"
 	"github.com/ziozzang/agentbridge/internal/plugins"
@@ -34,6 +36,7 @@ import (
 	_ "github.com/ziozzang/agentbridge/internal/provider/openaichat"
 	_ "github.com/ziozzang/agentbridge/internal/provider/openairesp"
 	_ "github.com/ziozzang/agentbridge/internal/provider/router"
+	"github.com/ziozzang/agentbridge/internal/tools/sessionmcp"
 )
 
 // NewHandler returns an HTTP handler for OpenAI/Anthropic-style compatibility
@@ -45,6 +48,15 @@ func NewHandler() http.Handler {
 		cancels:       map[string]context.CancelFunc{},
 		responseStore: map[string]responseRecord{},
 		plugins:       plugins.LoadActive(),
+	}
+	if specs, err := mcpconfig.Load(); err == nil && len(specs) > 0 {
+		if client, err := sessionmcp.New(specs); err == nil {
+			h.externalMCP = client
+		} else {
+			logger.Warnf("httpcompat: failed to connect configured MCP servers: %v", err)
+		}
+	} else if err != nil {
+		logger.Warnf("httpcompat: failed to load MCP config: %v", err)
 	}
 	mux.HandleFunc("/health", h.health)
 	mux.HandleFunc("/metrics", h.metrics)
@@ -80,6 +92,7 @@ type handler struct {
 	cancels       map[string]context.CancelFunc
 	responseStore map[string]responseRecord
 	plugins       *plugins.Active
+	externalMCP   *sessionmcp.Client
 }
 
 type jsonRPCRequest struct {

@@ -52,6 +52,16 @@ func TestActiveToolsAndDispatch(t *testing.T) {
 	}
 }
 
+func TestDisabledPlugins(t *testing.T) {
+	Register("disableme", func() Plugin { return &fakePlugin{} })
+	t.Setenv("AGENTBRIDGE_PLUGINS", "disableme")
+	t.Setenv("AGENTBRIDGE_DISABLED_PLUGINS", "disableme")
+	a := LoadActive()
+	if len(a.ActiveNames()) != 0 {
+		t.Fatalf("active plugins = %v", a.ActiveNames())
+	}
+}
+
 func TestSplitToolName(t *testing.T) {
 	plug, tool, ok := SplitToolName("plugin__sqlite__query")
 	if !ok || plug != "sqlite" || tool != "query" {

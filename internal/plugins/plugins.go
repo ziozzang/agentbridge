@@ -83,11 +83,16 @@ func LoadActive() *Active {
 	if spec == "" {
 		return a
 	}
+	disabled := disabledSet(envFirst("AGENTBRIDGE_DISABLED_PLUGINS", "ACP_HARNESS_DISABLED_PLUGINS"))
 	registryMu.RLock()
 	defer registryMu.RUnlock()
 	for _, raw := range strings.Split(spec, ",") {
 		name := strings.ToLower(strings.TrimSpace(raw))
 		if name == "" {
+			continue
+		}
+		if disabled[name] {
+			logger.Infof("plugin %q disabled by configuration", name)
 			continue
 		}
 		ctor, ok := registry[name]
@@ -101,6 +106,16 @@ func LoadActive() *Active {
 		logger.Infof("plugin %q activated", name)
 	}
 	return a
+}
+
+func disabledSet(spec string) map[string]bool {
+	out := map[string]bool{}
+	for _, raw := range strings.FieldsFunc(spec, func(r rune) bool { return r == ',' || r == ';' || r == '\n' }) {
+		if s := strings.ToLower(strings.TrimSpace(raw)); s != "" {
+			out[s] = true
+		}
+	}
+	return out
 }
 
 func envFirst(names ...string) string {

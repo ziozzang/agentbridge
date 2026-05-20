@@ -19,6 +19,7 @@ import (
 	"github.com/ziozzang/agentbridge/internal/config"
 	"github.com/ziozzang/agentbridge/internal/credentials"
 	"github.com/ziozzang/agentbridge/internal/logger"
+	"github.com/ziozzang/agentbridge/internal/mcpconfig"
 	codexoauth "github.com/ziozzang/agentbridge/internal/oauth/codex"
 	xaioauth "github.com/ziozzang/agentbridge/internal/oauth/xai"
 	"github.com/ziozzang/agentbridge/internal/plugins"
@@ -234,18 +235,15 @@ func (a *Agent) NewSession(_ context.Context, p acp.NewSessionParams) (acp.NewSe
 
 	// Connect to session-scoped MCP servers.
 	var mcpClient sessionMcpClient
-	if len(p.MCPServers) > 0 {
-		specs, err := parseMcpServers(p.MCPServers)
+	if specs, err := configuredMCPServers(p.MCPServers); err != nil {
+		logger.Debugf("session/new: failed to parse MCP servers: %v", err)
+	} else if len(specs) > 0 {
+		client, err := sessionmcp.New(specs)
 		if err != nil {
-			logger.Debugf("session/new: failed to parse MCP servers: %v", err)
-		} else if len(specs) > 0 {
-			client, err := sessionmcp.New(specs)
-			if err != nil {
-				logger.Debugf("session/new: failed to connect MCP servers: %v", err)
-			} else {
-				mcpClient = client
-				tools = append(tools, client.ToolDefinitions()...)
-			}
+			logger.Debugf("session/new: failed to connect MCP servers: %v", err)
+		} else {
+			mcpClient = client
+			tools = append(tools, client.ToolDefinitions()...)
 		}
 	}
 
@@ -285,18 +283,15 @@ func (a *Agent) LoadSession(ctx context.Context, p acp.LoadSessionParams) (acp.L
 
 	// Connect to session-scoped MCP servers.
 	var mcpClient sessionMcpClient
-	if len(p.MCPServers) > 0 {
-		specs, err := parseMcpServers(p.MCPServers)
+	if specs, err := configuredMCPServers(p.MCPServers); err != nil {
+		logger.Debugf("session/load: failed to parse MCP servers: %v", err)
+	} else if len(specs) > 0 {
+		client, err := sessionmcp.New(specs)
 		if err != nil {
-			logger.Debugf("session/load: failed to parse MCP servers: %v", err)
-		} else if len(specs) > 0 {
-			client, err := sessionmcp.New(specs)
-			if err != nil {
-				logger.Debugf("session/load: failed to connect MCP servers: %v", err)
-			} else {
-				mcpClient = client
-				tools = append(tools, client.ToolDefinitions()...)
-			}
+			logger.Debugf("session/load: failed to connect MCP servers: %v", err)
+		} else {
+			mcpClient = client
+			tools = append(tools, client.ToolDefinitions()...)
 		}
 	}
 
@@ -338,18 +333,15 @@ func (a *Agent) ResumeSession(_ context.Context, p acp.LoadSessionParams) (acp.L
 
 	// Connect to session-scoped MCP servers.
 	var mcpClient sessionMcpClient
-	if len(p.MCPServers) > 0 {
-		specs, err := parseMcpServers(p.MCPServers)
+	if specs, err := configuredMCPServers(p.MCPServers); err != nil {
+		logger.Debugf("session/resume: failed to parse MCP servers: %v", err)
+	} else if len(specs) > 0 {
+		client, err := sessionmcp.New(specs)
 		if err != nil {
-			logger.Debugf("session/resume: failed to parse MCP servers: %v", err)
-		} else if len(specs) > 0 {
-			client, err := sessionmcp.New(specs)
-			if err != nil {
-				logger.Debugf("session/resume: failed to connect MCP servers: %v", err)
-			} else {
-				mcpClient = client
-				tools = append(tools, client.ToolDefinitions()...)
-			}
+			logger.Debugf("session/resume: failed to connect MCP servers: %v", err)
+		} else {
+			mcpClient = client
+			tools = append(tools, client.ToolDefinitions()...)
 		}
 	}
 
@@ -1046,4 +1038,19 @@ func parseMcpServers(specs []acp.MCPServerSpec) ([]acp.McpServer, error) {
 		out = append(out, srv)
 	}
 	return out, nil
+}
+
+func configuredMCPServers(specs []acp.MCPServerSpec) ([]acp.McpServer, error) {
+	out, err := mcpconfig.Load()
+	if err != nil {
+		return nil, err
+	}
+	if len(specs) == 0 {
+		return out, nil
+	}
+	sessionSpecs, err := parseMcpServers(specs)
+	if err != nil {
+		return nil, err
+	}
+	return append(out, sessionSpecs...), nil
 }

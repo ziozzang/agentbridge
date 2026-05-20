@@ -19,6 +19,7 @@ import (
 
 	"github.com/ziozzang/agentbridge/internal/acp"
 	"github.com/ziozzang/agentbridge/internal/credentials"
+	"github.com/ziozzang/agentbridge/internal/metrics"
 	"github.com/ziozzang/agentbridge/internal/tools/zaimcp"
 )
 
@@ -783,6 +784,7 @@ func (e *Executor) mcpTool(ctx context.Context, id string, toolName string, args
 		"rawInput":      args,
 	})
 	result, err := e.SessionMCP.CallTool(ctx, toolName, args)
+	metrics.ObserveToolCall("mcp", toolName, err == nil)
 	if err != nil {
 		e.markFailed(id, err.Error())
 		return Result{Content: "Error calling MCP tool: " + err.Error()}
@@ -818,9 +820,11 @@ func (e *Executor) pluginTool(ctx context.Context, id string, toolName string, a
 		// Should never happen because the prefix check matched, but be
 		// defensive: fall through to the generic failure branch.
 		msg := fmt.Sprintf("Error: plugin not active for %q", toolName)
+		metrics.ObserveToolCall("plugin", toolName, false)
 		e.markFailed(id, msg)
 		return Result{Content: msg}
 	}
+	metrics.ObserveToolCall("plugin", toolName, err == nil)
 	if err != nil {
 		e.markFailed(id, err.Error())
 		return Result{Content: "Error calling plugin tool: " + err.Error()}

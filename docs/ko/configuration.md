@@ -31,6 +31,9 @@ YAML/JSON 파일로 설정합니다.
 | `AGENTBRIDGE_CONFIG_FILE` | 전체 config YAML 경로. |
 | `AGENTBRIDGE_PROVIDERS_FILE` | provider YAML 파일 경로. |
 | `AGENTBRIDGE_PLUGINS` | plugin 목록. 예: `sqlite,duckdb`. |
+| `AGENTBRIDGE_DISABLED_PLUGINS` | 활성화 목록에 있어도 끌 plugin 이름 목록. |
+| `AGENTBRIDGE_MCP_FILE` | 외부 MCP server JSON/YAML 설정 파일. |
+| `AGENTBRIDGE_DISABLED_MCPS` | 설정에 있어도 끌 MCP server 이름 목록. |
 | `AGENTBRIDGE_ROUTER_FILE` | Router route JSON/YAML 파일. |
 
 ## Provider별 변수
@@ -100,6 +103,27 @@ providers:
     extra:
       routes_file: ${XDG_CONFIG_HOME}/agentbridge/router.yaml
 ```
+
+## 외부 MCP Servers
+
+외부 MCP server는 ACP session과 HTTP MCP compatibility endpoint 양쪽에서 쓰도록
+전역 등록할 수 있습니다. `AGENTBRIDGE_MCP_FILE`을 지정하거나
+`$XDG_CONFIG_HOME/agentbridge` 아래 `mcp.yaml` / `mcp.json`을 둡니다.
+
+```yaml
+mcp_servers:
+  - name: search
+    type: http
+    url: http://127.0.0.1:8090/mcp
+    headers:
+      Authorization: Bearer ${MCP_TOKEN}
+    enabled: true
+```
+
+`mcpServers`도 허용하며, list와 이름-keyed object 형식을 모두 받을 수
+있습니다. 끄려면 `disabled: true`, `enabled: false`, 또는
+`AGENTBRIDGE_DISABLED_MCPS=search`를 사용합니다. HTTP MCP tool은
+`mcp__<server>__<tool>` 이름으로 노출됩니다.
 
 ## Provider YAML
 

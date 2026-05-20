@@ -8,6 +8,20 @@ AGENTBRIDGE_PLUGINS=sqlite,duckdb,jina,ollama_search,xai,openai_embed agentbridg
 
 기존 `ACP_HARNESS_PLUGINS`도 alias로 동작합니다.
 
+활성화된 플러그인을 끄려면 다음처럼 지정합니다.
+
+```bash
+AGENTBRIDGE_DISABLED_PLUGINS=xai,sqlite agentbridge
+```
+
+검색 기능은 검색 플러그인을 켰을 때 MCP tool로 사용할 수 있습니다.
+
+| 플러그인 | MCP tool 이름 |
+| --- | --- |
+| `jina` | `plugin__jina__jina_search` |
+| `ollama_search` | `plugin__ollama_search__ollama_search` |
+| `xai` | `plugin__xai__xai_x_search` |
+
 ## SQLite
 
 SQLite plugin은 기본적으로 읽기 전용 catalogue browser입니다.
@@ -168,8 +182,9 @@ agentbridge
 
 ## MCP Tool-Only Mode
 
-HTTP compatibility server는 활성 plugin을 MCP로 노출합니다. LLM provider를
-선택하거나 호출하지 않아도 tool만 사용할 수 있습니다.
+HTTP compatibility server는 활성 plugin과 설정된 외부 MCP server를 MCP로
+노출합니다. LLM provider를 선택하거나 호출하지 않아도 tool만 사용할 수
+있습니다.
 
 ```bash
 AGENTBRIDGE_PLUGINS=xai,openai_embed agentbridge --http-listen 127.0.0.1:8766
@@ -178,6 +193,41 @@ AGENTBRIDGE_PLUGINS=xai,openai_embed agentbridge --http-listen 127.0.0.1:8766
 `POST /mcp` 또는 `POST /v1/mcp`에서 MCP `tools/list`, `tools/call`을
 사용하세요. `chat` MCP tool도 계속 존재하지만, plugin tool은 독립적으로
 목록 조회와 호출이 가능합니다.
+
+전역 외부 MCP server는 `AGENTBRIDGE_MCP_FILE`로 지정하거나
+`$XDG_CONFIG_HOME/agentbridge` 아래 `mcp.yaml` / `mcp.json`으로 등록합니다.
+
+```yaml
+mcp_servers:
+  - name: search
+    type: http
+    url: http://127.0.0.1:8090/mcp
+    headers:
+      Authorization: Bearer ${MCP_TOKEN}
+    enabled: true
+```
+
+기존 MCP 설정 호환을 위해 `mcpServers`도 허용하며, list와 이름-keyed object
+형식을 모두 받을 수 있습니다. 파일에서 제거하지 않고 끄려면
+`disabled: true`, `enabled: false`, 또는
+`AGENTBRIDGE_DISABLED_MCPS=search,docs`를 사용하세요.
+
+외부 MCP tool은 `mcp__<server>__<tool>` 이름으로 노출되며, ACP session과 HTTP
+MCP client 양쪽에서 사용할 수 있습니다.
+
+## Prometheus Metrics
+
+`GET /metrics`, `GET /metric`은 Prometheus text metrics를 노출합니다. HTTP
+route metric은 항상 출력됩니다. MCP와 plugin tool call은 아래 counter로
+집계됩니다.
+
+```text
+agentbridge_tool_calls_total{kind="plugin",name="plugin__jina__jina_search",status="ok"} 1
+agentbridge_tool_calls_total{kind="mcp",name="mcp__search__query",status="error"} 1
+```
+
+Tool metric은 HTTP MCP를 통한 호출과, 같은 프로세스에서 metrics endpoint를
+제공하는 경우 ACP session 내부에서 모델이 수행한 MCP/plugin 호출을 포함합니다.
 
 ## 보안
 

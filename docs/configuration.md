@@ -33,6 +33,9 @@ Legacy `ACP_HARNESS_*` variables remain supported as aliases.
 | `AGENTBRIDGE_CONFIG_FILE` | Absolute path to full config YAML. |
 | `AGENTBRIDGE_PROVIDERS_FILE` | Absolute path to provider YAML. |
 | `AGENTBRIDGE_PLUGINS` | Comma-separated plugins, e.g. `sqlite,duckdb`. |
+| `AGENTBRIDGE_DISABLED_PLUGINS` | Comma-separated active plugin names to suppress. |
+| `AGENTBRIDGE_MCP_FILE` | External MCP server config file, JSON or YAML. |
+| `AGENTBRIDGE_DISABLED_MCPS` | Comma-separated configured MCP server names to suppress. |
 | `AGENTBRIDGE_ROUTER_FILE` | Router route file, JSON or YAML. |
 
 ## Per-Provider Variables
@@ -102,6 +105,26 @@ providers:
     extra:
       routes_file: ${XDG_CONFIG_HOME}/agentbridge/router.yaml
 ```
+
+## External MCP Servers
+
+External MCP servers can be registered globally for both ACP sessions and the
+HTTP MCP compatibility endpoint. Set `AGENTBRIDGE_MCP_FILE`, or place
+`mcp.yaml` / `mcp.json` under `$XDG_CONFIG_HOME/agentbridge`.
+
+```yaml
+mcp_servers:
+  - name: search
+    type: http
+    url: http://127.0.0.1:8090/mcp
+    headers:
+      Authorization: Bearer ${MCP_TOKEN}
+    enabled: true
+```
+
+`mcpServers` is also accepted as either a list or a name-keyed object. Set
+`disabled: true`, `enabled: false`, or `AGENTBRIDGE_DISABLED_MCPS=search` to
+turn a server off. HTTP MCP tools are exported as `mcp__<server>__<tool>`.
 
 ## Provider YAML
 

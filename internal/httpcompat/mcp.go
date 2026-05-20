@@ -4,7 +4,9 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"strings"
 
+	"github.com/ziozzang/agentbridge/internal/metrics"
 	"github.com/ziozzang/agentbridge/internal/plugins"
 	"github.com/ziozzang/agentbridge/internal/provider"
 )
@@ -59,6 +61,15 @@ func (h *handler) mcp(w http.ResponseWriter, r *http.Request) {
 				})
 			}
 		}
+		if h.externalMCP != nil {
+			for _, t := range h.externalMCP.ToolDefinitions() {
+				tools = append(tools, map[string]any{
+					"name":        t.Function.Name,
+					"description": t.Function.Description,
+					"inputSchema": json.RawMessage(t.Function.Parameters),
+				})
+			}
+		}
 		writeJSONRPC(w, http.StatusOK, jsonRPCResponse{JSONRPC: "2.0", ID: req.ID, Result: map[string]any{
 			"tools": tools,
 		}})
@@ -97,6 +108,7 @@ func (h *handler) mcpToolCall(r *http.Request, raw json.RawMessage) (map[string]
 			}
 			result, claimed, err := h.plugins.Dispatch(r.Context(), req.Name, args)
 			if claimed {
+				metrics.ObserveToolCall("plugin", req.Name, err == nil)
 				if err != nil {
 					return nil, err
 				}
@@ -107,6 +119,17 @@ func (h *handler) mcpToolCall(r *http.Request, raw json.RawMessage) (map[string]
 			}
 		}
 	}
+	if h.externalMCP != nil && strings.HasPrefix(req.Name, "mcp__") {
+		result, err := h.externalMCP.CallTool(r.Context(), req.Name, req.Arguments)
+		metrics.ObserveToolCall("mcp", req.Name, err == nil)
+		if err != nil {
+			return nil, err
+		}
+		return map[string]any{
+			"isError": false,
+			"content": []map[string]any{{"type": "text", "text": result}},
+		}, nil
+	}
 	if req.Name != "chat" {
 		return nil, errors.New("unknown tool: " + req.Name)
 	}
@@ -115,6 +138,7 @@ func (h *handler) mcpToolCall(r *http.Request, raw json.RawMessage) (map[string]
 		return nil, errors.New("input is required")
 	}
 	text, _, _, err := RunProvider(r.Context(), model, messages)
+	metrics.ObserveToolCall("mcp", "chat", err == nil)
 	if err != nil {
 		return nil, err
 	}

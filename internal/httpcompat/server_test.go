@@ -113,6 +113,75 @@ func TestMCPExposesPluginToolsWithoutCallingLLM(t *testing.T) {
 	}
 }
 
+func TestMCPExposesConfiguredExternalMCPAndMetrics(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req jsonRPCRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			t.Fatal(err)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("MCP-Session-Id", "sess")
+		switch req.Method {
+		case "initialize":
+			_ = json.NewEncoder(w).Encode(jsonRPCResponse{JSONRPC: "2.0", ID: req.ID, Result: map[string]any{"protocolVersion": "2025-06-18"}})
+		case "notifications/initialized":
+			w.WriteHeader(http.StatusAccepted)
+		case "tools/list":
+			_ = json.NewEncoder(w).Encode(jsonRPCResponse{JSONRPC: "2.0", ID: req.ID, Result: map[string]any{"tools": []map[string]any{{
+				"name": "search", "description": "Search test", "inputSchema": map[string]any{"type": "object"},
+			}}}})
+		case "tools/call":
+			_ = json.NewEncoder(w).Encode(jsonRPCResponse{JSONRPC: "2.0", ID: req.ID, Result: map[string]any{
+				"content": []map[string]any{{"type": "text", "text": "searched"}},
+			}})
+		default:
+			t.Fatalf("unexpected method %s", req.Method)
+		}
+	}))
+	defer upstream.Close()
+	cfg := filepath.Join(t.TempDir(), "mcp.yaml")
+	if err := os.WriteFile(cfg, []byte(`mcp_servers:
+  - name: ext
+    type: http
+    url: `+upstream.URL+`
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("AGENTBRIDGE_MCP_FILE", cfg)
+	t.Setenv("AGENTBRIDGE_PLUGINS", "")
+	srv := httptest.NewServer(NewHandler())
+	defer srv.Close()
+
+	resp, err := http.Post(srv.URL+"/mcp", "application/json", strings.NewReader(`{"jsonrpc":"2.0","id":"1","method":"tools/list"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	list, _ := io.ReadAll(resp.Body)
+	if !strings.Contains(string(list), "mcp__ext__search") {
+		t.Fatalf("external MCP tool not listed: %s", string(list))
+	}
+	call := `{"jsonrpc":"2.0","id":"2","method":"tools/call","params":{"name":"mcp__ext__search","arguments":{"query":"x"}}}`
+	resp, err = http.Post(srv.URL+"/mcp", "application/json", strings.NewReader(call))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	if !strings.Contains(string(body), "searched") {
+		t.Fatalf("bad call body: %s", string(body))
+	}
+	resp, err = http.Get(srv.URL + "/metrics")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	metrics, _ := io.ReadAll(resp.Body)
+	if !strings.Contains(string(metrics), `agentbridge_tool_calls_total{kind="mcp",name="mcp__ext__search",status="ok"}`) {
+		t.Fatalf("missing tool metric: %s", string(metrics))
+	}
+}
+
 func TestRequestIDAndCacheMetadata(t *testing.T) {
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "text/event-stream")
