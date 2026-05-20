@@ -19,6 +19,13 @@ import (
 	"github.com/ziozzang/agentbridge/internal/credentials"
 	codexoauth "github.com/ziozzang/agentbridge/internal/oauth/codex"
 	xaioauth "github.com/ziozzang/agentbridge/internal/oauth/xai"
+	"github.com/ziozzang/agentbridge/internal/plugins"
+	_ "github.com/ziozzang/agentbridge/internal/plugins/duckdb"
+	_ "github.com/ziozzang/agentbridge/internal/plugins/jina"
+	_ "github.com/ziozzang/agentbridge/internal/plugins/ollamasearch"
+	_ "github.com/ziozzang/agentbridge/internal/plugins/openaiembed"
+	_ "github.com/ziozzang/agentbridge/internal/plugins/sqlite"
+	_ "github.com/ziozzang/agentbridge/internal/plugins/xai"
 	"github.com/ziozzang/agentbridge/internal/provider"
 	_ "github.com/ziozzang/agentbridge/internal/provider/anthropic"
 	_ "github.com/ziozzang/agentbridge/internal/provider/claudecode"
@@ -36,6 +43,7 @@ func NewHandler() http.Handler {
 		tasks:         map[string]*a2aTask{},
 		cancels:       map[string]context.CancelFunc{},
 		responseStore: map[string]responseRecord{},
+		plugins:       plugins.LoadActive(),
 	}
 	mux.HandleFunc("/health", h.health)
 	mux.HandleFunc("/metrics", h.metrics)
@@ -70,6 +78,7 @@ type handler struct {
 	tasks         map[string]*a2aTask
 	cancels       map[string]context.CancelFunc
 	responseStore map[string]responseRecord
+	plugins       *plugins.Active
 }
 
 type jsonRPCRequest struct {

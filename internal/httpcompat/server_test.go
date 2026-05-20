@@ -69,6 +69,50 @@ func TestCompatibilityEndpoints(t *testing.T) {
 	}
 }
 
+func TestMCPExposesPluginToolsWithoutCallingLLM(t *testing.T) {
+	t.Setenv("AGENTBRIDGE_PLUGINS", "duckdb")
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(t.TempDir(), "missing"))
+	srv := httptest.NewServer(NewHandler())
+	defer srv.Close()
+
+	listBody := `{"jsonrpc":"2.0","id":"1","method":"tools/list"}`
+	resp, err := http.Post(srv.URL+"/mcp", "application/json", strings.NewReader(listBody))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	var list struct {
+		Result struct {
+			Tools []struct {
+				Name string `json:"name"`
+			} `json:"tools"`
+		} `json:"result"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&list); err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, tool := range list.Result.Tools {
+		if tool.Name == "plugin__duckdb__duckdb_status" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("plugin tool not listed: %+v", list.Result.Tools)
+	}
+
+	callBody := `{"jsonrpc":"2.0","id":"2","method":"tools/call","params":{"name":"plugin__duckdb__duckdb_status","arguments":{}}}`
+	resp, err = http.Post(srv.URL+"/mcp", "application/json", strings.NewReader(callBody))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	got, _ := io.ReadAll(resp.Body)
+	if !strings.Contains(string(got), `"status\":\"unavailable\"`) {
+		t.Fatalf("bad plugin call response: %s", string(got))
+	}
+}
+
 func TestRequestIDAndCacheMetadata(t *testing.T) {
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "text/event-stream")

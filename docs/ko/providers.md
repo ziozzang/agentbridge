@@ -86,6 +86,39 @@ YAML 해석 후에도 `AGENTBRIDGE_<PROVIDER>_API_KEY` override는 계속 동작
 | `minimax`, `minimax-cn`, `minimax-oauth` | Anthropic 호환 path와 OAuth가 현재 Anthropic direct adapter보다 추가 처리를 요구. |
 | `azure-foundry` | 배포별 endpoint와 API mode가 달라 사용자 설정이 필요. |
 
+## Provider API / Tool 매트릭스
+
+이 표는 model provider API와 선택적 plugin tool을 분리해서 보여줍니다.
+Plugin tool은 MCP `POST /mcp`, `/v1/mcp`로도 직접 노출할 수 있습니다.
+
+| Provider / plugin | 인증 | 제공 API | AgentBridge tool |
+| --- | --- | --- | --- |
+| `glm` | `Z_AI_API_KEY` / `AGENTBRIDGE_API_KEY` | ACP chat, Chat Completions 호환 GLM route | 내장 file/shell/web tool, Z.AI MCP web tool |
+| `zai` | `GLM_API_KEY`, `ZAI_API_KEY`, `Z_AI_API_KEY` | OpenAI Chat Completions | 내장 agent tool |
+| `openai` | `OPENAI_API_KEY` | OpenAI Chat Completions | 내장 agent tool |
+| `openai-responses` | `OPENAI_API_KEY` | OpenAI Responses | provider `extra` 설정 시 hosted `web_search` |
+| `codex` | `~/.codex/auth.json`의 Codex OAuth | ChatGPT Codex Responses backend | Codex hosted `web_search`, prompt cache metadata |
+| `xai` | `XAI_API_KEY` | xAI Responses 호환 Grok | plugin 사용 시 xAI hosted `x_search` |
+| `xai-oauth` | `~/.grok/auth.json`, fallback `~/.hermes/auth.json` | xAI Responses 호환 Grok | 같은 OAuth token을 `xai` plugin이 재사용 가능 |
+| `anthropic` | `ANTHROPIC_API_KEY` | Anthropic Messages | 내장 agent tool |
+| `claude-code` | Claude Code CLI auth | Claude CLI one-shot adapter | Claude CLI tool policy passthrough |
+| `ollama` | 선택적 `OLLAMA_API_KEY` | Ollama native `/api/chat` | 내장 agent tool |
+| `openrouter` | `OPENROUTER_API_KEY` | OpenAI Chat Completions gateway | 내장 agent tool |
+| `litellm` | `LITELLM_API_KEY` | OpenAI Chat Completions gateway | `/embeddings` 테스트는 `openai_embed` plugin 사용 |
+| `kimi-coding`, `kimi-coding-cn` | `KIMI_API_KEY`, `KIMI_CODING_API_KEY`, `KIMI_CN_API_KEY` | OpenAI Chat Completions | 내장 agent tool |
+| `deepseek` | `DEEPSEEK_API_KEY` | OpenAI Chat Completions | 내장 agent tool |
+| `stepfun` | `STEPFUN_API_KEY` | OpenAI Chat Completions | 내장 agent tool |
+| `alibaba`, `alibaba-coding-plan` | `DASHSCOPE_API_KEY`, `ALIBABA_CODING_PLAN_API_KEY` | OpenAI Chat Completions | 내장 agent tool |
+| `nvidia` | `NVIDIA_API_KEY` | OpenAI Chat Completions | 내장 agent tool |
+| `ai-gateway`, `opencode-zen`, `opencode-go`, `kilocode` | gateway별 API key | OpenAI Chat Completions gateway | 내장 agent tool |
+| `huggingface`, `novita`, `arcee`, `gmi`, `xiaomi`, `tencent-tokenhub`, `ollama-cloud`, `lmstudio` | provider별 API key 또는 local key | OpenAI Chat Completions 호환 | 내장 agent tool |
+| `plugin:jina` | 선택적 `JINA_API_KEY` | Jina Reader, Search, Embeddings | `jina_reader`, `jina_search`, `jina_embed` |
+| `plugin:ollama_search` | `OLLAMA_API_KEY` | Ollama Cloud web search/fetch | `ollama_search`, `ollama_fetch` |
+| `plugin:xai` | xAI OAuth 또는 `XAI_API_KEY` | xAI Responses `x_search`, Images generations/edits | `xai_x_search`, `xai_image_generate`, `xai_image_edit` |
+| `plugin:openai_embed` | `AGENTBRIDGE_EMBEDDINGS_API_KEY` 또는 LiteLLM/OpenAI key | OpenAI 호환 `/embeddings` | `embed` |
+| `plugin:sqlite` | local filesystem | SQLite catalog/query | `sqlite_list`, `sqlite_load`, `sqlite_unload`, `sqlite_tables`, `sqlite_schema`, `sqlite_query`, `sqlite_exec` |
+| `plugin:duckdb` | local process | Reserved placeholder | `duckdb_status` |
+
 ## 예시
 
 OpenAI:

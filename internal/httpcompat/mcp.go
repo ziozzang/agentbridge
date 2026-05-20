@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 
+	"github.com/ziozzang/agentbridge/internal/plugins"
 	"github.com/ziozzang/agentbridge/internal/provider"
 )
 
@@ -37,19 +38,29 @@ func (h *handler) mcp(w http.ResponseWriter, r *http.Request) {
 			},
 		}})
 	case "tools/list":
-		writeJSONRPC(w, http.StatusOK, jsonRPCResponse{JSONRPC: "2.0", ID: req.ID, Result: map[string]any{
-			"tools": []map[string]any{{
-				"name":        "chat",
-				"description": "Send a prompt to the configured AgentBridge provider.",
-				"inputSchema": map[string]any{
-					"type": "object",
-					"properties": map[string]any{
-						"input": map[string]any{"type": "string"},
-						"model": map[string]any{"type": "string"},
-					},
-					"required": []string{"input"},
+		tools := []map[string]any{{
+			"name":        "chat",
+			"description": "Send a prompt to the configured AgentBridge provider.",
+			"inputSchema": map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"input": map[string]any{"type": "string"},
+					"model": map[string]any{"type": "string"},
 				},
-			}},
+				"required": []string{"input"},
+			},
+		}}
+		if h.plugins != nil {
+			for _, t := range h.plugins.Tools() {
+				tools = append(tools, map[string]any{
+					"name":        t.Function.Name,
+					"description": t.Function.Description,
+					"inputSchema": json.RawMessage(t.Function.Parameters),
+				})
+			}
+		}
+		writeJSONRPC(w, http.StatusOK, jsonRPCResponse{JSONRPC: "2.0", ID: req.ID, Result: map[string]any{
+			"tools": tools,
 		}})
 	case "tools/call":
 		result, err := h.mcpToolCall(r, req.Params)
@@ -77,6 +88,24 @@ func (h *handler) mcpToolCall(r *http.Request, raw json.RawMessage) (map[string]
 	}
 	if err := json.Unmarshal(raw, &req); err != nil {
 		return nil, err
+	}
+	if h.plugins != nil {
+		if _, _, ok := plugins.SplitToolName(req.Name); ok {
+			args, err := json.Marshal(req.Arguments)
+			if err != nil {
+				return nil, err
+			}
+			result, claimed, err := h.plugins.Dispatch(r.Context(), req.Name, args)
+			if claimed {
+				if err != nil {
+					return nil, err
+				}
+				return map[string]any{
+					"isError": false,
+					"content": []map[string]any{{"type": "text", "text": result}},
+				}, nil
+			}
+		}
 	}
 	if req.Name != "chat" {
 		return nil, errors.New("unknown tool: " + req.Name)

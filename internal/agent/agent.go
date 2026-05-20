@@ -25,7 +25,9 @@ import (
 	_ "github.com/ziozzang/agentbridge/internal/plugins/duckdb" // register duckdb stub
 	_ "github.com/ziozzang/agentbridge/internal/plugins/jina"   // register Jina tools
 	_ "github.com/ziozzang/agentbridge/internal/plugins/ollamasearch"
+	_ "github.com/ziozzang/agentbridge/internal/plugins/openaiembed"
 	_ "github.com/ziozzang/agentbridge/internal/plugins/sqlite" // register sqlite plugin
+	_ "github.com/ziozzang/agentbridge/internal/plugins/xai"
 	"github.com/ziozzang/agentbridge/internal/protocol/imagepre"
 	"github.com/ziozzang/agentbridge/internal/protocol/sessionstore"
 	"github.com/ziozzang/agentbridge/internal/protocol/systemprompt"

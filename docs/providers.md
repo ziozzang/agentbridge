@@ -88,6 +88,39 @@ enabled as default templates yet:
 | `minimax`, `minimax-cn`, `minimax-oauth` | Anthropic-compatible paths and OAuth need endpoint/header handling beyond the current Anthropic direct adapter. |
 | `azure-foundry` | User endpoint and API mode vary by deployment. |
 
+## Provider API and Tool Matrix
+
+This table separates model-provider APIs from optional plugin tools. Plugin
+tools can also be exposed directly through MCP `POST /mcp` and `/v1/mcp`.
+
+| Provider / plugin | Auth | Provider APIs | AgentBridge tools |
+| --- | --- | --- | --- |
+| `glm` | `Z_AI_API_KEY` / `AGENTBRIDGE_API_KEY` | ACP chat, Chat Completions-compatible GLM route | Built-in file/shell/web tools, Z.AI MCP web tools |
+| `zai` | `GLM_API_KEY`, `ZAI_API_KEY`, `Z_AI_API_KEY` | OpenAI Chat Completions | Built-in agent tools |
+| `openai` | `OPENAI_API_KEY` | OpenAI Chat Completions | Built-in agent tools |
+| `openai-responses` | `OPENAI_API_KEY` | OpenAI Responses | Hosted `web_search` when configured in provider `extra` |
+| `codex` | Codex OAuth from `~/.codex/auth.json` | ChatGPT Codex Responses backend | Codex hosted `web_search`, prompt cache metadata |
+| `xai` | `XAI_API_KEY` | xAI Responses-compatible Grok | xAI hosted `x_search` when used through plugin |
+| `xai-oauth` | `~/.grok/auth.json`, fallback `~/.hermes/auth.json` | xAI Responses-compatible Grok | Same OAuth token can be reused by `xai` plugin |
+| `anthropic` | `ANTHROPIC_API_KEY` | Anthropic Messages | Built-in agent tools |
+| `claude-code` | Claude Code CLI auth | Claude CLI one-shot adapter | Claude CLI tool policy passthrough |
+| `ollama` | optional `OLLAMA_API_KEY` | Native Ollama `/api/chat` | Built-in agent tools |
+| `openrouter` | `OPENROUTER_API_KEY` | OpenAI Chat Completions gateway | Built-in agent tools |
+| `litellm` | `LITELLM_API_KEY` | OpenAI Chat Completions gateway | Use `openai_embed` plugin for `/embeddings` tests |
+| `kimi-coding`, `kimi-coding-cn` | `KIMI_API_KEY`, `KIMI_CODING_API_KEY`, `KIMI_CN_API_KEY` | OpenAI Chat Completions | Built-in agent tools |
+| `deepseek` | `DEEPSEEK_API_KEY` | OpenAI Chat Completions | Built-in agent tools |
+| `stepfun` | `STEPFUN_API_KEY` | OpenAI Chat Completions | Built-in agent tools |
+| `alibaba`, `alibaba-coding-plan` | `DASHSCOPE_API_KEY`, `ALIBABA_CODING_PLAN_API_KEY` | OpenAI Chat Completions | Built-in agent tools |
+| `nvidia` | `NVIDIA_API_KEY` | OpenAI Chat Completions | Built-in agent tools |
+| `ai-gateway`, `opencode-zen`, `opencode-go`, `kilocode` | gateway-specific API key | OpenAI Chat Completions gateway | Built-in agent tools |
+| `huggingface`, `novita`, `arcee`, `gmi`, `xiaomi`, `tencent-tokenhub`, `ollama-cloud`, `lmstudio` | provider-specific API key or local key | OpenAI Chat Completions-compatible | Built-in agent tools |
+| `plugin:jina` | optional `JINA_API_KEY` | Jina Reader, Search, Embeddings | `jina_reader`, `jina_search`, `jina_embed` |
+| `plugin:ollama_search` | `OLLAMA_API_KEY` | Ollama Cloud web search/fetch | `ollama_search`, `ollama_fetch` |
+| `plugin:xai` | xAI OAuth or `XAI_API_KEY` | xAI Responses `x_search`, Images generations/edits | `xai_x_search`, `xai_image_generate`, `xai_image_edit` |
+| `plugin:openai_embed` | `AGENTBRIDGE_EMBEDDINGS_API_KEY` or LiteLLM/OpenAI key | OpenAI-compatible `/embeddings` | `embed` |
+| `plugin:sqlite` | local filesystem | SQLite catalog/query | `sqlite_list`, `sqlite_load`, `sqlite_unload`, `sqlite_tables`, `sqlite_schema`, `sqlite_query`, `sqlite_exec` when enabled |
+| `plugin:duckdb` | local process | Reserved placeholder | `duckdb_status` |
+
 ## Examples
 
 OpenAI:

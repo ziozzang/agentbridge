@@ -3,7 +3,7 @@
 Plugins add optional tool definitions to AgentBridge. Enable plugins with:
 
 ```bash
-AGENTBRIDGE_PLUGINS=sqlite,duckdb,jina,ollama_search agentbridge
+AGENTBRIDGE_PLUGINS=sqlite,duckdb,jina,ollama_search,xai,openai_embed agentbridge
 ```
 
 Legacy `ACP_HARNESS_PLUGINS` is still accepted.
@@ -94,6 +94,76 @@ Tools:
 
 - `ollama_search`
 - `ollama_fetch`
+
+## xAI Direct Tools
+
+The xAI plugin exposes direct-to-xAI auxiliary APIs without requiring
+`AGENTBRIDGE_PROVIDER=xai`. It uses `~/.grok/auth.json` / Hermes-compatible
+`xai-oauth` credentials when available, then falls back to `XAI_API_KEY`.
+
+Enable it with:
+
+```bash
+AGENTBRIDGE_PLUGINS=xai agentbridge --http-listen 127.0.0.1:8766
+```
+
+Variables:
+
+| Variable | Purpose |
+| --- | --- |
+| `AGENTBRIDGE_XAI_API_KEY` | xAI API key. `XAI_API_KEY` is also accepted. |
+| `AGENTBRIDGE_XAI_BASE_URL` | Override API base. Defaults to `https://api.x.ai/v1`. |
+| `AGENTBRIDGE_XAI_SEARCH_MODEL` | Default X Search Responses model. Defaults to `grok-4.3`. |
+| `AGENTBRIDGE_XAI_IMAGE_MODEL` | Default image model. Defaults to `grok-imagine-image`. |
+| `AGENTBRIDGE_XAI_OAUTH_PATH` | Override OAuth auth store path. Defaults to `~/.grok/auth.json`. |
+
+Tools:
+
+- `xai_x_search` routes a query through the Responses API with the hosted
+  `x_search` tool.
+- `xai_image_generate` calls `/v1/images/generations`.
+- `xai_image_edit` calls `/v1/images/edits`.
+
+## OpenAI-Compatible Embeddings
+
+The `openai_embed` plugin exposes any OpenAI-compatible `/embeddings` endpoint
+as a tool. This is intended for LiteLLM, OpenAI, local vLLM, or similar
+gateways.
+
+Enable it with LiteLLM:
+
+```bash
+AGENTBRIDGE_PLUGINS=openai_embed \
+AGENTBRIDGE_EMBEDDINGS_BASE_URL=http://127.0.0.1:4000/v1 \
+AGENTBRIDGE_EMBEDDINGS_API_KEY=... \
+AGENTBRIDGE_EMBEDDINGS_MODEL=text-embedding-3-small \
+agentbridge
+```
+
+Variables:
+
+| Variable | Purpose |
+| --- | --- |
+| `AGENTBRIDGE_EMBEDDINGS_BASE_URL` | OpenAI-compatible API base. Falls back to `LITELLM_BASE_URL`, `OPENAI_BASE_URL`, then `http://localhost:4000/v1`. |
+| `AGENTBRIDGE_EMBEDDINGS_API_KEY` | Bearer token. Falls back to `LITELLM_API_KEY`, `OPENAI_API_KEY`, `AGENTBRIDGE_API_KEY`. |
+| `AGENTBRIDGE_EMBEDDINGS_MODEL` | Default embedding model. Falls back to `LITELLM_EMBEDDINGS_MODEL`, `OPENAI_EMBEDDINGS_MODEL`, then `text-embedding-3-small`. |
+
+Tool:
+
+- `embed`
+
+## MCP Tool-Only Mode
+
+The HTTP compatibility server exposes active plugins through MCP. This works
+without selecting or calling an LLM provider:
+
+```bash
+AGENTBRIDGE_PLUGINS=xai,openai_embed agentbridge --http-listen 127.0.0.1:8766
+```
+
+Use `POST /mcp` or `POST /v1/mcp` with MCP `tools/list` and `tools/call`.
+The `chat` MCP tool still exists, but plugin tools can be listed and called
+independently.
 
 ## Security
 
