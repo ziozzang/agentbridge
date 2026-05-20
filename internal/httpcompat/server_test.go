@@ -111,6 +111,26 @@ func TestMCPExposesPluginToolsWithoutCallingLLM(t *testing.T) {
 	if !strings.Contains(string(got), `"status\":\"unavailable\"`) {
 		t.Fatalf("bad plugin call response: %s", string(got))
 	}
+
+	resp, err = http.Post(srv.URL+"/v1/tools/plugin__duckdb__duckdb_status", "application/json", strings.NewReader(`{}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	got, _ = io.ReadAll(resp.Body)
+	if !strings.Contains(string(got), `"status\":\"unavailable\"`) {
+		t.Fatalf("bad OpenAPI-style tool response: %s", string(got))
+	}
+
+	resp, err = http.Get(srv.URL + "/openapi.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	got, _ = io.ReadAll(resp.Body)
+	if !strings.Contains(string(got), `/v1/tools/plugin__duckdb__duckdb_status`) {
+		t.Fatalf("tool path missing from OpenAPI: %s", string(got))
+	}
 }
 
 func TestMCPExposesConfiguredExternalMCPAndMetrics(t *testing.T) {

@@ -73,6 +73,8 @@ func NewHandler() http.Handler {
 	mux.HandleFunc("/v1/a2a/rpc", h.a2aRPC)
 	mux.HandleFunc("/mcp", h.mcp)
 	mux.HandleFunc("/v1/mcp", h.mcp)
+	mux.HandleFunc("/tools/", h.toolHTTP)
+	mux.HandleFunc("/v1/tools/", h.toolHTTP)
 	mux.HandleFunc("/agui/run", h.aguiRun)
 	mux.HandleFunc("/v1/agui/run", h.aguiRun)
 	mux.HandleFunc("/v1/chat/completions", h.chatCompletions)

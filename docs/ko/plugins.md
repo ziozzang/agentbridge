@@ -238,6 +238,24 @@ ACP client가 session 생성 시 넘기는 `mcpServers`에도 `type: "stdio"`와
 `command`, `args`, `env`, `cwd`, `allow_tools`, `deny_tools` 필드를 사용할 수
 있습니다.
 
+## OpenAPI Tool 노출
+
+`GET /openapi.json`, `GET /v1/openapi.json`은 현재 실행 중인 설정을 기준으로
+동적으로 생성됩니다. 활성 plugin tool과 설정된 외부 MCP tool은 각 tool의 JSON
+schema를 request body schema로 사용해 `POST /v1/tools/<tool-name>` operation으로
+추가됩니다.
+
+예:
+
+```bash
+curl -sS http://127.0.0.1:8766/v1/tools/plugin__jina__jina_search \
+  -H 'content-type: application/json' \
+  -d '{"query":"agent protocols"}'
+```
+
+고정 client generation이 필요하면 원하는 plugin/MCP 설정으로 AgentBridge를
+실행한 뒤 해당 인스턴스의 `/openapi.json` 출력을 저장해서 사용하세요.
+
 ## Prometheus Metrics
 
 `GET /metrics`, `GET /metric`은 Prometheus text metrics를 노출합니다. HTTP
