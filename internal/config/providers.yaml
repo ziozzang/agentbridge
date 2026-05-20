@@ -131,23 +131,11 @@ providers:
   # --------- LiteLLM proxy (OpenAI-compatible) ---------------------------
   litellm:
     kind: openai-chat
-    base_url: ${LITELLM_BASE_URL:-${LITELLM_OPENAI_BASE_URL:-http://localhost:4000/v1}}
-    api_key: ${LITELLM_API_KEY:-${LITELLM_OPENAI_API_KEY:-${ACP_HARNESS_API_KEY}}}
-    default_model: ${LITELLM_MODEL:-kimi-k2.6}
+    base_url: ${LITELLM_BASE_URL:-http://localhost:4000/v1}
+    api_key: ${LITELLM_API_KEY:-${ACP_HARNESS_API_KEY}}
+    default_model: ${LITELLM_MODEL:-gpt-4.1}
     max_tokens: 4096
     context_window: 200000
-    models:
-      - id: kimi-k2.6
-        name: Kimi K2.6
-        description: Primary LiteLLM coding model
-      - id: deepseek-v3.2
-        name: DeepSeek V3.2
-      - id: qwen3-coder-next
-        name: Qwen3 Coder Next
-      - id: glm-5.1
-        name: GLM-5.1
-      - id: gpt-oss:20b
-        name: GPT OSS 20B
 
   # --------- Codex (OpenAI Responses behind OAuth) ----------------------
   # Resolve the API key via the Codex OAuth refresh-token flow (see
