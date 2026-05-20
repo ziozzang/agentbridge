@@ -12,6 +12,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/ziozzang/glm-acp/internal/config"
@@ -19,6 +20,7 @@ import (
 	codexoauth "github.com/ziozzang/glm-acp/internal/oauth/codex"
 	"github.com/ziozzang/glm-acp/internal/provider"
 	_ "github.com/ziozzang/glm-acp/internal/provider/anthropic"
+	_ "github.com/ziozzang/glm-acp/internal/provider/claudecode"
 	_ "github.com/ziozzang/glm-acp/internal/provider/glmprov"
 	_ "github.com/ziozzang/glm-acp/internal/provider/ollama"
 	_ "github.com/ziozzang/glm-acp/internal/provider/openaichat"
@@ -29,8 +31,14 @@ import (
 // endpoints backed by the configured harness provider.
 func NewHandler() http.Handler {
 	mux := http.NewServeMux()
-	h := &handler{}
+	h := &handler{
+		tasks:   map[string]*a2aTask{},
+		cancels: map[string]context.CancelFunc{},
+	}
 	mux.HandleFunc("/health", h.health)
+	mux.HandleFunc("/.well-known/agent-card.json", h.a2aAgentCard)
+	mux.HandleFunc("/a2a/agent-card.json", h.a2aAgentCard)
+	mux.HandleFunc("/a2a/rpc", h.a2aRPC)
 	mux.HandleFunc("/v1/chat/completions", h.chatCompletions)
 	mux.HandleFunc("/chat/completions", h.chatCompletions)
 	mux.HandleFunc("/v1/responses", h.responses)
@@ -40,7 +48,86 @@ func NewHandler() http.Handler {
 	return mux
 }
 
-type handler struct{}
+type handler struct {
+	mu      sync.Mutex
+	tasks   map[string]*a2aTask
+	cancels map[string]context.CancelFunc
+}
+
+type jsonRPCRequest struct {
+	JSONRPC string          `json:"jsonrpc"`
+	ID      any             `json:"id,omitempty"`
+	Method  string          `json:"method"`
+	Params  json.RawMessage `json:"params,omitempty"`
+}
+
+type jsonRPCResponse struct {
+	JSONRPC string        `json:"jsonrpc"`
+	ID      any           `json:"id,omitempty"`
+	Result  any           `json:"result,omitempty"`
+	Error   *jsonRPCError `json:"error,omitempty"`
+}
+
+type jsonRPCError struct {
+	Code    int    `json:"code"`
+	Message string `json:"message"`
+	Data    any    `json:"data,omitempty"`
+}
+
+type a2aSendParams struct {
+	Message             a2aMessage     `json:"message"`
+	Model               string         `json:"model,omitempty"`
+	Configuration       map[string]any `json:"configuration,omitempty"`
+	AcceptedOutputModes []string       `json:"acceptedOutputModes,omitempty"`
+	Metadata            map[string]any `json:"metadata,omitempty"`
+}
+
+type a2aTaskQuery struct {
+	TaskID        string `json:"taskId,omitempty"`
+	ContextID     string `json:"contextId,omitempty"`
+	HistoryLength int    `json:"historyLength,omitempty"`
+	PageSize      int    `json:"pageSize,omitempty"`
+	PageToken     string `json:"pageToken,omitempty"`
+}
+
+type a2aTask struct {
+	TaskID    string         `json:"taskId"`
+	ContextID string         `json:"contextId"`
+	Status    a2aTaskStatus  `json:"status"`
+	History   []a2aMessage   `json:"history,omitempty"`
+	Artifacts []a2aArtifact  `json:"artifacts,omitempty"`
+	Metadata  map[string]any `json:"metadata,omitempty"`
+}
+
+type a2aTaskStatus struct {
+	State     string      `json:"state"`
+	Message   *a2aMessage `json:"message,omitempty"`
+	Timestamp string      `json:"timestamp,omitempty"`
+}
+
+type a2aMessage struct {
+	Role      string         `json:"role"`
+	Parts     []a2aPart      `json:"parts"`
+	MessageID string         `json:"messageId,omitempty"`
+	ContextID string         `json:"contextId,omitempty"`
+	TaskID    string         `json:"taskId,omitempty"`
+	Metadata  map[string]any `json:"metadata,omitempty"`
+}
+
+type a2aPart struct {
+	Kind     string         `json:"kind,omitempty"`
+	Type     string         `json:"type,omitempty"`
+	Text     string         `json:"text,omitempty"`
+	Data     map[string]any `json:"data,omitempty"`
+	File     map[string]any `json:"file,omitempty"`
+	Metadata map[string]any `json:"metadata,omitempty"`
+}
+
+type a2aArtifact struct {
+	ArtifactID string    `json:"artifactId,omitempty"`
+	Name       string    `json:"name,omitempty"`
+	Parts      []a2aPart `json:"parts,omitempty"`
+}
 
 type requestMeta struct {
 	RequestID   string         `json:"request_id,omitempty"`
@@ -77,6 +164,103 @@ type messagesRequest struct {
 
 func (h *handler) health(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"status": "ok"})
+}
+
+func (h *handler) a2aAgentCard(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	base := "http://" + r.Host
+	if r.TLS != nil {
+		base = "https://" + r.Host
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"protocolVersion":    "1.0",
+		"name":               "glm-acp-agent",
+		"description":        "A2A bridge backed by the configured glm-acp provider",
+		"url":                base + "/a2a/rpc",
+		"preferredTransport": "JSONRPC",
+		"capabilities": map[string]any{
+			"streaming":              true,
+			"pushNotifications":      false,
+			"stateTransitionHistory": true,
+		},
+		"defaultInputModes":  []string{"text/plain", "application/json"},
+		"defaultOutputModes": []string{"text/plain", "application/json"},
+		"skills": []map[string]any{{
+			"id":          "chat",
+			"name":        "Chat",
+			"description": "Send prompts to the configured provider",
+			"inputModes":  []string{"text/plain", "application/json"},
+			"outputModes": []string{"text/plain", "application/json"},
+		}},
+	})
+}
+
+func (h *handler) a2aRPC(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	var req jsonRPCRequest
+	if err := decodeBody(r, &req); err != nil {
+		writeJSONRPC(w, http.StatusBadRequest, jsonRPCResponse{
+			JSONRPC: "2.0",
+			ID:      req.ID,
+			Error:   rpcError(-32700, err.Error(), nil),
+		})
+		return
+	}
+	if req.JSONRPC != "" && req.JSONRPC != "2.0" {
+		writeJSONRPC(w, http.StatusBadRequest, jsonRPCResponse{
+			JSONRPC: "2.0",
+			ID:      req.ID,
+			Error:   rpcError(-32600, "jsonrpc must be 2.0", nil),
+		})
+		return
+	}
+
+	switch normalizeA2AMethod(req.Method) {
+	case "SendMessage":
+		task, err := h.a2aSendMessage(r.Context(), req.Params)
+		if err != nil {
+			writeJSONRPC(w, http.StatusOK, jsonRPCResponse{JSONRPC: "2.0", ID: req.ID, Error: rpcError(-32602, err.Error(), nil)})
+			return
+		}
+		writeJSONRPC(w, http.StatusOK, jsonRPCResponse{JSONRPC: "2.0", ID: req.ID, Result: task})
+	case "SendStreamingMessage":
+		h.a2aSendStreamingMessage(w, r, req)
+	case "GetTask":
+		task, err := h.a2aGetTask(req.Params)
+		if err != nil {
+			writeJSONRPC(w, http.StatusOK, jsonRPCResponse{JSONRPC: "2.0", ID: req.ID, Error: rpcError(-32001, err.Error(), nil)})
+			return
+		}
+		writeJSONRPC(w, http.StatusOK, jsonRPCResponse{JSONRPC: "2.0", ID: req.ID, Result: task})
+	case "ListTasks":
+		result, err := h.a2aListTasks(req.Params)
+		if err != nil {
+			writeJSONRPC(w, http.StatusOK, jsonRPCResponse{JSONRPC: "2.0", ID: req.ID, Error: rpcError(-32602, err.Error(), nil)})
+			return
+		}
+		writeJSONRPC(w, http.StatusOK, jsonRPCResponse{JSONRPC: "2.0", ID: req.ID, Result: result})
+	case "CancelTask":
+		task, err := h.a2aCancelTask(req.Params)
+		if err != nil {
+			writeJSONRPC(w, http.StatusOK, jsonRPCResponse{JSONRPC: "2.0", ID: req.ID, Error: rpcError(-32001, err.Error(), nil)})
+			return
+		}
+		writeJSONRPC(w, http.StatusOK, jsonRPCResponse{JSONRPC: "2.0", ID: req.ID, Result: task})
+	case "SubscribeToTask":
+		h.a2aSubscribeToTask(w, req)
+	default:
+		writeJSONRPC(w, http.StatusOK, jsonRPCResponse{
+			JSONRPC: "2.0",
+			ID:      req.ID,
+			Error:   rpcError(-32601, "method not found: "+req.Method, nil),
+		})
+	}
 }
 
 func (h *handler) chatCompletions(w http.ResponseWriter, r *http.Request) {
@@ -251,6 +435,267 @@ func cacheHints(req commonRequest) map[string]any {
 	return out
 }
 
+func (h *handler) a2aSendMessage(ctx context.Context, params json.RawMessage) (*a2aTask, error) {
+	req, msg, err := parseA2ASendParams(params)
+	if err != nil {
+		return nil, err
+	}
+	task, err := h.prepareA2ATask(msg, req.Metadata)
+	if err != nil {
+		return nil, err
+	}
+	taskCtx, cancel := context.WithCancel(ctx)
+	h.registerTaskCancel(task.TaskID, cancel)
+	defer h.unregisterTaskCancel(task.TaskID)
+	defer cancel()
+
+	h.updateA2ATask(task.TaskID, func(t *a2aTask) {
+		t.Status = newA2AStatus("TASK_STATE_WORKING", nil)
+	})
+	text, _, _, err := runProvider(taskCtx, a2aModel(req), []provider.Message{{Role: "user", Content: a2aMessageText(msg)}})
+	if err != nil {
+		h.updateA2ATask(task.TaskID, func(t *a2aTask) {
+			failed := a2aAgentMessage(t, err.Error())
+			t.Status = newA2AStatus("TASK_STATE_FAILED", &failed)
+			t.History = append(t.History, failed)
+		})
+		failedTask, _ := h.getTask(task.TaskID, "")
+		return failedTask, err
+	}
+	h.updateA2ATask(task.TaskID, func(t *a2aTask) {
+		answer := a2aAgentMessage(t, text)
+		t.History = append(t.History, answer)
+		t.Artifacts = []a2aArtifact{{
+			ArtifactID: generateID("artifact"),
+			Name:       "response",
+			Parts:      []a2aPart{{Kind: "text", Type: "text", Text: text}},
+		}}
+		t.Status = newA2AStatus("TASK_STATE_COMPLETED", &answer)
+	})
+	return h.getTask(task.TaskID, "")
+}
+
+func (h *handler) a2aSendStreamingMessage(w http.ResponseWriter, r *http.Request, rpc jsonRPCRequest) {
+	req, msg, err := parseA2ASendParams(rpc.Params)
+	if err != nil {
+		writeJSONRPC(w, http.StatusOK, jsonRPCResponse{JSONRPC: "2.0", ID: rpc.ID, Error: rpcError(-32602, err.Error(), nil)})
+		return
+	}
+	task, err := h.prepareA2ATask(msg, req.Metadata)
+	if err != nil {
+		writeJSONRPC(w, http.StatusOK, jsonRPCResponse{JSONRPC: "2.0", ID: rpc.ID, Error: rpcError(-32602, err.Error(), nil)})
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.WriteHeader(http.StatusOK)
+	flushSSE(w)
+	writeA2ASSE(w, map[string]any{"statusUpdate": map[string]any{"taskId": task.TaskID, "contextId": task.ContextID, "status": task.Status}})
+
+	taskCtx, cancel := context.WithCancel(r.Context())
+	h.registerTaskCancel(task.TaskID, cancel)
+	defer h.unregisterTaskCancel(task.TaskID)
+	defer cancel()
+
+	h.updateA2ATask(task.TaskID, func(t *a2aTask) {
+		t.Status = newA2AStatus("TASK_STATE_WORKING", nil)
+	})
+	writeA2ASSE(w, map[string]any{"statusUpdate": map[string]any{"taskId": task.TaskID, "contextId": task.ContextID, "status": newA2AStatus("TASK_STATE_WORKING", nil)}})
+
+	p, err := buildProvider()
+	if err != nil {
+		h.finishA2AStreamWithError(w, task.TaskID, err)
+		return
+	}
+	chunks, errs := p.StreamChat(taskCtx, []provider.Message{{Role: "user", Content: a2aMessageText(msg)}}, provider.StreamOptions{Model: a2aModel(req)})
+	var b strings.Builder
+	for ch := range chunks {
+		if ch.Text == "" {
+			continue
+		}
+		b.WriteString(ch.Text)
+		writeA2ASSE(w, map[string]any{"artifactUpdate": map[string]any{
+			"taskId":    task.TaskID,
+			"contextId": task.ContextID,
+			"artifact": map[string]any{
+				"artifactId": "response",
+				"name":       "response",
+				"parts":      []a2aPart{{Kind: "text", Type: "text", Text: ch.Text}},
+			},
+		}})
+	}
+	if err := <-errs; err != nil {
+		h.finishA2AStreamWithError(w, task.TaskID, err)
+		return
+	}
+	text := b.String()
+	h.updateA2ATask(task.TaskID, func(t *a2aTask) {
+		answer := a2aAgentMessage(t, text)
+		t.History = append(t.History, answer)
+		t.Artifacts = []a2aArtifact{{ArtifactID: "response", Name: "response", Parts: []a2aPart{{Kind: "text", Type: "text", Text: text}}}}
+		t.Status = newA2AStatus("TASK_STATE_COMPLETED", &answer)
+	})
+	writeA2ASSE(w, map[string]any{"statusUpdate": map[string]any{"taskId": task.TaskID, "contextId": task.ContextID, "status": newA2AStatus("TASK_STATE_COMPLETED", nil)}})
+}
+
+func (h *handler) finishA2AStreamWithError(w http.ResponseWriter, taskID string, err error) {
+	h.updateA2ATask(taskID, func(t *a2aTask) {
+		failed := a2aAgentMessage(t, err.Error())
+		t.Status = newA2AStatus("TASK_STATE_FAILED", &failed)
+		t.History = append(t.History, failed)
+	})
+	task, _ := h.getTask(taskID, "")
+	writeA2ASSE(w, map[string]any{"statusUpdate": map[string]any{"taskId": taskID, "status": task.Status}})
+}
+
+func (h *handler) a2aGetTask(params json.RawMessage) (*a2aTask, error) {
+	var q a2aTaskQuery
+	if err := json.Unmarshal(params, &q); err != nil {
+		return nil, err
+	}
+	return h.getTask(q.TaskID, q.ContextID)
+}
+
+func (h *handler) a2aListTasks(params json.RawMessage) (map[string]any, error) {
+	var q a2aTaskQuery
+	if len(params) > 0 {
+		if err := json.Unmarshal(params, &q); err != nil {
+			return nil, err
+		}
+	}
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	tasks := make([]*a2aTask, 0, len(h.tasks))
+	for _, task := range h.tasks {
+		if q.ContextID != "" && task.ContextID != q.ContextID {
+			continue
+		}
+		tasks = append(tasks, cloneA2ATask(task))
+		if q.PageSize > 0 && len(tasks) >= q.PageSize {
+			break
+		}
+	}
+	return map[string]any{"tasks": tasks}, nil
+}
+
+func (h *handler) a2aCancelTask(params json.RawMessage) (*a2aTask, error) {
+	var q a2aTaskQuery
+	if err := json.Unmarshal(params, &q); err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(q.TaskID) == "" {
+		return nil, errors.New("taskId is required")
+	}
+	h.mu.Lock()
+	cancel := h.cancels[q.TaskID]
+	task := h.tasks[q.TaskID]
+	if task == nil {
+		h.mu.Unlock()
+		return nil, errors.New("task not found")
+	}
+	if q.ContextID != "" && q.ContextID != task.ContextID {
+		h.mu.Unlock()
+		return nil, errors.New("task context mismatch")
+	}
+	if cancel != nil {
+		cancel()
+	}
+	if task.Status.State == "TASK_STATE_SUBMITTED" || task.Status.State == "TASK_STATE_WORKING" {
+		task.Status = newA2AStatus("TASK_STATE_CANCELED", nil)
+	}
+	out := cloneA2ATask(task)
+	h.mu.Unlock()
+	return out, nil
+}
+
+func (h *handler) a2aSubscribeToTask(w http.ResponseWriter, rpc jsonRPCRequest) {
+	task, err := h.a2aGetTask(rpc.Params)
+	if err != nil {
+		writeJSONRPC(w, http.StatusOK, jsonRPCResponse{JSONRPC: "2.0", ID: rpc.ID, Error: rpcError(-32001, err.Error(), nil)})
+		return
+	}
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.WriteHeader(http.StatusOK)
+	writeA2ASSE(w, map[string]any{"statusUpdate": map[string]any{"taskId": task.TaskID, "contextId": task.ContextID, "status": task.Status}})
+}
+
+func (h *handler) prepareA2ATask(msg a2aMessage, metadata map[string]any) (*a2aTask, error) {
+	msg.Role = firstNonEmpty(msg.Role, "user")
+	if msg.MessageID == "" {
+		msg.MessageID = generateID("msg")
+	}
+	if a2aMessageText(msg) == "" {
+		return nil, errors.New("message text part is required")
+	}
+
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if msg.TaskID != "" {
+		task := h.tasks[msg.TaskID]
+		if task == nil {
+			return nil, errors.New("task not found")
+		}
+		if msg.ContextID != "" && msg.ContextID != task.ContextID {
+			return nil, errors.New("task context mismatch")
+		}
+		msg.ContextID = task.ContextID
+		task.History = append(task.History, msg)
+		task.Status = newA2AStatus("TASK_STATE_SUBMITTED", nil)
+		return cloneA2ATask(task), nil
+	}
+	if msg.ContextID == "" {
+		msg.ContextID = generateID("ctx")
+	}
+	msg.TaskID = generateID("task")
+	task := &a2aTask{
+		TaskID:    msg.TaskID,
+		ContextID: msg.ContextID,
+		Status:    newA2AStatus("TASK_STATE_SUBMITTED", nil),
+		History:   []a2aMessage{msg},
+		Metadata:  metadata,
+	}
+	h.tasks[task.TaskID] = task
+	return cloneA2ATask(task), nil
+}
+
+func (h *handler) getTask(taskID, contextID string) (*a2aTask, error) {
+	if strings.TrimSpace(taskID) == "" {
+		return nil, errors.New("taskId is required")
+	}
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	task := h.tasks[taskID]
+	if task == nil {
+		return nil, errors.New("task not found")
+	}
+	if contextID != "" && contextID != task.ContextID {
+		return nil, errors.New("task context mismatch")
+	}
+	return cloneA2ATask(task), nil
+}
+
+func (h *handler) updateA2ATask(taskID string, fn func(*a2aTask)) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if task := h.tasks[taskID]; task != nil {
+		fn(task)
+	}
+}
+
+func (h *handler) registerTaskCancel(taskID string, cancel context.CancelFunc) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.cancels[taskID] = cancel
+}
+
+func (h *handler) unregisterTaskCancel(taskID string) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	delete(h.cancels, taskID)
+}
+
 func runProvider(ctx context.Context, model string, messages []provider.Message) (string, provider.Usage, string, error) {
 	p, err := buildProvider()
 	if err != nil {
@@ -375,6 +820,17 @@ func writeError(w http.ResponseWriter, status int, err error) {
 	writeJSON(w, status, map[string]any{"error": map[string]any{"message": err.Error()}})
 }
 
+func writeJSONRPC(w http.ResponseWriter, status int, resp jsonRPCResponse) {
+	if resp.JSONRPC == "" {
+		resp.JSONRPC = "2.0"
+	}
+	writeJSON(w, status, resp)
+}
+
+func rpcError(code int, message string, data any) *jsonRPCError {
+	return &jsonRPCError{Code: code, Message: message, Data: data}
+}
+
 func writeSSE(w http.ResponseWriter, events []map[string]any) {
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
@@ -386,6 +842,125 @@ func writeSSE(w http.ResponseWriter, events []map[string]any) {
 		_, _ = io.WriteString(w, "\n")
 	}
 	_, _ = io.WriteString(w, "data: [DONE]\n\n")
+}
+
+func writeA2ASSE(w http.ResponseWriter, event any) {
+	b, err := json.Marshal(event)
+	if err != nil {
+		return
+	}
+	_, _ = io.WriteString(w, "data: ")
+	_, _ = w.Write(b)
+	_, _ = io.WriteString(w, "\n\n")
+	flushSSE(w)
+}
+
+func flushSSE(w http.ResponseWriter) {
+	if f, ok := w.(http.Flusher); ok {
+		f.Flush()
+	}
+}
+
+func normalizeA2AMethod(method string) string {
+	switch method {
+	case "message/send":
+		return "SendMessage"
+	case "message/stream":
+		return "SendStreamingMessage"
+	case "tasks/get":
+		return "GetTask"
+	case "tasks/list":
+		return "ListTasks"
+	case "tasks/cancel":
+		return "CancelTask"
+	case "tasks/resubscribe":
+		return "SubscribeToTask"
+	default:
+		return method
+	}
+}
+
+func parseA2ASendParams(raw json.RawMessage) (a2aSendParams, a2aMessage, error) {
+	var req a2aSendParams
+	if len(raw) == 0 {
+		return req, a2aMessage{}, errors.New("params is required")
+	}
+	if err := json.Unmarshal(raw, &req); err != nil {
+		return req, a2aMessage{}, err
+	}
+	if len(req.Message.Parts) > 0 || req.Message.Role != "" {
+		return req, req.Message, nil
+	}
+	var msg a2aMessage
+	if err := json.Unmarshal(raw, &msg); err != nil {
+		return req, a2aMessage{}, err
+	}
+	if len(msg.Parts) == 0 && msg.Role == "" {
+		return req, a2aMessage{}, errors.New("message is required")
+	}
+	req.Message = msg
+	return req, msg, nil
+}
+
+func a2aModel(req a2aSendParams) string {
+	if req.Model != "" {
+		return req.Model
+	}
+	if v, ok := req.Metadata["model"].(string); ok {
+		return v
+	}
+	if v, ok := req.Configuration["model"].(string); ok {
+		return v
+	}
+	return ""
+}
+
+func a2aMessageText(msg a2aMessage) string {
+	var b strings.Builder
+	for _, part := range msg.Parts {
+		if part.Text == "" {
+			continue
+		}
+		if b.Len() > 0 {
+			b.WriteString("\n")
+		}
+		b.WriteString(part.Text)
+	}
+	return b.String()
+}
+
+func a2aAgentMessage(task *a2aTask, text string) a2aMessage {
+	return a2aMessage{
+		Role:      "agent",
+		MessageID: generateID("msg"),
+		ContextID: task.ContextID,
+		TaskID:    task.TaskID,
+		Parts:     []a2aPart{{Kind: "text", Type: "text", Text: text}},
+	}
+}
+
+func newA2AStatus(state string, msg *a2aMessage) a2aTaskStatus {
+	return a2aTaskStatus{
+		State:     state,
+		Message:   msg,
+		Timestamp: time.Now().UTC().Format(time.RFC3339Nano),
+	}
+}
+
+func cloneA2ATask(task *a2aTask) *a2aTask {
+	if task == nil {
+		return nil
+	}
+	out := *task
+	out.History = append([]a2aMessage(nil), task.History...)
+	out.Artifacts = append([]a2aArtifact(nil), task.Artifacts...)
+	if task.Metadata != nil {
+		out.Metadata = map[string]any{}
+		for k, v := range task.Metadata {
+			out.Metadata[k] = v
+		}
+	}
+	return &out
 }
 
 func openAIUsage(u provider.Usage) map[string]any {
