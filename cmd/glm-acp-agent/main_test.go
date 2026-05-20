@@ -41,7 +41,7 @@ func TestServeListenerHandlesACPConnection(t *testing.T) {
 		t.Fatal(err)
 	}
 	errCh := make(chan error, 1)
-	go func() { errCh <- serveListener(ctx, ln, 1) }()
+	go func() { errCh <- serveListener(ctx, ln, 1, 0) }()
 
 	c, err := net.Dial("tcp", ln.Addr().String())
 	if err != nil {
@@ -87,7 +87,7 @@ func TestServeListenerWaitsWhenPoolFull(t *testing.T) {
 		t.Fatal(err)
 	}
 	errCh := make(chan error, 1)
-	go func() { errCh <- serveListener(ctx, ln, 1) }()
+	go func() { errCh <- serveListener(ctx, ln, 1, 1) }()
 
 	first, err := net.Dial("tcp", ln.Addr().String())
 	if err != nil {
@@ -135,5 +135,76 @@ func TestServeListenerWaitsWhenPoolFull(t *testing.T) {
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("server did not stop")
+	}
+}
+
+func TestServeListenerRejectsWhenWaitQueueFull(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	errCh := make(chan error, 1)
+	go func() { errCh <- serveListener(ctx, ln, 1, 1) }()
+
+	first, err := net.Dial("tcp", ln.Addr().String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer first.Close()
+	req := `{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":1}}` + "\n"
+	if _, err := first.Write([]byte(req)); err != nil {
+		t.Fatal(err)
+	}
+	var firstResp map[string]any
+	if err := json.NewDecoder(first).Decode(&firstResp); err != nil {
+		t.Fatal(err)
+	}
+
+	second, err := net.Dial("tcp", ln.Addr().String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer second.Close()
+
+	third, err := net.Dial("tcp", ln.Addr().String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer third.Close()
+	if _, err := third.Write([]byte(req)); err != nil {
+		t.Fatal(err)
+	}
+	_ = third.SetReadDeadline(time.Now().Add(2 * time.Second))
+	buf := make([]byte, 1)
+	n, err := third.Read(buf)
+	if err == nil || n != 0 {
+		t.Fatalf("expected third connection to close, n=%d err=%v", n, err)
+	}
+
+	cancel()
+	select {
+	case err := <-errCh:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("server did not stop")
+	}
+}
+
+func TestDefaultWaitSize(t *testing.T) {
+	tests := map[int]int{
+		0: 0,
+		1: 0,
+		2: 1,
+		3: 1,
+		6: 3,
+	}
+	for in, want := range tests {
+		if got := defaultWaitSize(in); got != want {
+			t.Errorf("defaultWaitSize(%d) = %d, want %d", in, got, want)
+		}
 	}
 }

@@ -45,6 +45,7 @@ Usage:
 Server flags:
   --listen ADDR              TCP listen address (default "127.0.0.1:8765")
   --pool-size N              max concurrent TCP ACP connections (default 4)
+  --wait-size N              max queued TCP ACP connections (default pool-size/2)
 
 Environment:
   Z_AI_API_KEY               (required for chat) Z.AI Coding Plan API key
@@ -66,6 +67,7 @@ func main() {
 	serverFlag := flag.Bool("server", false, "run a TCP ACP server")
 	listenFlag := flag.String("listen", "127.0.0.1:8765", "TCP listen address for --server")
 	poolSizeFlag := flag.Int("pool-size", 4, "max concurrent TCP ACP connections for --server")
+	waitSizeFlag := flag.Int("wait-size", -1, "max queued TCP ACP connections for --server; default is pool-size/2")
 	flag.Usage = func() { fmt.Fprint(os.Stderr, usage) }
 	flag.Parse()
 
@@ -87,7 +89,7 @@ func main() {
 	if *serverFlag {
 		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 		defer stop()
-		if err := runServer(ctx, *listenFlag, *poolSizeFlag); err != nil {
+		if err := runServer(ctx, *listenFlag, *poolSizeFlag, *waitSizeFlag); err != nil {
 			fmt.Fprintln(os.Stderr, "server terminated:", err)
 			os.Exit(1)
 		}
@@ -113,7 +115,7 @@ func runACP(in io.Reader, out io.Writer) error {
 	return conn.Run()
 }
 
-func runServer(ctx context.Context, addr string, poolSize int) error {
+func runServer(ctx context.Context, addr string, poolSize, waitSize int) error {
 	if err := logger.Configure(); err != nil {
 		fmt.Fprintln(os.Stderr, "logger init failed:", err)
 	}
@@ -122,48 +124,73 @@ func runServer(ctx context.Context, addr string, poolSize int) error {
 		return err
 	}
 	defer ln.Close()
-	return serveListener(ctx, ln, poolSize)
+	return serveListener(ctx, ln, poolSize, waitSize)
 }
 
-func serveListener(ctx context.Context, ln net.Listener, poolSize int) error {
+func serveListener(ctx context.Context, ln net.Listener, poolSize, waitSize int) error {
 	if poolSize <= 0 {
 		return fmt.Errorf("pool-size must be greater than zero")
 	}
-	sem := make(chan struct{}, poolSize)
-	errCh := make(chan error, 1)
+	if waitSize < 0 {
+		waitSize = defaultWaitSize(poolSize)
+	}
+	if waitSize < 0 {
+		return fmt.Errorf("wait-size must be zero or greater")
+	}
+	active := make(chan struct{}, poolSize)
+	waiting := make(chan struct{}, waitSize)
 	go func() {
 		<-ctx.Done()
 		_ = ln.Close()
 	}()
 	for {
-		select {
-		case sem <- struct{}{}:
-		case <-ctx.Done():
-			return nil
-		}
 		c, err := ln.Accept()
 		if err != nil {
-			<-sem
 			select {
 			case <-ctx.Done():
 				return nil
 			default:
 			}
-			select {
-			case errCh <- err:
-			default:
-			}
-			return <-errCh
+			return err
 		}
-		go func() {
-			defer func() {
-				<-sem
+		select {
+		case active <- struct{}{}:
+			go runTCPACPConn(c, active)
+		default:
+			select {
+			case waiting <- struct{}{}:
+				go func() {
+					select {
+					case active <- struct{}{}:
+						<-waiting
+						runTCPACPConn(c, active)
+					case <-ctx.Done():
+						<-waiting
+						_ = c.Close()
+					}
+				}()
+			default:
+				logger.Warnf("tcp acp connection rejected: wait queue full (%d)", waitSize)
 				_ = c.Close()
-			}()
-			if err := runACP(c, c); err != nil {
-				logger.Warnf("tcp acp connection ended: %v", err)
 			}
-		}()
+		}
+	}
+}
+
+func defaultWaitSize(poolSize int) int {
+	if poolSize <= 0 {
+		return 0
+	}
+	return poolSize / 2
+}
+
+func runTCPACPConn(c net.Conn, active chan struct{}) {
+	defer func() {
+		<-active
+		_ = c.Close()
+	}()
+	if err := runACP(c, c); err != nil {
+		logger.Warnf("tcp acp connection ended: %v", err)
 	}
 }
 

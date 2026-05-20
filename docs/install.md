@@ -50,13 +50,14 @@ server instead of spawning one process per client:
 ACP_HARNESS_PROVIDER=ollama \
 OLLAMA_BASE_URL=https://ollama.com \
 OLLAMA_MODEL=gpt-oss:120b \
-./glm-acp-agent --server --listen 127.0.0.1:8765 --pool-size 4
+./glm-acp-agent --server --listen 127.0.0.1:8765 --pool-size 4 --wait-size 2
 ```
 
 The TCP stream uses the same newline-delimited JSON-RPC ACP protocol as
 stdio. Each accepted connection gets an independent agent instance.
-`--pool-size` caps concurrent active connections; once the pool is full,
-new TCP connections wait until a slot becomes available.
+`--pool-size` caps active connections. `--wait-size` caps queued
+connections and defaults to half of `--pool-size`; once both active and
+queued capacity are full, new TCP connections are closed.
 
 ## First-time setup
 

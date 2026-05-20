@@ -70,12 +70,13 @@ ACP_HARNESS_PROVIDER=ollama \
 OLLAMA_BASE_URL=https://ollama.com \
 OLLAMA_MODEL=gpt-oss:120b \
 OLLAMA_API_KEY=... \
-./glm-acp-agent --server --listen 127.0.0.1:8765 --pool-size 4
+./glm-acp-agent --server --listen 127.0.0.1:8765 --pool-size 4 --wait-size 2
 ```
 
 Each TCP client connection is one ACP JSON-RPC stream. `--pool-size`
-limits the number of concurrent active connections; excess connections
-wait until a slot becomes available.
+limits active connections. `--wait-size` limits queued connections and
+defaults to half of `--pool-size`; connections beyond that queue are
+rejected.
 
 ## Documentation
 
