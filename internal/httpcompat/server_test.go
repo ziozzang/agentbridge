@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -66,6 +67,69 @@ func TestCompatibilityEndpoints(t *testing.T) {
 				t.Fatalf("response %q does not contain %s", string(body), tc.want)
 			}
 		})
+	}
+}
+
+func TestChatCompletionsAgentModelRunsToolLoop(t *testing.T) {
+	tmp := t.TempDir()
+	if err := os.WriteFile(filepath.Join(tmp, "visible.txt"), []byte("ok"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var requests []string
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		requests = append(requests, string(body))
+		w.Header().Set("Content-Type", "text/event-stream")
+		if len(requests) == 1 {
+			fmt.Fprint(w, `data: {"choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"tc1","type":"function","function":{"name":"list_files","arguments":"{\"path\":\".\"}"}}]},"finish_reason":"tool_calls"}]}`+"\n\n")
+			fmt.Fprint(w, "data: [DONE]\n\n")
+			return
+		}
+		fmt.Fprint(w, `data: {"choices":[{"index":0,"delta":{"content":"saw visible.txt"},"finish_reason":"stop"}]}`+"\n\n")
+		fmt.Fprint(w, "data: [DONE]\n\n")
+	}))
+	defer upstream.Close()
+
+	cfg := filepath.Join(t.TempDir(), "providers.yaml")
+	if err := os.WriteFile(cfg, []byte(`providers:
+  test-http:
+    kind: openai-chat
+    base_url: `+upstream.URL+`
+    api_key: test-key
+    default_model: test-model
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("ACP_HARNESS_PROVIDERS_FILE", cfg)
+	t.Setenv("ACP_HARNESS_PROVIDER", "test-http")
+	t.Setenv("ACP_HARNESS_MODEL", "")
+	t.Setenv("ACP_HARNESS_API_KEY", "")
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(t.TempDir(), "missing"))
+
+	srv := httptest.NewServer(NewHandler())
+	defer srv.Close()
+
+	body := `{"model":"agent:test-model","metadata":{"cwd":` + strconv.Quote(tmp) + `},"messages":[{"role":"user","content":"list files"}]}`
+	resp, err := http.Post(srv.URL+"/v1/chat/completions", "application/json", strings.NewReader(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	out, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status=%d body=%s", resp.StatusCode, string(out))
+	}
+	if !strings.Contains(string(out), "saw visible.txt") {
+		t.Fatalf("agent final response missing: %s", string(out))
+	}
+	if len(requests) != 2 {
+		t.Fatalf("expected two upstream calls, got %d", len(requests))
+	}
+	if strings.Contains(requests[0], `"model":"agent:test-model"`) || !strings.Contains(requests[0], `"model":"test-model"`) {
+		t.Fatalf("agent prefix was not stripped before upstream call:\n%s", requests[0])
+	}
+	if !strings.Contains(requests[1], `"role":"tool"`) || !strings.Contains(requests[1], "visible.txt") {
+		t.Fatalf("tool result was not fed back to upstream:\n%s", requests[1])
 	}
 }
 
@@ -480,6 +544,72 @@ func TestA2AAgentCard(t *testing.T) {
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("v1 status=%d", resp.StatusCode)
+	}
+}
+
+func TestA2ASendMessageAgentConfigurationRunsToolLoop(t *testing.T) {
+	tmp := t.TempDir()
+	if err := os.WriteFile(filepath.Join(tmp, "a2a.txt"), []byte("ok"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var requests []string
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		requests = append(requests, string(body))
+		w.Header().Set("Content-Type", "text/event-stream")
+		if len(requests) == 1 {
+			fmt.Fprint(w, `data: {"choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"tc1","type":"function","function":{"name":"list_files","arguments":"{\"path\":\".\"}"}}]},"finish_reason":"tool_calls"}]}`+"\n\n")
+			fmt.Fprint(w, "data: [DONE]\n\n")
+			return
+		}
+		fmt.Fprint(w, `data: {"choices":[{"index":0,"delta":{"content":"A2A saw a2a.txt"},"finish_reason":"stop"}]}`+"\n\n")
+		fmt.Fprint(w, "data: [DONE]\n\n")
+	}))
+	defer upstream.Close()
+
+	cfg := filepath.Join(t.TempDir(), "providers.yaml")
+	if err := os.WriteFile(cfg, []byte(`providers:
+  test-http:
+    kind: openai-chat
+    base_url: `+upstream.URL+`
+    api_key: test-key
+    default_model: test-model
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("ACP_HARNESS_PROVIDERS_FILE", cfg)
+	t.Setenv("ACP_HARNESS_PROVIDER", "test-http")
+	t.Setenv("ACP_HARNESS_MODEL", "")
+	t.Setenv("ACP_HARNESS_API_KEY", "")
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(t.TempDir(), "missing"))
+
+	srv := httptest.NewServer(NewHandler())
+	defer srv.Close()
+
+	sendBody := `{"jsonrpc":"2.0","id":"1","method":"SendMessage","params":{"configuration":{"agent":true,"cwd":` + strconv.Quote(tmp) + `},"message":{"role":"user","parts":[{"text":"list files"}],"messageId":"msg-1"},"model":"test-model"}}`
+	resp, err := http.Post(srv.URL+"/v1/a2a/rpc", "application/json", strings.NewReader(sendBody))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	var send struct {
+		Result a2aTask       `json:"result"`
+		Error  *jsonRPCError `json:"error"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&send); err != nil {
+		t.Fatal(err)
+	}
+	if send.Error != nil {
+		t.Fatalf("send error: %+v", send.Error)
+	}
+	if send.Result.Status.State != "TASK_STATE_COMPLETED" {
+		t.Fatalf("status=%s", send.Result.Status.State)
+	}
+	if len(send.Result.Artifacts) != 1 || !strings.Contains(send.Result.Artifacts[0].Parts[0].Text, "A2A saw a2a.txt") {
+		t.Fatalf("bad artifact: %+v", send.Result.Artifacts)
+	}
+	if len(requests) != 2 || !strings.Contains(requests[1], `"role":"tool"`) || !strings.Contains(requests[1], "a2a.txt") {
+		t.Fatalf("tool result was not fed back to upstream: calls=%d second=%q", len(requests), requests)
 	}
 }
 

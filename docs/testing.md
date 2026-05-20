@@ -69,6 +69,20 @@ This requires a valid `~/.grok/auth.json` or
 when xAI gates the account tier; in that case test `AGENTBRIDGE_PROVIDER=xai`
 with `XAI_API_KEY`.
 
+HTTP agent loop smoke:
+
+Use `agent:<model>` or set request metadata `{"agent": true}` to make the
+HTTP compatibility endpoint run the same local tool loop used by ACP before
+returning the final assistant text. `metadata.cwd` controls the working
+directory for file and shell tools.
+
+```bash
+AGENTBRIDGE_PROVIDER=xai-oauth agentbridge --http-listen 0.0.0.0:8766
+curl -sS -X POST http://127.0.0.1:8766/v1/chat/completions \
+  -H 'Content-Type: application/json' \
+  -d '{"model":"agent:grok-4.3","metadata":{"cwd":"'$PWD'","max_turns":6},"messages":[{"role":"user","content":"Use list_files and run_command to inspect the current directory and summarize the environment."}]}'
+```
+
 Regression policy:
 
 - Add tests beside the package you change.

@@ -121,13 +121,13 @@ type respReasoning struct {
 // respInputItem covers the four "input" shapes we emit. The unused fields
 // stay zero and omitempty keeps the JSON tight.
 type respInputItem struct {
-	Type    string          `json:"type,omitempty"`
-	Role    string          `json:"role,omitempty"`
-	Content []respPart      `json:"content,omitempty"`
-	CallID  string          `json:"call_id,omitempty"`
-	Name    string          `json:"name,omitempty"`
-	Args    json.RawMessage `json:"arguments,omitempty"`
-	Output  string          `json:"output,omitempty"`
+	Type    string     `json:"type,omitempty"`
+	Role    string     `json:"role,omitempty"`
+	Content []respPart `json:"content,omitempty"`
+	CallID  string     `json:"call_id,omitempty"`
+	Name    string     `json:"name,omitempty"`
+	Args    string     `json:"arguments,omitempty"`
+	Output  string     `json:"output,omitempty"`
 }
 
 type respPart struct {
@@ -666,7 +666,7 @@ func translateMessages(in []provider.Message) (instructions string, items []resp
 					Type:   "function_call",
 					CallID: tc.ID,
 					Name:   tc.Function.Name,
-					Args:   json.RawMessage(args),
+					Args:   args,
 				})
 			}
 		case "tool":

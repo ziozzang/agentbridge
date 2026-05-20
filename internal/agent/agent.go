@@ -646,7 +646,16 @@ func (a *Agent) Prompt(ctx context.Context, p acp.PromptParams) (acp.PromptRespo
 		// Proactive compaction: if history exceeds ~90% of the model's window.
 		window := a.contextWindow(a.effectiveModel(s.Model))
 		if glm.EstimateTokens(messages) > (window*9)/10 {
-			messages = glm.Compact(messages, (window*8)/10, 10)
+			result := a.compactPromptMessages(promptCtx, messages, a.effectiveModel(s.Model), (window*8)/10, "proactive context compaction")
+			if result.Compacted {
+				logger.Debugf("prompt: compacted context tokens_before=%d tokens_after=%d", result.TokensBefore, glm.EstimateTokens(result.Messages))
+				messages = result.Messages
+			} else {
+				messages = glm.Compact(messages, (window*8)/10, 10)
+			}
+			if len(messages) > 0 {
+				s.Messages = append([]glm.Message(nil), messages[1:]...)
+			}
 		}
 
 		// Sync the executor's mode so changes mid-turn take effect immediately.
@@ -693,7 +702,16 @@ func (a *Agent) Prompt(ctx context.Context, p acp.PromptParams) (acp.PromptRespo
 				// Emergency compaction: aggressive (~70%) then retry once.
 				logger.Debugf("prompt: context overflow detected; emergency compaction")
 				window := a.contextWindow(a.effectiveModel(s.Model))
-				messages = glm.Compact(messages, (window*7)/10, 10)
+				result := a.compactPromptMessages(promptCtx, messages, a.effectiveModel(s.Model), (window*7)/10, "context overflow retry")
+				if result.Compacted {
+					logger.Debugf("prompt: emergency compacted context tokens_before=%d tokens_after=%d", result.TokensBefore, glm.EstimateTokens(result.Messages))
+					messages = result.Messages
+				} else {
+					messages = glm.Compact(messages, (window*7)/10, 10)
+				}
+				if len(messages) > 0 {
+					s.Messages = append([]glm.Message(nil), messages[1:]...)
+				}
 				overflowRetries++
 				iter--
 				continue

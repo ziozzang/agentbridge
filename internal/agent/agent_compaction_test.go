@@ -5,11 +5,13 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"testing"
 
 	"github.com/ziozzang/agentbridge/internal/acp"
+	"github.com/ziozzang/agentbridge/internal/provider/glm"
 )
 
 // Each call to the chat completions endpoint records the entire request body
@@ -149,5 +151,103 @@ func TestPromptFailsFastWhenContextOverflowPersists(t *testing.T) {
 	// failure plus one emergency-compacted retry that also failed).
 	if int(calls.Load()) != 2 {
 		t.Errorf("expected exactly 2 calls (1 + 1 retry), got %d", calls.Load())
+	}
+}
+
+func TestSerializeMessagesForSummaryIncludesToolCallsAndTruncatesResults(t *testing.T) {
+	longResult := strings.Repeat("x", toolResultMaxChars+25)
+	got := serializeMessagesForSummary([]glm.Message{
+		{Role: "user", Content: "inspect files"},
+		{
+			Role:    "assistant",
+			Content: "I will inspect.",
+			ToolCalls: []glm.ToolCallMsg{{
+				ID:   "tc1",
+				Type: "function",
+				Function: glm.ToolCallMsgFunction{
+					Name:      "read_file",
+					Arguments: `{"path":"/tmp/a.txt","limit":10}`,
+				},
+			}},
+		},
+		{Role: "tool", ToolCallID: "tc1", Content: longResult},
+	})
+	for _, want := range []string{
+		"[User]: inspect files",
+		"[Assistant]: I will inspect.",
+		"[Assistant tool calls]: read_file(",
+		`path="/tmp/a.txt"`,
+		"[Tool result]: " + strings.Repeat("x", 32),
+		"[... 25 more characters truncated]",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("summary serialization missing %q:\n%s", want, got)
+		}
+	}
+}
+
+func TestFormatCompactionFileOpsPreservesReadAndModifiedFiles(t *testing.T) {
+	got := formatCompactionFileOps([]glm.Message{
+		{
+			Role: "assistant",
+			ToolCalls: []glm.ToolCallMsg{{
+				Function: glm.ToolCallMsgFunction{Name: "read_file", Arguments: `{"path":"/repo/README.md"}`},
+			}},
+		},
+		{
+			Role: "assistant",
+			ToolCalls: []glm.ToolCallMsg{{
+				Function: glm.ToolCallMsgFunction{Name: "write_file", Arguments: `{"path":"/repo/main.go"}`},
+			}},
+		},
+	})
+	if !strings.Contains(got, "<read-files>\n/repo/README.md\n</read-files>") {
+		t.Fatalf("read files not preserved:\n%s", got)
+	}
+	if !strings.Contains(got, "<modified-files>\n/repo/main.go\n</modified-files>") {
+		t.Fatalf("modified files not preserved:\n%s", got)
+	}
+}
+
+func TestCompactPromptMessagesUsesStructuredSummaryAndRecentHistory(t *testing.T) {
+	var requestBodies []string
+	httpSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		requestBodies = append(requestBodies, string(body))
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.Write([]byte(`data: {"choices":[{"index":0,"delta":{"content":"## Goal\nSummarized goal"},"finish_reason":"stop"}]}` + "\n\n"))
+		w.Write([]byte("data: [DONE]\n\n"))
+	}))
+	defer httpSrv.Close()
+
+	a := newAgentWith(t, &recorderConn{}, httpSrv)
+	messages := []glm.Message{{Role: "system", Content: "system"}}
+	for i := 0; i < 12; i++ {
+		messages = append(messages,
+			glm.Message{Role: "user", Content: "old user " + strconv.Itoa(i) + " " + strings.Repeat("a", 2000)},
+			glm.Message{Role: "assistant", Content: "old assistant " + strconv.Itoa(i) + " " + strings.Repeat("b", 2000)},
+		)
+	}
+	messages = append(messages, glm.Message{Role: "user", Content: "recent request"})
+
+	result := a.compactPromptMessages(context.Background(), messages, "glm-test", 12000, "test compaction")
+	if !result.Compacted {
+		t.Fatal("expected compaction")
+	}
+	if len(requestBodies) != 1 {
+		t.Fatalf("expected one summarization call, got %d", len(requestBodies))
+	}
+	if len(result.Messages) < 3 {
+		t.Fatalf("expected system, summary, recent messages; got %d", len(result.Messages))
+	}
+	if result.Messages[0].Role != "system" {
+		t.Fatalf("first message should remain system, got %s", result.Messages[0].Role)
+	}
+	summaryText, _ := result.Messages[1].Content.(string)
+	if !strings.Contains(summaryText, compactionSummaryPrefix) || !strings.Contains(summaryText, "Summarized goal") {
+		t.Fatalf("missing structured summary wrapper:\n%s", summaryText)
+	}
+	if got := result.Messages[len(result.Messages)-1].Content; got != "recent request" {
+		t.Fatalf("recent history not preserved, last content=%v", got)
 	}
 }

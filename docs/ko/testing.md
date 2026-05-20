@@ -69,6 +69,19 @@ curl -sS -X POST http://127.0.0.1:8766/v1/responses \
 제한하면 OAuth inference가 HTTP 403을 반환할 수 있습니다. 그 경우
 `XAI_API_KEY`와 `AGENTBRIDGE_PROVIDER=xai` 경로를 테스트하세요.
 
+HTTP agent loop smoke:
+
+HTTP 호환 엔드포인트에서 ACP와 같은 로컬 도구 루프까지 실행하려면
+`agent:<model>`을 쓰거나 request metadata에 `{"agent": true}`를 넣습니다.
+`metadata.cwd`는 파일/쉘 도구의 작업 디렉토리입니다.
+
+```bash
+AGENTBRIDGE_PROVIDER=xai-oauth agentbridge --http-listen 0.0.0.0:8766
+curl -sS -X POST http://127.0.0.1:8766/v1/chat/completions \
+  -H 'Content-Type: application/json' \
+  -d '{"model":"agent:grok-4.3","metadata":{"cwd":"'$PWD'","max_turns":6},"messages":[{"role":"user","content":"Use list_files and run_command to inspect the current directory and summarize the environment."}]}'
+```
+
 회귀 테스트 원칙:
 
 - 변경한 package 근처에 테스트를 추가합니다.

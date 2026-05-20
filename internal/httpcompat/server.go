@@ -362,7 +362,8 @@ func (h *handler) chatCompletions(w http.ResponseWriter, r *http.Request) {
 	}
 	meta := newRequestMeta(r, req.commonRequest)
 	w.Header().Set("X-Request-Id", meta.RequestID)
-	text, usage, stop, err := RunProvider(r.Context(), req.Model, req.Messages)
+	agentOpts := httpAgentOptionsFrom(req.Model, req.Metadata)
+	text, usage, stop, err := h.runProvider(r.Context(), req.Model, req.Messages, agentOpts)
 	if err != nil {
 		writeError(w, http.StatusBadGateway, err)
 		return
@@ -411,7 +412,8 @@ func (h *handler) responses(w http.ResponseWriter, r *http.Request) {
 	}
 	meta := newRequestMeta(r, req.commonRequest)
 	w.Header().Set("X-Request-Id", meta.RequestID)
-	text, usage, stop, err := RunProvider(r.Context(), req.Model, messages)
+	agentOpts := httpAgentOptionsFrom(req.Model, req.Metadata)
+	text, usage, stop, err := h.runProvider(r.Context(), req.Model, messages, agentOpts)
 	if err != nil {
 		writeError(w, http.StatusBadGateway, err)
 		return
@@ -510,7 +512,8 @@ func (h *handler) messages(w http.ResponseWriter, r *http.Request) {
 	}
 	meta := newRequestMeta(r, req.commonRequest)
 	w.Header().Set("X-Request-Id", meta.RequestID)
-	text, usage, stop, err := RunProvider(r.Context(), req.Model, req.Messages)
+	agentOpts := httpAgentOptionsFrom(req.Model, req.Metadata)
+	text, usage, stop, err := h.runProvider(r.Context(), req.Model, req.Messages, agentOpts)
 	if err != nil {
 		writeError(w, http.StatusBadGateway, err)
 		return
@@ -591,7 +594,9 @@ func (h *handler) a2aSendMessage(ctx context.Context, params json.RawMessage) (*
 	h.updateA2ATask(task.TaskID, func(t *a2aTask) {
 		t.Status = newA2AStatus("TASK_STATE_WORKING", nil)
 	})
-	text, _, _, err := RunProvider(taskCtx, a2aModel(req), []provider.Message{{Role: "user", Content: a2aMessageText(msg)}})
+	model := a2aModel(req)
+	agentOpts := httpAgentOptionsFrom(model, req.Configuration, req.Metadata, msg.Metadata)
+	text, _, _, err := h.runProvider(taskCtx, model, []provider.Message{{Role: "user", Content: a2aMessageText(msg)}}, agentOpts)
 	if err != nil {
 		h.updateA2ATask(task.TaskID, func(t *a2aTask) {
 			failed := a2aAgentMessage(t, err.Error())
@@ -642,7 +647,31 @@ func (h *handler) a2aSendStreamingMessage(w http.ResponseWriter, r *http.Request
 	})
 	writeA2ASSE(w, map[string]any{"statusUpdate": map[string]any{"taskId": task.TaskID, "contextId": task.ContextID, "status": newA2AStatus("TASK_STATE_WORKING", nil)}})
 
-	chunks, errs, err := StreamProvider(taskCtx, a2aModel(req), []provider.Message{{Role: "user", Content: a2aMessageText(msg)}})
+	model := a2aModel(req)
+	agentOpts := httpAgentOptionsFrom(model, req.Configuration, req.Metadata, msg.Metadata)
+	if agentOpts.Enabled {
+		text, _, _, err := h.runProvider(taskCtx, model, []provider.Message{{Role: "user", Content: a2aMessageText(msg)}}, agentOpts)
+		if err != nil {
+			h.finishA2AStreamWithError(w, task.TaskID, err)
+			return
+		}
+		writeA2ASSE(w, map[string]any{"artifactUpdate": map[string]any{
+			"taskId":     task.TaskID,
+			"contextId":  task.ContextID,
+			"artifactId": "response",
+			"name":       "response",
+			"parts":      []a2aPart{{Kind: "text", Type: "text", Text: text}},
+		}})
+		h.updateA2ATask(task.TaskID, func(t *a2aTask) {
+			answer := a2aAgentMessage(t, text)
+			t.Status = newA2AStatus("TASK_STATE_COMPLETED", &answer)
+			t.History = append(t.History, answer)
+			t.Artifacts = []a2aArtifact{{ArtifactID: "response", Name: "response", Parts: []a2aPart{{Kind: "text", Type: "text", Text: text}}}}
+		})
+		writeA2ASSE(w, map[string]any{"statusUpdate": map[string]any{"taskId": task.TaskID, "contextId": task.ContextID, "status": newA2AStatus("TASK_STATE_COMPLETED", nil)}})
+		return
+	}
+	chunks, errs, err := StreamProvider(taskCtx, model, []provider.Message{{Role: "user", Content: a2aMessageText(msg)}})
 	if err != nil {
 		h.finishA2AStreamWithError(w, task.TaskID, err)
 		return
