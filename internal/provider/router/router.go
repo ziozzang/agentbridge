@@ -10,10 +10,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 
 	"gopkg.in/yaml.v3"
 
@@ -109,7 +112,7 @@ func (c *Client) AvailableModels() []provider.ModelInfo {
 	}
 	for _, r := range c.routes {
 		if cfg, ok := c.providers[r.Provider]; ok {
-			for _, m := range cfg.Models {
+			for _, m := range providerModels(cfg) {
 				if m.ModelID == "" {
 					continue
 				}
@@ -140,6 +143,72 @@ func (c *Client) AvailableModels() []provider.ModelInfo {
 		out = append(out, provider.ModelInfo{ModelID: id, Name: id, Provider: firstNonEmpty(r.Provider, Kind)})
 	}
 	return out
+}
+
+func providerModels(cfg provider.Config) []provider.ModelInfo {
+	if cfg.Name == "ollama-cloud" {
+		if models, err := fetchOpenAIModels(cfg); err == nil && len(models) > 0 {
+			return models
+		}
+	}
+	out := make([]provider.ModelInfo, len(cfg.Models))
+	copy(out, cfg.Models)
+	return out
+}
+
+func fetchOpenAIModels(cfg provider.Config) ([]provider.ModelInfo, error) {
+	if cfg.BaseURL == "" || cfg.APIKey == "" {
+		return nil, errors.New("missing base URL or API key")
+	}
+	req, err := http.NewRequest(http.MethodGet, strings.TrimRight(cfg.BaseURL, "/")+"/models", nil)
+	if err != nil {
+		return nil, err
+	}
+	authHeader := cfg.AuthHeader
+	if authHeader == "" {
+		authHeader = "Authorization"
+	}
+	authPrefix := cfg.AuthPrefix
+	if authPrefix == "" && authHeader == "Authorization" {
+		authPrefix = "Bearer "
+	}
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set(authHeader, authPrefix+cfg.APIKey)
+	resp, err := (&http.Client{Timeout: 10 * time.Second}).Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if resp.StatusCode/100 != 2 {
+		return nil, fmt.Errorf("models failed: HTTP %d", resp.StatusCode)
+	}
+	var payload struct {
+		Data []struct {
+			ID      string `json:"id"`
+			OwnedBy string `json:"owned_by"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(body, &payload); err != nil {
+		return nil, err
+	}
+	out := make([]provider.ModelInfo, 0, len(payload.Data))
+	for _, m := range payload.Data {
+		if strings.TrimSpace(m.ID) == "" {
+			continue
+		}
+		desc := "provider: " + cfg.Name
+		if m.OwnedBy != "" {
+			desc += ", upstream_owner: " + m.OwnedBy
+		}
+		out = append(out, provider.ModelInfo{
+			ModelID:     m.ID,
+			Name:        m.ID,
+			Description: desc,
+			Provider:    cfg.Name,
+		})
+	}
+	return out, nil
 }
 
 func (c *Client) DefaultModel() string { return c.cfg.DefaultModel }
