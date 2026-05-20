@@ -114,10 +114,10 @@ tools can also be exposed directly through MCP `POST /mcp` and `/v1/mcp`.
 | `nvidia` | `NVIDIA_API_KEY` | OpenAI Chat Completions | Built-in agent tools |
 | `ai-gateway`, `opencode-zen`, `opencode-go`, `kilocode` | gateway-specific API key | OpenAI Chat Completions gateway | Built-in agent tools |
 | `huggingface`, `novita`, `arcee`, `gmi`, `xiaomi`, `tencent-tokenhub`, `ollama-cloud`, `lmstudio` | provider-specific API key or local key | OpenAI Chat Completions-compatible | Built-in agent tools |
-| `plugin:jina` | optional `JINA_API_KEY` | Jina Reader, Search, Embeddings | `jina_reader`, `jina_search`, `jina_embed` |
+| `plugin:jina` | optional `JINA_API_KEY` | Jina Reader, Search, Embeddings, Rerank | `jina_reader`, `jina_search`, `jina_embed`, `jina_rerank`; HTTP `/v1/embeddings`, `/v1/rerank` |
 | `plugin:ollama_search` | `OLLAMA_API_KEY` | Ollama Cloud web search/fetch | `ollama_search`, `ollama_fetch` |
 | `plugin:xai` | xAI OAuth or `XAI_API_KEY` | xAI Responses `x_search`, Images generations/edits | `xai_x_search`, `xai_image_generate`, `xai_image_edit` |
-| `plugin:openai_embed` | `AGENTBRIDGE_EMBEDDINGS_API_KEY` or LiteLLM/OpenAI key | OpenAI-compatible `/embeddings` | `embed` |
+| `plugin:openai_embed` | `AGENTBRIDGE_EMBEDDINGS_API_KEY` or mapped key envs | OpenAI-compatible `/embeddings` gateways | `embed`; HTTP `/v1/embeddings`; aliases from `embeddings.json` |
 | `plugin:sqlite` | local filesystem | SQLite catalog/query | `sqlite_list`, `sqlite_load`, `sqlite_unload`, `sqlite_tables`, `sqlite_schema`, `sqlite_query`, `sqlite_exec` when enabled |
 | `plugin:duckdb` | local process | Reserved placeholder | `duckdb_status` |
 

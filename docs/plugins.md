@@ -56,11 +56,12 @@ reserved for a future CGO-enabled implementation.
 
 ## Jina
 
-The Jina plugin exposes the official Reader, Search, and Embeddings APIs:
+The Jina plugin exposes the official Reader, Search, Embeddings, and Rerank APIs:
 
 - Reader: `https://r.jina.ai`
 - Search: `https://s.jina.ai`
 - Embeddings: `https://api.jina.ai/v1/embeddings`
+- Rerank: `https://api.jina.ai/v1/rerank`
 
 Enable it with:
 
@@ -77,12 +78,20 @@ Variables:
 | `AGENTBRIDGE_JINA_SEARCH_BASE_URL` | Override Search base URL. Defaults to `https://s.jina.ai`. |
 | `AGENTBRIDGE_JINA_EMBEDDINGS_BASE_URL` | Override embeddings API base. Defaults to `https://api.jina.ai/v1`. |
 | `AGENTBRIDGE_JINA_EMBEDDINGS_MODEL` | Default embedding model. Defaults to `jina-embeddings-v3`. |
+| `AGENTBRIDGE_JINA_EMBEDDINGS_MODELS` | Comma-separated Jina embedding models to expose in `GET /v1/models`. |
+| `AGENTBRIDGE_JINA_RERANK_BASE_URL` | Override rerank API base. Defaults to `https://api.jina.ai/v1`. |
+| `AGENTBRIDGE_JINA_RERANK_MODEL` | Default rerank model. Defaults to `jina-reranker-v3`. |
 
 Tools:
 
 - `jina_reader`
 - `jina_search`
 - `jina_embed`
+- `jina_rerank`
+
+When the HTTP compatibility server is enabled, active Jina embedding models
+are also exposed through `POST /v1/embeddings`, and the reranker is exposed
+through `POST /v1/rerank`.
 
 ## Ollama Search
 
@@ -141,8 +150,9 @@ Tools:
 ## OpenAI-Compatible Embeddings
 
 The `openai_embed` plugin exposes any OpenAI-compatible `/embeddings` endpoint
-as a tool. This is intended for LiteLLM, OpenAI, local vLLM, or similar
-gateways.
+as a tool and through the HTTP compatibility `POST /v1/embeddings` endpoint.
+This is intended for LiteLLM, OpenAI, OpenRouter, local vLLM/llama.cpp
+servers, or similar gateways.
 
 Enable it with LiteLLM:
 
@@ -168,21 +178,41 @@ Tool:
 - `embed`
 
 External model mapping is useful when a gateway exposes different model IDs
-than OpenAI, or when aliases should route to different endpoints:
+than OpenAI, or when aliases should route to different endpoints. This file is
+JSON and defaults to `$XDG_CONFIG_HOME/agentbridge/embeddings.json`
+(`~/.config/agentbridge/embeddings.json` on most Linux systems):
 
 ```json
 {
   "default": "fast",
   "models": {
-    "fast": {
-      "base_url": "${LITELLM_OPENAI_BASE_URL}",
-      "api_key_env": "LITELLM_OPENAI_API_KEY",
-      "model": "jina-embeddings-v5-text-small"
+    "embeddinggemma-300m": {
+      "base_url": "http://10.2.2.10:28080/v1",
+      "model": "embeddinggemma-300m",
+      "provider": "local",
+      "description": "Local embeddinggemma-300m via AgentBridge"
     },
-    "local-gemma": {
-      "base_url": "http://127.0.0.1:4000/v1",
-      "api_key_env": "LITELLM_API_KEY",
-      "model": "embeddinggemma-300m"
+    "pplx-embed-v1-0.6b": {
+      "base_url": "https://openrouter.ai/api/v1",
+      "api_key_env": "OPENROUTER_API_KEY",
+      "model": "perplexity/pplx-embed-v1-0.6b",
+      "provider": "openrouter",
+      "description": "Perplexity embedding model via OpenRouter",
+      "headers": {
+        "HTTP-Referer": "http://10.2.2.10:8766",
+        "X-Title": "AgentBridge"
+      }
+    },
+    "llama-nemotron-embed-vl-1b-v2": {
+      "base_url": "https://openrouter.ai/api/v1",
+      "api_key_env": "OPENROUTER_API_KEY",
+      "model": "nvidia/llama-nemotron-embed-vl-1b-v2:free",
+      "provider": "openrouter",
+      "description": "NVIDIA Llama Nemotron Embed VL 1B v2 via OpenRouter",
+      "headers": {
+        "HTTP-Referer": "http://10.2.2.10:8766",
+        "X-Title": "AgentBridge"
+      }
     }
   }
 }
@@ -190,7 +220,11 @@ than OpenAI, or when aliases should route to different endpoints:
 
 The user-facing `model` argument can be either an upstream model ID or a
 mapping alias. Mapping fields support `${VAR}` environment expansion. Prefer
-`api_key_env` over storing `api_key` directly in the file.
+`api_key_env` over storing `api_key` directly in the file. `provider` (or
+`owned_by`) controls the `owned_by` value returned from `GET /v1/models`;
+`description` is returned as model metadata. Without a mapping file,
+`AGENTBRIDGE_EMBEDDINGS_BASE_URL`, `AGENTBRIDGE_EMBEDDINGS_API_KEY`, and
+`AGENTBRIDGE_EMBEDDINGS_MODEL` define one default route.
 
 ## MCP Tool-Only Mode
 

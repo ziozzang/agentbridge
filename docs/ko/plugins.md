@@ -53,11 +53,12 @@ binary가 필요하므로, 이름과 tool surface만 예약되어 있습니다.
 
 ## Jina
 
-Jina 플러그인은 공식 Reader, Search, Embeddings API를 도구로 노출합니다.
+Jina 플러그인은 공식 Reader, Search, Embeddings, Rerank API를 도구로 노출합니다.
 
 - Reader: `https://r.jina.ai`
 - Search: `https://s.jina.ai`
 - Embeddings: `https://api.jina.ai/v1/embeddings`
+- Rerank: `https://api.jina.ai/v1/rerank`
 
 활성화:
 
@@ -72,12 +73,20 @@ AGENTBRIDGE_PLUGINS=jina agentbridge
 | `AGENTBRIDGE_JINA_SEARCH_BASE_URL` | Search base URL override. 기본값 `https://s.jina.ai`. |
 | `AGENTBRIDGE_JINA_EMBEDDINGS_BASE_URL` | Embeddings API base override. 기본값 `https://api.jina.ai/v1`. |
 | `AGENTBRIDGE_JINA_EMBEDDINGS_MODEL` | 기본 embedding model. 기본값 `jina-embeddings-v3`. |
+| `AGENTBRIDGE_JINA_EMBEDDINGS_MODELS` | `GET /v1/models`에 노출할 Jina embedding model 목록. 쉼표로 구분. |
+| `AGENTBRIDGE_JINA_RERANK_BASE_URL` | Rerank API base override. 기본값 `https://api.jina.ai/v1`. |
+| `AGENTBRIDGE_JINA_RERANK_MODEL` | 기본 rerank model. 기본값 `jina-reranker-v3`. |
 
 도구:
 
 - `jina_reader`
 - `jina_search`
 - `jina_embed`
+- `jina_rerank`
+
+HTTP compatibility server를 켜면 활성화된 Jina embedding model은
+`POST /v1/embeddings`에서도 사용할 수 있고, reranker는 `POST /v1/rerank`로
+노출됩니다.
 
 ## Ollama Search
 
@@ -130,9 +139,9 @@ AGENTBRIDGE_PLUGINS=xai agentbridge --http-listen 127.0.0.1:8766
 
 ## OpenAI 호환 Embeddings
 
-`openai_embed` plugin은 OpenAI 호환 `/embeddings` endpoint를 도구로
-노출합니다. LiteLLM, OpenAI, 로컬 vLLM 같은 gateway 테스트에 사용할 수
-있습니다.
+`openai_embed` plugin은 OpenAI 호환 `/embeddings` endpoint를 도구와 HTTP
+compatibility `POST /v1/embeddings` endpoint로 노출합니다. LiteLLM, OpenAI,
+OpenRouter, 로컬 vLLM/llama.cpp 같은 gateway에 사용할 수 있습니다.
 
 LiteLLM 예시:
 
@@ -156,21 +165,41 @@ agentbridge
 - `embed`
 
 외부 model mapping은 gateway가 OpenAI와 다른 model ID를 노출하거나, alias별로
-다른 endpoint에 라우팅해야 할 때 사용합니다.
+다른 endpoint에 라우팅해야 할 때 사용합니다. 이 파일은 JSON이고 기본 위치는
+`$XDG_CONFIG_HOME/agentbridge/embeddings.json`입니다. 일반적인 Linux 환경에서는
+`~/.config/agentbridge/embeddings.json`입니다.
 
 ```json
 {
   "default": "fast",
   "models": {
-    "fast": {
-      "base_url": "${LITELLM_OPENAI_BASE_URL}",
-      "api_key_env": "LITELLM_OPENAI_API_KEY",
-      "model": "jina-embeddings-v5-text-small"
+    "embeddinggemma-300m": {
+      "base_url": "http://10.2.2.10:28080/v1",
+      "model": "embeddinggemma-300m",
+      "provider": "local",
+      "description": "Local embeddinggemma-300m via AgentBridge"
     },
-    "local-gemma": {
-      "base_url": "http://127.0.0.1:4000/v1",
-      "api_key_env": "LITELLM_API_KEY",
-      "model": "embeddinggemma-300m"
+    "pplx-embed-v1-0.6b": {
+      "base_url": "https://openrouter.ai/api/v1",
+      "api_key_env": "OPENROUTER_API_KEY",
+      "model": "perplexity/pplx-embed-v1-0.6b",
+      "provider": "openrouter",
+      "description": "Perplexity embedding model via OpenRouter",
+      "headers": {
+        "HTTP-Referer": "http://10.2.2.10:8766",
+        "X-Title": "AgentBridge"
+      }
+    },
+    "llama-nemotron-embed-vl-1b-v2": {
+      "base_url": "https://openrouter.ai/api/v1",
+      "api_key_env": "OPENROUTER_API_KEY",
+      "model": "nvidia/llama-nemotron-embed-vl-1b-v2:free",
+      "provider": "openrouter",
+      "description": "NVIDIA Llama Nemotron Embed VL 1B v2 via OpenRouter",
+      "headers": {
+        "HTTP-Referer": "http://10.2.2.10:8766",
+        "X-Title": "AgentBridge"
+      }
     }
   }
 }
@@ -178,7 +207,11 @@ agentbridge
 
 사용자가 넘기는 `model` 값은 upstream model ID일 수도 있고 mapping alias일 수도
 있습니다. Mapping field는 `${VAR}` 환경 변수 확장을 지원합니다. 파일에
-`api_key`를 직접 넣기보다는 `api_key_env`를 쓰는 것을 권장합니다.
+`api_key`를 직접 넣기보다는 `api_key_env`를 쓰는 것을 권장합니다. `provider`
+또는 `owned_by`는 `GET /v1/models`의 `owned_by` 값으로 내려갑니다.
+`description`은 model metadata로 내려갑니다. Mapping 파일이 없으면
+`AGENTBRIDGE_EMBEDDINGS_BASE_URL`, `AGENTBRIDGE_EMBEDDINGS_API_KEY`,
+`AGENTBRIDGE_EMBEDDINGS_MODEL`이 하나의 기본 route를 정의합니다.
 
 ## MCP Tool-Only Mode
 

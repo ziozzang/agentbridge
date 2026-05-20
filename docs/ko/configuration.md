@@ -36,6 +36,7 @@ YAML/JSON 파일로 설정합니다.
 | `AGENTBRIDGE_MCP_FILE` | 외부 MCP server JSON/YAML 설정 파일. |
 | `AGENTBRIDGE_DISABLED_MCPS` | 설정에 있어도 끌 MCP server 이름 목록. |
 | `AGENTBRIDGE_ROUTER_FILE` | Router route JSON/YAML 파일. |
+| `AGENTBRIDGE_EMBEDDINGS_FILE` | Embedding model mapping JSON. 있으면 기본값은 `$XDG_CONFIG_HOME/agentbridge/embeddings.json`. |
 
 ## Provider별 변수
 
@@ -114,6 +115,36 @@ providers:
 ```
 
 CLI flag는 여전히 `server:` 값보다 우선합니다.
+
+## Embedding Model Mapping
+
+`openai_embed`는 여러 사용자-facing embedding alias를 서로 다른 OpenAI 호환
+upstream으로 라우팅할 수 있습니다. JSON 파일을
+`$XDG_CONFIG_HOME/agentbridge/embeddings.json`에 두거나
+`AGENTBRIDGE_EMBEDDINGS_FILE`로 지정합니다.
+
+```json
+{
+  "default": "jina-embeddings-v5-text-nano",
+  "models": {
+    "embeddinggemma-300m": {
+      "base_url": "http://10.2.2.10:28080/v1",
+      "model": "embeddinggemma-300m",
+      "provider": "local"
+    },
+    "pplx-embed-v1-0.6b": {
+      "base_url": "https://openrouter.ai/api/v1",
+      "api_key_env": "OPENROUTER_API_KEY",
+      "model": "perplexity/pplx-embed-v1-0.6b",
+      "provider": "openrouter"
+    }
+  }
+}
+```
+
+map key는 `POST /v1/embeddings`에서 받는 public model ID이며
+`GET /v1/models`에도 그대로 표시됩니다. `model`은 upstream model ID입니다.
+`provider` 또는 `owned_by`는 OpenAI 호환 `owned_by` 필드로 내려갑니다.
 
 ## Agent Profiles
 

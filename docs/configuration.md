@@ -38,6 +38,7 @@ Legacy `ACP_HARNESS_*` variables remain supported as aliases.
 | `AGENTBRIDGE_MCP_FILE` | External MCP server config file, JSON or YAML. |
 | `AGENTBRIDGE_DISABLED_MCPS` | Comma-separated configured MCP server names to suppress. |
 | `AGENTBRIDGE_ROUTER_FILE` | Router route file, JSON or YAML. |
+| `AGENTBRIDGE_EMBEDDINGS_FILE` | Embedding model mapping JSON. Defaults to `$XDG_CONFIG_HOME/agentbridge/embeddings.json` when present. |
 
 ## Per-Provider Variables
 
@@ -116,6 +117,36 @@ providers:
 ```
 
 CLI flags still take precedence over `server:` values.
+
+## Embedding Model Mapping
+
+`openai_embed` can route multiple user-facing embedding aliases to different
+OpenAI-compatible upstreams. Put the JSON file at
+`$XDG_CONFIG_HOME/agentbridge/embeddings.json`, or set
+`AGENTBRIDGE_EMBEDDINGS_FILE`.
+
+```json
+{
+  "default": "jina-embeddings-v5-text-nano",
+  "models": {
+    "embeddinggemma-300m": {
+      "base_url": "http://10.2.2.10:28080/v1",
+      "model": "embeddinggemma-300m",
+      "provider": "local"
+    },
+    "pplx-embed-v1-0.6b": {
+      "base_url": "https://openrouter.ai/api/v1",
+      "api_key_env": "OPENROUTER_API_KEY",
+      "model": "perplexity/pplx-embed-v1-0.6b",
+      "provider": "openrouter"
+    }
+  }
+}
+```
+
+The map key is the public model ID accepted by `POST /v1/embeddings` and
+returned from `GET /v1/models`. `model` is the upstream model ID.
+`provider` or `owned_by` controls the OpenAI-compatible `owned_by` field.
 
 ## Agent Profiles
 
