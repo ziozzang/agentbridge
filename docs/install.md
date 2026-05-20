@@ -62,6 +62,7 @@ Routes:
 - `POST /v1/responses`
 - `GET /v1/responses/{id}`
 - `POST /v1/messages`
+- `GET /v1/models`
 - `POST /v1/a2a/rpc`
 - `GET /.well-known/agent-card.json`
 - `POST /v1/mcp`

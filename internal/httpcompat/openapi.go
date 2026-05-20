@@ -21,6 +21,10 @@ func (h *handler) openapi(w http.ResponseWriter, r *http.Request) {
 			"responses":  okResponse(),
 		}},
 		"/v1/messages": pathItem("post", "Anthropic-compatible messages"),
+		"/v1/models": map[string]any{"get": map[string]any{
+			"summary":   "OpenAI-compatible model list",
+			"responses": okResponse(),
+		}},
 		"/v1/a2a/rpc":  pathItem("post", "A2A JSON-RPC endpoint"),
 		"/v1/mcp":      pathItem("post", "MCP Streamable HTTP JSON-RPC endpoint"),
 		"/v1/agui/run": pathItem("post", "AG-UI SSE run endpoint"),

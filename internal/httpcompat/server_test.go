@@ -470,6 +470,16 @@ func TestMCPAGUIOpenAPIMetrics(t *testing.T) {
 			t.Fatalf("bad openapi: %q", string(body))
 		}
 
+		resp, err = http.Get(srv.URL + "/v1/models")
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+		body, _ = io.ReadAll(resp.Body)
+		if !strings.Contains(string(body), `"object":"list"`) || !strings.Contains(string(body), `"id":"test-model"`) {
+			t.Fatalf("bad models: %q", string(body))
+		}
+
 		resp, err = http.Get(srv.URL + "/swagger")
 		if err != nil {
 			t.Fatal(err)

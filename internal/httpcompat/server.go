@@ -85,6 +85,8 @@ func NewHandler() http.Handler {
 	mux.HandleFunc("/responses", h.responses)
 	mux.HandleFunc("/v1/messages", h.messages)
 	mux.HandleFunc("/messages", h.messages)
+	mux.HandleFunc("/v1/models", h.models)
+	mux.HandleFunc("/models", h.models)
 	return h.instrument(mux)
 }
 

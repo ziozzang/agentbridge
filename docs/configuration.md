@@ -121,8 +121,9 @@ CLI flags still take precedence over `server:` values.
 
 Agent profiles are virtual models: selecting the profile name in ACP uses a
 target upstream model, injects an extra system prompt, and optionally filters
-the available tools. Set `AGENTBRIDGE_AGENTS_FILE`, or place `agents.yaml` /
-`agents.json` under `$XDG_CONFIG_HOME/agentbridge`.
+the available tools. They are also included in the OpenAI-compatible
+`GET /v1/models` list. Set `AGENTBRIDGE_AGENTS_FILE`, or place
+`agents.yaml` / `agents.json` under `$XDG_CONFIG_HOME/agentbridge`.
 
 ```yaml
 agents:

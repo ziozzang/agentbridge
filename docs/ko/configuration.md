@@ -119,8 +119,9 @@ CLI flag는 여전히 `server:` 값보다 우선합니다.
 
 Agent profile은 virtual model입니다. ACP에서 profile 이름을 선택하면 지정한
 upstream model을 사용하고, 추가 system prompt를 주입하며, 필요한 경우 tool
-목록을 제한합니다. `AGENTBRIDGE_AGENTS_FILE`을 지정하거나
-`$XDG_CONFIG_HOME/agentbridge` 아래 `agents.yaml` / `agents.json`을 둡니다.
+목록을 제한합니다. OpenAI 호환 `GET /v1/models` 목록에도 함께 표시됩니다.
+`AGENTBRIDGE_AGENTS_FILE`을 지정하거나 `$XDG_CONFIG_HOME/agentbridge` 아래
+`agents.yaml` / `agents.json`을 둡니다.
 
 ```yaml
 agents:
