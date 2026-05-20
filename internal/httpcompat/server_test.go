@@ -121,6 +121,53 @@ func TestRequestIDAndCacheMetadata(t *testing.T) {
 	}
 }
 
+func TestResponsesPreviousResponseAndRetrieve(t *testing.T) {
+	withMockHTTPProvider(t, func(srv *httptest.Server) {
+		resp, err := http.Post(srv.URL+"/v1/responses", "application/json", strings.NewReader(`{"input":"hi","model":"test-model","store":true}`))
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+		var first struct {
+			ID         string `json:"id"`
+			OutputText string `json:"output_text"`
+		}
+		if err := json.NewDecoder(resp.Body).Decode(&first); err != nil {
+			t.Fatal(err)
+		}
+		if first.ID == "" || first.OutputText != "OK" {
+			t.Fatalf("bad first response: %+v", first)
+		}
+
+		body := fmt.Sprintf(`{"input":[{"type":"message","role":"user","content":[{"type":"input_text","text":"again"}]}],"previous_response_id":%q,"parallel_tool_calls":false,"prompt_cache_key":"k"}`, first.ID)
+		resp, err = http.Post(srv.URL+"/v1/responses", "application/json", strings.NewReader(body))
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+		var second struct {
+			PreviousResponseID string `json:"previous_response_id"`
+			ParallelToolCalls  bool   `json:"parallel_tool_calls"`
+		}
+		if err := json.NewDecoder(resp.Body).Decode(&second); err != nil {
+			t.Fatal(err)
+		}
+		if second.PreviousResponseID != first.ID || second.ParallelToolCalls {
+			t.Fatalf("bad second response: %+v", second)
+		}
+
+		resp, err = http.Get(srv.URL + "/v1/responses/" + first.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+		got, _ := io.ReadAll(resp.Body)
+		if !strings.Contains(string(got), `"output_text":"OK"`) {
+			t.Fatalf("bad retrieve: %q", string(got))
+		}
+	})
+}
+
 func TestA2AAgentCard(t *testing.T) {
 	srv := httptest.NewServer(NewHandler())
 	defer srv.Close()
@@ -239,6 +286,75 @@ func TestA2AStreamingMessage(t *testing.T) {
 		got, _ := io.ReadAll(resp.Body)
 		if !strings.Contains(string(got), "artifactUpdate") || !strings.Contains(string(got), "TASK_STATE_COMPLETED") {
 			t.Fatalf("bad stream: %q", string(got))
+		}
+	})
+}
+
+func TestMCPAGUIOpenAPIMetrics(t *testing.T) {
+	withMockHTTPProvider(t, func(srv *httptest.Server) {
+		initBody := `{"jsonrpc":"2.0","id":"1","method":"initialize","params":{"protocolVersion":"2025-06-18"}}`
+		resp, err := http.Post(srv.URL+"/v1/mcp", "application/json", strings.NewReader(initBody))
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+		if resp.Header.Get("Mcp-Session-Id") == "" {
+			t.Fatal("missing MCP session id")
+		}
+		body, _ := io.ReadAll(resp.Body)
+		if !strings.Contains(string(body), `"protocolVersion":"2025-06-18"`) {
+			t.Fatalf("bad initialize: %q", string(body))
+		}
+
+		callBody := `{"jsonrpc":"2.0","id":"2","method":"tools/call","params":{"name":"chat","arguments":{"input":"hi","model":"test-model"}}}`
+		resp, err = http.Post(srv.URL+"/v1/mcp", "application/json", strings.NewReader(callBody))
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+		body, _ = io.ReadAll(resp.Body)
+		if !strings.Contains(string(body), `"text":"OK"`) {
+			t.Fatalf("bad tool call: %q", string(body))
+		}
+
+		resp, err = http.Post(srv.URL+"/v1/agui/run", "application/json", strings.NewReader(`{"input":"hi","model":"test-model"}`))
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+		body, _ = io.ReadAll(resp.Body)
+		if !strings.Contains(string(body), "TEXT_MESSAGE_START") || !strings.Contains(string(body), "TEXT_MESSAGE_CONTENT") || !strings.Contains(string(body), "RUN_FINISHED") {
+			t.Fatalf("bad ag-ui stream: %q", string(body))
+		}
+
+		resp, err = http.Get(srv.URL + "/openapi.json")
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+		body, _ = io.ReadAll(resp.Body)
+		if !strings.Contains(string(body), `"openapi":"3.1.1"`) || !strings.Contains(string(body), `/v1/mcp`) {
+			t.Fatalf("bad openapi: %q", string(body))
+		}
+
+		resp, err = http.Get(srv.URL + "/swagger")
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+		body, _ = io.ReadAll(resp.Body)
+		if !strings.Contains(string(body), "SwaggerUIBundle") {
+			t.Fatalf("bad swagger ui: %q", string(body))
+		}
+
+		resp, err = http.Get(srv.URL + "/metrics")
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+		body, _ = io.ReadAll(resp.Body)
+		if !strings.Contains(string(body), "glm_acp_http_requests_total") {
+			t.Fatalf("bad metrics: %q", string(body))
 		}
 	})
 }

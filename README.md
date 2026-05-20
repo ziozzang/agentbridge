@@ -85,13 +85,16 @@ You can also expose HTTP compatibility endpoints on a separate listener:
 ./glm-acp-agent --http-listen 127.0.0.1:8766
 ```
 
-Supported routes are `/v1/chat/completions`, `/v1/responses`, and
-`/v1/messages` (plus the same paths without `/v1`). They use the same
-active provider configuration as ACP server mode. HTTP responses include
-`request_id` and `X-Request-Id`; clients may provide `X-Request-Id` or
+Supported routes include `/v1/chat/completions`, `/v1/responses`,
+`/v1/messages`, `/v1/a2a/rpc`, `/v1/mcp`, `/v1/agui/run`,
+`/openapi.json`, `/swagger`, and `/metrics` (core compatibility paths are also
+accepted without `/v1`). They use the same active provider configuration
+as ACP server mode. HTTP responses include `request_id` and
+`X-Request-Id`; clients may provide `X-Request-Id` or
 `metadata.request_id`. Cache hints may be sent via `cache`,
-`cache_control`, or `metadata.cache`; the current server reports them back
-with `cache_status: "bypass"` until a real cache backend is configured.
+`cache_control`, `metadata.cache`, or Responses API prompt cache fields;
+the current server reports them back with `cache_status: "bypass"` until
+a real cache backend is configured.
 
 For lower-overhead long-lived clients, expose the gRPC compatibility API:
 

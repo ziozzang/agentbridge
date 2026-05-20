@@ -75,12 +75,37 @@ The HTTP listener supports:
 
 - `POST /v1/chat/completions`
 - `POST /v1/responses`
+- `GET /v1/responses/{id}`
 - `POST /v1/messages`
 - `POST /v1/a2a/rpc`
+- `POST /v1/mcp`
+- `POST /v1/agui/run`
+- `GET /openapi.json`
+- `GET /swagger`
+- `GET /metrics`
 
 The same paths are also accepted without the `/v1` prefix. The endpoints
 use the same configured provider as ACP mode and return OpenAI/Anthropic
 compatible response shapes.
+
+`/v1/responses` accepts `previous_response_id`, `instructions`,
+`parallel_tool_calls`, `max_tool_calls`, `prompt_cache_key`, and
+`prompt_cache_retention` for OpenAI Responses/Agents-style clients. Stored
+responses can be retrieved with `GET /v1/responses/{id}`.
+
+`/v1/mcp` is a Streamable HTTP JSON-RPC endpoint with `initialize`,
+`tools/list`, `tools/call`, `resources/list`, and `prompts/list`. The
+initial tool set exposes a `chat` tool backed by the configured provider.
+
+`/v1/agui/run` emits AG-UI-compatible SSE text message lifecycle events:
+`RUN_STARTED`, `TEXT_MESSAGE_START`, `TEXT_MESSAGE_CONTENT`,
+`TEXT_MESSAGE_END`, and `RUN_FINISHED`.
+
+`/openapi.json` and `/v1/openapi.json` return an OpenAPI 3.1.1 document for
+Swagger/OpenAPI tooling, and `/swagger` serves a Swagger UI page for it.
+`/metrics` and `/metric` expose Prometheus text format counters and gauges
+for request totals, failures, in-flight requests, durations, and per-route
+status counts.
 
 ## gRPC compatibility API
 

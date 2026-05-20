@@ -32,28 +32,43 @@ import (
 func NewHandler() http.Handler {
 	mux := http.NewServeMux()
 	h := &handler{
-		tasks:   map[string]*a2aTask{},
-		cancels: map[string]context.CancelFunc{},
+		tasks:         map[string]*a2aTask{},
+		cancels:       map[string]context.CancelFunc{},
+		responseStore: map[string]responseRecord{},
 	}
 	mux.HandleFunc("/health", h.health)
+	mux.HandleFunc("/metrics", h.metrics)
+	mux.HandleFunc("/metric", h.metrics)
+	mux.HandleFunc("/openapi.json", h.openapi)
+	mux.HandleFunc("/swagger.json", h.openapi)
+	mux.HandleFunc("/swagger", h.swaggerUI)
+	mux.HandleFunc("/docs", h.swaggerUI)
+	mux.HandleFunc("/v1/openapi.json", h.openapi)
 	mux.HandleFunc("/.well-known/agent-card.json", h.a2aAgentCard)
 	mux.HandleFunc("/a2a/agent-card.json", h.a2aAgentCard)
 	mux.HandleFunc("/v1/a2a/agent-card.json", h.a2aAgentCard)
 	mux.HandleFunc("/a2a/rpc", h.a2aRPC)
 	mux.HandleFunc("/v1/a2a/rpc", h.a2aRPC)
+	mux.HandleFunc("/mcp", h.mcp)
+	mux.HandleFunc("/v1/mcp", h.mcp)
+	mux.HandleFunc("/agui/run", h.aguiRun)
+	mux.HandleFunc("/v1/agui/run", h.aguiRun)
 	mux.HandleFunc("/v1/chat/completions", h.chatCompletions)
 	mux.HandleFunc("/chat/completions", h.chatCompletions)
+	mux.HandleFunc("/v1/responses/", h.responseByID)
+	mux.HandleFunc("/responses/", h.responseByID)
 	mux.HandleFunc("/v1/responses", h.responses)
 	mux.HandleFunc("/responses", h.responses)
 	mux.HandleFunc("/v1/messages", h.messages)
 	mux.HandleFunc("/messages", h.messages)
-	return mux
+	return h.instrument(mux)
 }
 
 type handler struct {
-	mu      sync.Mutex
-	tasks   map[string]*a2aTask
-	cancels map[string]context.CancelFunc
+	mu            sync.Mutex
+	tasks         map[string]*a2aTask
+	cancels       map[string]context.CancelFunc
+	responseStore map[string]responseRecord
 }
 
 type jsonRPCRequest struct {
@@ -137,6 +152,15 @@ type requestMeta struct {
 	CacheStatus string         `json:"cache_status,omitempty"`
 }
 
+type responseRecord struct {
+	ID        string             `json:"id"`
+	Model     string             `json:"model,omitempty"`
+	Messages  []provider.Message `json:"messages,omitempty"`
+	Output    string             `json:"output_text,omitempty"`
+	CreatedAt int64              `json:"created_at"`
+	Metadata  map[string]any     `json:"metadata,omitempty"`
+}
+
 type commonRequest struct {
 	Metadata     map[string]any `json:"metadata,omitempty"`
 	Cache        map[string]any `json:"cache,omitempty"`
@@ -152,9 +176,21 @@ type chatRequest struct {
 
 type responsesRequest struct {
 	commonRequest
-	Model  string `json:"model"`
-	Input  any    `json:"input"`
-	Stream bool   `json:"stream"`
+	Model                string         `json:"model"`
+	Input                any            `json:"input"`
+	Instructions         string         `json:"instructions,omitempty"`
+	PreviousResponseID   string         `json:"previous_response_id,omitempty"`
+	Conversation         any            `json:"conversation,omitempty"`
+	Tools                []any          `json:"tools,omitempty"`
+	ParallelToolCalls    *bool          `json:"parallel_tool_calls,omitempty"`
+	MaxToolCalls         int            `json:"max_tool_calls,omitempty"`
+	MaxOutputTokens      int            `json:"max_output_tokens,omitempty"`
+	Prompt               map[string]any `json:"prompt,omitempty"`
+	PromptCacheKey       string         `json:"prompt_cache_key,omitempty"`
+	PromptCacheRetention string         `json:"prompt_cache_retention,omitempty"`
+	Include              []string       `json:"include,omitempty"`
+	Store                *bool          `json:"store,omitempty"`
+	Stream               bool           `json:"stream"`
 }
 
 type messagesRequest struct {
@@ -319,7 +355,11 @@ func (h *handler) responses(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
-	messages := responsesInput(req.Input)
+	messages, err := h.responsesMessages(req)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
 	if len(messages) == 0 {
 		writeError(w, http.StatusBadRequest, errors.New("input is required"))
 		return
@@ -331,15 +371,9 @@ func (h *handler) responses(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadGateway, err)
 		return
 	}
-	if req.Stream {
-		writeSSE(w, []map[string]any{
-			{"type": "response.output_text.delta", "delta": text},
-			{"type": "response.completed", "response": map[string]any{"status": "completed"}},
-		})
-		return
-	}
-	writeJSON(w, http.StatusOK, map[string]any{
-		"id":          responseID("resp", meta.RequestID),
+	id := responseID("resp", meta.RequestID)
+	resp := map[string]any{
+		"id":          id,
 		"request_id":  meta.RequestID,
 		"object":      "response",
 		"created_at":  time.Now().Unix(),
@@ -353,7 +387,65 @@ func (h *handler) responses(w http.ResponseWriter, r *http.Request) {
 		}},
 		"usage":       openAIUsage(usage),
 		"stop_reason": stopReason(stop),
-		"metadata":    meta,
+		"metadata": map[string]any{
+			"request_id":             meta.RequestID,
+			"cache":                  meta.Cache,
+			"cache_status":           meta.CacheStatus,
+			"previous_response_id":   req.PreviousResponseID,
+			"parallel_tool_calls":    req.ParallelToolCalls,
+			"max_tool_calls":         req.MaxToolCalls,
+			"prompt_cache_key":       req.PromptCacheKey,
+			"prompt_cache_retention": req.PromptCacheRetention,
+		},
+		"parallel_tool_calls":  firstBool(req.ParallelToolCalls, true),
+		"previous_response_id": req.PreviousResponseID,
+		"tools":                req.Tools,
+	}
+	if shouldStoreResponse(req) {
+		h.storeResponse(responseRecord{ID: id, Model: req.Model, Messages: append(messages, provider.Message{Role: "assistant", Content: text}), Output: text, CreatedAt: time.Now().Unix(), Metadata: req.Metadata})
+	}
+	if req.Stream {
+		writeSSE(w, []map[string]any{
+			{"type": "response.created", "response": map[string]any{"id": id, "status": "in_progress"}},
+			{"type": "response.output_text.delta", "item_id": responseID("item", meta.RequestID), "delta": text},
+			{"type": "response.completed", "response": resp},
+		})
+		return
+	}
+	writeJSON(w, http.StatusOK, resp)
+}
+
+func (h *handler) responseByID(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	id := strings.TrimPrefix(r.URL.Path, "/v1/responses/")
+	id = strings.TrimPrefix(id, "/responses/")
+	if id == "" {
+		writeError(w, http.StatusBadRequest, errors.New("response id is required"))
+		return
+	}
+	h.mu.Lock()
+	rec, ok := h.responseStore[id]
+	h.mu.Unlock()
+	if !ok {
+		writeError(w, http.StatusNotFound, errors.New("response not found"))
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"id":          rec.ID,
+		"object":      "response",
+		"created_at":  rec.CreatedAt,
+		"model":       firstNonEmpty(rec.Model, defaultModel()),
+		"status":      "completed",
+		"output_text": rec.Output,
+		"output": []map[string]any{{
+			"type":    "message",
+			"role":    "assistant",
+			"content": []map[string]any{{"type": "output_text", "text": rec.Output}},
+		}},
+		"metadata": rec.Metadata,
 	})
 }
 
@@ -794,16 +886,48 @@ func responsesInput(input any) []provider.Message {
 		for _, item := range v {
 			if m, ok := item.(map[string]any); ok {
 				role, _ := m["role"].(string)
-				content := m["content"]
+				content := responseContentText(m["content"])
+				if content == "" {
+					content = responseContentText(m["text"])
+				}
 				if role == "" {
 					role = "user"
 				}
-				out = append(out, provider.Message{Role: role, Content: content})
+				if content != "" {
+					out = append(out, provider.Message{Role: role, Content: content})
+				}
 			}
 		}
 		return out
 	default:
 		return nil
+	}
+}
+
+func responseContentText(content any) string {
+	switch v := content.(type) {
+	case string:
+		return v
+	case []any:
+		var b strings.Builder
+		for _, item := range v {
+			if m, ok := item.(map[string]any); ok {
+				text, _ := m["text"].(string)
+				if text == "" {
+					text, _ = m["input_text"].(string)
+				}
+				if text == "" {
+					continue
+				}
+				if b.Len() > 0 {
+					b.WriteString("\n")
+				}
+				b.WriteString(text)
+			}
+		}
+		return b.String()
+	default:
+		return ""
 	}
 }
 
