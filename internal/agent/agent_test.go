@@ -8,8 +8,8 @@ import (
 	"testing"
 
 	"github.com/ziozzang/agentbridge/internal/acp"
-	"github.com/ziozzang/agentbridge/internal/glm"
 	"github.com/ziozzang/agentbridge/internal/protocol/sessionstore"
+	"github.com/ziozzang/agentbridge/internal/provider/glm"
 )
 
 // fakeConn satisfies what executor.SessionConn / agent.Conn needs.

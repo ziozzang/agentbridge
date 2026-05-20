@@ -13,7 +13,7 @@ import (
 	"regexp"
 	"sort"
 
-	"github.com/ziozzang/agentbridge/internal/glm"
+	"github.com/ziozzang/agentbridge/internal/provider/glm"
 )
 
 // SchemaVersion is the persistence format version.

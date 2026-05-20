@@ -50,11 +50,9 @@ Important boundaries:
 - `internal/provider` defines the neutral `Provider` interface and the
   shared `Message`/`Chunk`/`ToolCall` types. **Every adapter translates
   between this neutral shape and an upstream API.**
-- `internal/glm` is *kept for back-compat*. Its public types are now
-  type aliases (`type Message = provider.Message`) so the agent's existing
-  literal usage (`glm.Message{Role: "user", …}`) still compiles. The
-  legacy HTTP client (`*glm.Client`) is still tested but no longer the
-  default runtime path; `agent.Agent.Provider` is the new field.
+- `internal/provider/glm` contains the GLM/Z.AI client, compaction helpers,
+  context-overflow error type, and provider-neutral type aliases used by the
+  agent. `internal/provider/glm/preset` registers the `"glm"` provider kind.
 - `internal/config` loads layered provider config. Lowest priority is the
   embedded `providers.yaml`; XDG file and `AGENTBRIDGE_PROVIDERS_FILE`
   override on top; per-provider env vars (`AGENTBRIDGE_<NAME>_API_KEY`)
@@ -203,7 +201,7 @@ internal/acp                   # ACP protocol types + JSON-RPC ndjson transport
 internal/agent                 # ACP Agent, prompt loop, sessions
 internal/config                # embedded providers.yaml + layered loader
 internal/credentials           # XDG credentials + Z_AI_API_KEY back-compat
-internal/glm                   # legacy GLM HTTP client + type aliases
+internal/provider/glm          # GLM/Z.AI client, compaction helpers, preset
 internal/logger                # leveled logger with file sink + rotation
 internal/oauth/codex           # `oauth:codex` token resolver
 internal/plugins               # plugin core (sqlite, duckdb)

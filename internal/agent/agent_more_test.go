@@ -11,8 +11,8 @@ import (
 	"testing"
 
 	"github.com/ziozzang/agentbridge/internal/acp"
-	"github.com/ziozzang/agentbridge/internal/glm"
 	"github.com/ziozzang/agentbridge/internal/protocol/sessionstore"
+	"github.com/ziozzang/agentbridge/internal/provider/glm"
 )
 
 // recorderConn captures every outbound session/update and permission call so

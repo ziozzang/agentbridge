@@ -1,11 +1,11 @@
-// Package glmprov registers the "glm" provider kind, which is a thin
+// Package preset registers the "glm" provider kind, which is a thin
 // preset over the OpenAI Chat Completions provider with Z.AI / Zhipu AI
 // defaults — GLM "thinking" extension on by default, Coding Plan base URL,
 // and the curated GLM-5 model list.
 //
 // Users can also reach GLM with `kind: openai-chat` and the same base URL;
 // this kind exists primarily for clarity and back-compatibility.
-package glmprov
+package preset
 
 import (
 	"context"

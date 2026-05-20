@@ -18,7 +18,6 @@ import (
 	"github.com/ziozzang/agentbridge/internal/acp"
 	"github.com/ziozzang/agentbridge/internal/config"
 	"github.com/ziozzang/agentbridge/internal/credentials"
-	"github.com/ziozzang/agentbridge/internal/glm"
 	"github.com/ziozzang/agentbridge/internal/logger"
 	codexoauth "github.com/ziozzang/agentbridge/internal/oauth/codex"
 	"github.com/ziozzang/agentbridge/internal/plugins"
@@ -30,7 +29,8 @@ import (
 	"github.com/ziozzang/agentbridge/internal/provider"
 	_ "github.com/ziozzang/agentbridge/internal/provider/anthropic"  // register anthropic
 	_ "github.com/ziozzang/agentbridge/internal/provider/claudecode" // register claude-code-cli
-	_ "github.com/ziozzang/agentbridge/internal/provider/glmprov"    // register glm kind
+	"github.com/ziozzang/agentbridge/internal/provider/glm"
+	_ "github.com/ziozzang/agentbridge/internal/provider/glm/preset" // register glm kind
 	_ "github.com/ziozzang/agentbridge/internal/provider/ollama"     // register ollama
 	_ "github.com/ziozzang/agentbridge/internal/provider/openaichat" // register openai-chat
 	_ "github.com/ziozzang/agentbridge/internal/provider/openairesp" // register openai-responses

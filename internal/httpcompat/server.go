@@ -21,7 +21,7 @@ import (
 	"github.com/ziozzang/agentbridge/internal/provider"
 	_ "github.com/ziozzang/agentbridge/internal/provider/anthropic"
 	_ "github.com/ziozzang/agentbridge/internal/provider/claudecode"
-	_ "github.com/ziozzang/agentbridge/internal/provider/glmprov"
+	_ "github.com/ziozzang/agentbridge/internal/provider/glm/preset"
 	_ "github.com/ziozzang/agentbridge/internal/provider/ollama"
 	_ "github.com/ziozzang/agentbridge/internal/provider/openaichat"
 	_ "github.com/ziozzang/agentbridge/internal/provider/openairesp"
