@@ -6,7 +6,8 @@
 // Tools exposed via plugin__jina__<name>:
 //   - jina_reader: {url: string} -> LLM-friendly page text
 //   - jina_search: {query: string} -> LLM-friendly search results
-//   - jina_embed:  {input?: string, inputs?: []string, model?: string} -> embeddings
+//   - jina_embed:   {input?: string, inputs?: []string, model?: string} -> embeddings
+//   - jina_rerank:  {query: string, documents: []string, model?: string} -> ranked documents
 package jinaplugin
 
 import (
@@ -33,6 +34,8 @@ const (
 	defaultSearchBaseURL     = "https://s.jina.ai"
 	defaultEmbeddingsBaseURL = "https://api.jina.ai/v1"
 	defaultEmbeddingsModel   = "jina-embeddings-v3"
+	defaultRerankBaseURL     = "https://api.jina.ai/v1"
+	defaultRerankModel       = "jina-reranker-v3"
 	maxResponseBytes         = 8 << 20
 )
 
@@ -48,6 +51,8 @@ type Config struct {
 	SearchBaseURL     string
 	EmbeddingsBaseURL string
 	EmbeddingsModel   string
+	RerankBaseURL     string
+	RerankModel       string
 	HTTPClient        *http.Client
 }
 
@@ -60,6 +65,8 @@ func ConfigFromEnv() Config {
 		SearchBaseURL:     envFirst("AGENTBRIDGE_JINA_SEARCH_BASE_URL"),
 		EmbeddingsBaseURL: envFirst("AGENTBRIDGE_JINA_EMBEDDINGS_BASE_URL"),
 		EmbeddingsModel:   envFirst("AGENTBRIDGE_JINA_EMBEDDINGS_MODEL"),
+		RerankBaseURL:     envFirst("AGENTBRIDGE_JINA_RERANK_BASE_URL"),
+		RerankModel:       envFirst("AGENTBRIDGE_JINA_RERANK_MODEL"),
 	}
 }
 
@@ -82,6 +89,12 @@ func New(cfg Config) *Plugin {
 	}
 	if cfg.EmbeddingsModel == "" {
 		cfg.EmbeddingsModel = defaultEmbeddingsModel
+	}
+	if cfg.RerankBaseURL == "" {
+		cfg.RerankBaseURL = defaultRerankBaseURL
+	}
+	if cfg.RerankModel == "" {
+		cfg.RerankModel = defaultRerankModel
 	}
 	client := cfg.HTTPClient
 	if client == nil {
@@ -109,6 +122,11 @@ func (p *Plugin) Tools() []plugins.ToolDef {
 			Description: "Create embeddings through Jina's OpenAI-compatible embeddings API.",
 			Parameters:  json.RawMessage(`{"type":"object","properties":{"input":{"type":"string","description":"Single input text."},"inputs":{"type":"array","items":{"type":"string"},"description":"Multiple input texts."},"model":{"type":"string","description":"Jina embedding model. Defaults to AGENTBRIDGE_JINA_EMBEDDINGS_MODEL or jina-embeddings-v3."},"embedding_type":{"type":"string","description":"Optional Jina embedding_type parameter."}}}`),
 		},
+		{
+			Name:        "jina_rerank",
+			Description: "Rerank documents through Jina's reranker API.",
+			Parameters:  json.RawMessage(`{"type":"object","properties":{"query":{"type":"string","description":"Search query."},"documents":{"type":"array","items":{"type":"string"},"description":"Documents to rerank."},"model":{"type":"string","description":"Jina reranker model. Defaults to AGENTBRIDGE_JINA_RERANK_MODEL or jina-reranker-v3."},"top_n":{"type":"integer","description":"Optional maximum number of results."},"return_documents":{"type":"boolean","description":"Whether to include document text in results."}},"required":["query","documents"]}`),
+		},
 	}
 }
 
@@ -120,6 +138,8 @@ func (p *Plugin) Call(ctx context.Context, tool string, args json.RawMessage) (s
 		return p.handleSearch(ctx, args)
 	case "jina_embed":
 		return p.handleEmbed(ctx, args)
+	case "jina_rerank":
+		return p.handleRerank(ctx, args)
 	default:
 		return "", fmt.Errorf("jina: unknown tool %q", tool)
 	}
@@ -138,6 +158,14 @@ type embedArgs struct {
 	Inputs        []string `json:"inputs"`
 	Model         string   `json:"model"`
 	EmbeddingType string   `json:"embedding_type"`
+}
+
+type rerankArgs struct {
+	Query           string   `json:"query"`
+	Documents       []string `json:"documents"`
+	Model           string   `json:"model"`
+	TopN            int      `json:"top_n"`
+	ReturnDocuments *bool    `json:"return_documents"`
 }
 
 func (p *Plugin) handleReader(ctx context.Context, raw json.RawMessage) (string, error) {
@@ -202,6 +230,47 @@ func (p *Plugin) handleEmbed(ctx context.Context, raw json.RawMessage) (string, 
 		return "", err
 	}
 	endpoint := strings.TrimRight(p.cfg.EmbeddingsBaseURL, "/") + "/embeddings"
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, &buf)
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json")
+	p.authorize(req)
+	return p.do(req)
+}
+
+func (p *Plugin) handleRerank(ctx context.Context, raw json.RawMessage) (string, error) {
+	var args rerankArgs
+	if err := json.Unmarshal(raw, &args); err != nil {
+		return "", err
+	}
+	if strings.TrimSpace(args.Query) == "" {
+		return "", errors.New("jina: 'query' is required")
+	}
+	if len(args.Documents) == 0 {
+		return "", errors.New("jina: 'documents' is required")
+	}
+	model := args.Model
+	if model == "" {
+		model = p.cfg.RerankModel
+	}
+	payload := map[string]any{
+		"model":     model,
+		"query":     args.Query,
+		"documents": args.Documents,
+	}
+	if args.TopN > 0 {
+		payload["top_n"] = args.TopN
+	}
+	if args.ReturnDocuments != nil {
+		payload["return_documents"] = *args.ReturnDocuments
+	}
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(payload); err != nil {
+		return "", err
+	}
+	endpoint := strings.TrimRight(p.cfg.RerankBaseURL, "/") + "/rerank"
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, &buf)
 	if err != nil {
 		return "", err

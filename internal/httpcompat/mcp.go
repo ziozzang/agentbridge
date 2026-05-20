@@ -105,6 +105,7 @@ func (h *handler) toolHTTP(w http.ResponseWriter, r *http.Request) {
 	name := strings.TrimPrefix(r.URL.Path, "/v1/tools/")
 	name = strings.TrimPrefix(name, "/tools/")
 	name, _ = url.PathUnescape(name)
+	name = h.resolveHTTPToolName(name)
 	if name == "" {
 		http.Error(w, "tool name is required", http.StatusBadRequest)
 		return
@@ -121,6 +122,29 @@ func (h *handler) toolHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, result)
+}
+
+func (h *handler) resolveHTTPToolName(name string) string {
+	if name == "" || h.plugins == nil {
+		return name
+	}
+	if _, _, ok := plugins.SplitToolName(name); ok {
+		return name
+	}
+	for _, tool := range h.plugins.Tools() {
+		if publicHTTPToolName(tool.Function.Name) == name {
+			return tool.Function.Name
+		}
+	}
+	return name
+}
+
+func publicHTTPToolName(name string) string {
+	_, tool, ok := plugins.SplitToolName(name)
+	if ok && tool != "" {
+		return tool
+	}
+	return name
 }
 
 func (h *handler) mcpToolCall(r *http.Request, raw json.RawMessage) (map[string]any, error) {

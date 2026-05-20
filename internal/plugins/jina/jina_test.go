@@ -88,3 +88,40 @@ func TestEmbed(t *testing.T) {
 		t.Fatalf("embedding response not returned: %s", out)
 	}
 }
+
+func TestRerank(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/rerank" {
+			t.Fatalf("path = %q, want /rerank", r.URL.Path)
+		}
+		if r.Method != http.MethodPost {
+			t.Fatalf("method = %s, want POST", r.Method)
+		}
+		if r.Header.Get("Authorization") != "Bearer test-key" {
+			t.Fatalf("missing authorization header")
+		}
+		var body map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Fatalf("decode request: %v", err)
+		}
+		if body["model"] != "jina-reranker-v3" || body["query"] != "agentbridge" {
+			t.Fatalf("body = %#v", body)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"model":"jina-reranker-v3","results":[{"index":1,"relevance_score":0.9}]}`))
+	}))
+	defer srv.Close()
+
+	p := New(Config{
+		APIKey:        "test-key",
+		RerankBaseURL: srv.URL,
+		HTTPClient:    srv.Client(),
+	})
+	out, err := p.Call(context.Background(), "jina_rerank", json.RawMessage(`{"query":"agentbridge","documents":["a","b"],"top_n":1}`))
+	if err != nil {
+		t.Fatalf("rerank failed: %v", err)
+	}
+	if !strings.Contains(out, `"relevance_score":0.9`) {
+		t.Fatalf("rerank response not returned: %s", out)
+	}
+}

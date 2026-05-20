@@ -2,7 +2,6 @@ package httpcompat
 
 import (
 	"net/http"
-	"time"
 
 	"github.com/ziozzang/agentbridge/internal/agentprofiles"
 	"github.com/ziozzang/agentbridge/internal/provider"
@@ -14,9 +13,9 @@ func (h *handler) models(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	models, _ := availableHTTPModels()
+	models, _ := h.availableHTTPModels()
 	data := make([]map[string]any, 0, len(models))
-	created := time.Now().Unix()
+	created := modelCreatedAt()
 	for _, m := range models {
 		owner := m.Provider
 		if owner == "" {
@@ -33,7 +32,7 @@ func (h *handler) models(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"object": "list", "data": data})
 }
 
-func availableHTTPModels() ([]provider.ModelInfo, error) {
+func (h *handler) availableHTTPModels() ([]provider.ModelInfo, error) {
 	var out []provider.ModelInfo
 	if p, err := buildProvider(); err == nil {
 		out = append(out, p.AvailableModels()...)
@@ -56,5 +55,7 @@ func availableHTTPModels() ([]provider.ModelInfo, error) {
 		}
 		out = append(out, provider.ModelInfo{ModelID: p.Name, Name: p.Name, Description: desc})
 	}
-	return out, nil
+	out = append(out, embeddingHTTPModels(h.plugins)...)
+	out = append(out, rerankHTTPModels(h.plugins)...)
+	return dedupeModels(out), nil
 }

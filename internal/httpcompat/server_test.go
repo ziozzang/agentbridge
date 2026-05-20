@@ -112,7 +112,7 @@ func TestMCPExposesPluginToolsWithoutCallingLLM(t *testing.T) {
 		t.Fatalf("bad plugin call response: %s", string(got))
 	}
 
-	resp, err = http.Post(srv.URL+"/v1/tools/plugin__duckdb__duckdb_status", "application/json", strings.NewReader(`{}`))
+	resp, err = http.Post(srv.URL+"/v1/tools/duckdb_status", "application/json", strings.NewReader(`{}`))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -128,7 +128,7 @@ func TestMCPExposesPluginToolsWithoutCallingLLM(t *testing.T) {
 	}
 	defer resp.Body.Close()
 	got, _ = io.ReadAll(resp.Body)
-	if !strings.Contains(string(got), `/v1/tools/plugin__duckdb__duckdb_status`) {
+	if !strings.Contains(string(got), `/v1/tools/duckdb_status`) || strings.Contains(string(got), `/v1/tools/plugin__duckdb__duckdb_status`) {
 		t.Fatalf("tool path missing from OpenAPI: %s", string(got))
 	}
 }
@@ -299,6 +299,158 @@ func TestResponsesPreviousResponseAndRetrieve(t *testing.T) {
 			t.Fatalf("bad retrieve: %q", string(got))
 		}
 	})
+}
+
+func TestEmbeddingsEndpointUsesActiveJinaPlugin(t *testing.T) {
+	var got map[string]any
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/embeddings" {
+			t.Fatalf("unexpected embeddings path: %s", r.URL.Path)
+		}
+		if err := json.NewDecoder(r.Body).Decode(&got); err != nil {
+			t.Fatal(err)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"object":"list","data":[{"object":"embedding","index":0,"embedding":[0.1,0.2]}],"model":"jina-embeddings-v3","usage":{"total_tokens":2}}`))
+	}))
+	defer upstream.Close()
+
+	t.Setenv("AGENTBRIDGE_PLUGINS", "jina")
+	t.Setenv("AGENTBRIDGE_JINA_EMBEDDINGS_BASE_URL", upstream.URL)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(t.TempDir(), "missing"))
+
+	srv := httptest.NewServer(NewHandler())
+	defer srv.Close()
+
+	resp, err := http.Post(srv.URL+"/v1/embeddings", "application/json", strings.NewReader(`{"model":"jina-embeddings-v3","input":["hello","world"]}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK || !strings.Contains(string(body), `"embedding":[0.1,0.2]`) {
+		t.Fatalf("bad embeddings response status=%d body=%q", resp.StatusCode, string(body))
+	}
+	if got["model"] != "jina-embeddings-v3" {
+		t.Fatalf("bad upstream model: %#v", got)
+	}
+	inputs, ok := got["input"].([]any)
+	if !ok || len(inputs) != 2 {
+		t.Fatalf("bad upstream input: %#v", got)
+	}
+
+	resp, err = http.Post(srv.URL+"/v1/embeddings", "application/json", strings.NewReader(`"hello"`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	body, _ = io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK || !strings.Contains(string(body), `"embedding":[0.1,0.2]`) {
+		t.Fatalf("bad shorthand embeddings response status=%d body=%q", resp.StatusCode, string(body))
+	}
+	if got["input"] != "hello" {
+		t.Fatalf("bad shorthand upstream input: %#v", got)
+	}
+
+	resp, err = http.Get(srv.URL + "/v1/models")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	body, _ = io.ReadAll(resp.Body)
+	if !strings.Contains(string(body), `"id":"jina-embeddings-v3"`) || !strings.Contains(string(body), `"owned_by":"jina"`) {
+		t.Fatalf("embedding model not exposed: %q", string(body))
+	}
+}
+
+func TestEmbeddingModelMappingExposesProviderOwners(t *testing.T) {
+	dir := t.TempDir()
+	mapping := filepath.Join(dir, "embeddings.json")
+	if err := os.WriteFile(mapping, []byte(`{
+  "models": {
+    "embeddinggemma-300m": {
+      "base_url": "http://127.0.0.1:28080/v1",
+      "model": "embeddinggemma-300m",
+      "provider": "local",
+      "description": "Local embedding model"
+    },
+    "pplx-embed-v1-0.6b": {
+      "base_url": "https://openrouter.ai/api/v1",
+      "model": "perplexity/pplx-embed-v1-0.6b",
+      "provider": "openrouter"
+    }
+  }
+}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("AGENTBRIDGE_PLUGINS", "openai_embed")
+	t.Setenv("AGENTBRIDGE_EMBEDDINGS_FILE", mapping)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(t.TempDir(), "missing"))
+
+	srv := httptest.NewServer(NewHandler())
+	defer srv.Close()
+
+	resp, err := http.Get(srv.URL + "/v1/models")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	text := string(body)
+	if !strings.Contains(text, `"id":"embeddinggemma-300m"`) || !strings.Contains(text, `"owned_by":"local"`) {
+		t.Fatalf("local embedding model not exposed correctly: %s", text)
+	}
+	if !strings.Contains(text, `"id":"pplx-embed-v1-0.6b"`) || !strings.Contains(text, `"owned_by":"openrouter"`) {
+		t.Fatalf("openrouter embedding model not exposed correctly: %s", text)
+	}
+	if strings.Contains(text, `perplexity/pplx-embed-v1-0.6b`) {
+		t.Fatalf("upstream model should not be exposed as public id: %s", text)
+	}
+}
+
+func TestRerankEndpointUsesActiveJinaPlugin(t *testing.T) {
+	var got map[string]any
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/rerank" {
+			t.Fatalf("unexpected rerank path: %s", r.URL.Path)
+		}
+		if err := json.NewDecoder(r.Body).Decode(&got); err != nil {
+			t.Fatal(err)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"model":"jina-reranker-v3","results":[{"index":0,"relevance_score":0.99}]}`))
+	}))
+	defer upstream.Close()
+
+	t.Setenv("AGENTBRIDGE_PLUGINS", "jina")
+	t.Setenv("AGENTBRIDGE_JINA_RERANK_BASE_URL", upstream.URL)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(t.TempDir(), "missing"))
+
+	srv := httptest.NewServer(NewHandler())
+	defer srv.Close()
+
+	resp, err := http.Post(srv.URL+"/v1/rerank", "application/json", strings.NewReader(`{"query":"agentbridge","documents":["AgentBridge routes models.","Other"],"top_n":1}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK || !strings.Contains(string(body), `"relevance_score":0.99`) {
+		t.Fatalf("bad rerank response status=%d body=%q", resp.StatusCode, string(body))
+	}
+	if got["model"] != "jina-reranker-v3" || got["query"] != "agentbridge" {
+		t.Fatalf("bad upstream rerank body: %#v", got)
+	}
+
+	resp, err = http.Get(srv.URL + "/v1/models")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	body, _ = io.ReadAll(resp.Body)
+	if !strings.Contains(string(body), `"id":"jina-reranker-v3"`) || !strings.Contains(string(body), `"owned_by":"jina"`) {
+		t.Fatalf("rerank model not exposed: %q", string(body))
+	}
 }
 
 func TestA2AAgentCard(t *testing.T) {

@@ -20,7 +20,9 @@ func (h *handler) openapi(w http.ResponseWriter, r *http.Request) {
 			"parameters": []map[string]any{{"name": "id", "in": "path", "required": true, "schema": map[string]any{"type": "string"}}},
 			"responses":  okResponse(),
 		}},
-		"/v1/messages": pathItem("post", "Anthropic-compatible messages"),
+		"/v1/messages":   pathItem("post", "Anthropic-compatible messages"),
+		"/v1/embeddings": embeddingsPathItem(),
+		"/v1/rerank":     rerankPathItem(),
 		"/v1/models": map[string]any{"get": map[string]any{
 			"summary":   "OpenAI-compatible model list",
 			"responses": okResponse(),
@@ -50,7 +52,8 @@ func (h *handler) openapi(w http.ResponseWriter, r *http.Request) {
 		if desc == "" {
 			desc = "Call AgentBridge tool " + name
 		}
-		paths["/v1/tools/"+url.PathEscape(name)] = toolPathItem(name, desc, tool["inputSchema"])
+		httpName := publicHTTPToolName(name)
+		paths["/v1/tools/"+url.PathEscape(httpName)] = toolPathItem(httpName, desc, tool["inputSchema"])
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"openapi": "3.1.1",
@@ -87,6 +90,61 @@ func toolPathItem(name, summary string, schema any) map[string]any {
 			"required": true,
 			"content": map[string]any{"application/json": map[string]any{
 				"schema": openAPISchema(schema),
+			}},
+		},
+		"responses": okResponse(),
+	}}
+}
+
+func embeddingsPathItem() map[string]any {
+	return map[string]any{"post": map[string]any{
+		"summary": "OpenAI-compatible embeddings",
+		"requestBody": map[string]any{
+			"required": true,
+			"content": map[string]any{"application/json": map[string]any{
+				"schema": map[string]any{
+					"type": "object",
+					"properties": map[string]any{
+						"model":           map[string]any{"type": "string", "example": defaultJinaEmbeddingModel},
+						"input":           map[string]any{"oneOf": []map[string]any{{"type": "string"}, {"type": "array", "items": map[string]any{"type": "string"}}}, "example": "hello"},
+						"encoding_format": map[string]any{"type": "string", "enum": []string{"float", "base64"}},
+						"dimensions":      map[string]any{"type": "integer", "minimum": 1},
+					},
+					"required": []string{"input"},
+					"example": map[string]any{
+						"model": defaultJinaEmbeddingModel,
+						"input": "hello",
+					},
+				},
+			}},
+		},
+		"responses": okResponse(),
+	}}
+}
+
+func rerankPathItem() map[string]any {
+	return map[string]any{"post": map[string]any{
+		"summary": "Jina-compatible rerank",
+		"requestBody": map[string]any{
+			"required": true,
+			"content": map[string]any{"application/json": map[string]any{
+				"schema": map[string]any{
+					"type": "object",
+					"properties": map[string]any{
+						"model":            map[string]any{"type": "string", "example": defaultJinaRerankModel},
+						"query":            map[string]any{"type": "string", "example": "agentbridge"},
+						"documents":        map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "example": []string{"AgentBridge routes models.", "Unrelated text."}},
+						"top_n":            map[string]any{"type": "integer", "minimum": 1},
+						"return_documents": map[string]any{"type": "boolean"},
+					},
+					"required": []string{"query", "documents"},
+					"example": map[string]any{
+						"model":     defaultJinaRerankModel,
+						"query":     "agentbridge",
+						"documents": []string{"AgentBridge routes models.", "Unrelated text."},
+						"top_n":     1,
+					},
+				},
 			}},
 		},
 		"responses": okResponse(),
