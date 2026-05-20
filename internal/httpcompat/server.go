@@ -287,27 +287,39 @@ func buildProvider() (provider.Provider, error) {
 	if cfg.APIKey == "" && (cfg.Kind == "glm" || cfg.Kind == "" || cfg.Kind == "openai-chat") {
 		cfg.APIKey = credentials.Resolve()
 	}
-	if resolved, err := resolveOAuthKey(cfg.APIKey); err != nil {
+	if resolved, accountID, err := resolveOAuthKey(cfg.APIKey); err != nil {
 		return nil, err
 	} else {
 		cfg.APIKey = resolved
+		if accountID != "" {
+			if cfg.Headers == nil {
+				cfg.Headers = map[string]string{}
+			}
+			if cfg.Headers["ChatGPT-Account-ID"] == "" {
+				cfg.Headers["ChatGPT-Account-ID"] = accountID
+			}
+		}
 	}
-	if cfg.APIKey == "" && cfg.Kind != "ollama" {
+	if cfg.APIKey == "" && cfg.Kind != "ollama" && cfg.Kind != "claude-code-cli" {
 		return nil, errors.New("no API key configured")
 	}
 	return provider.Build(cfg)
 }
 
-func resolveOAuthKey(key string) (string, error) {
+func resolveOAuthKey(key string) (string, string, error) {
 	if !strings.HasPrefix(key, "oauth:") {
-		return key, nil
+		return key, "", nil
 	}
 	flavour := strings.TrimPrefix(key, "oauth:")
 	switch flavour {
 	case "codex", "openai":
-		return codexoauth.NewForFlavour(flavour, "").Resolve(context.Background())
+		tok, err := codexoauth.NewForFlavour(flavour, "").ResolveToken(context.Background())
+		if err != nil {
+			return "", "", err
+		}
+		return tok.AccessToken, tok.AccountID, nil
 	default:
-		return "", fmt.Errorf("oauth resolver for %q is not registered", flavour)
+		return "", "", fmt.Errorf("oauth resolver for %q is not registered", flavour)
 	}
 }
 

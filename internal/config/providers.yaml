@@ -92,6 +92,29 @@ providers:
         name: Claude Haiku 4.5
         description: Fast lightweight model
 
+  # --------- Claude Code CLI ---------------------------------------------
+  claude-code:
+    kind: claude-code-cli
+    default_model: ${CLAUDE_CODE_MODEL:-sonnet}
+    context_window: 200000
+    extra:
+      command: ${CLAUDE_CODE_COMMAND:-claude}
+      permission_mode: ${CLAUDE_CODE_PERMISSION_MODE:-default}
+      tools: ${CLAUDE_CODE_TOOLS:-}
+      allowed_tools: ${CLAUDE_CODE_ALLOWED_TOOLS:-}
+      disallowed_tools: ${CLAUDE_CODE_DISALLOWED_TOOLS:-}
+      system_prompt: ${CLAUDE_CODE_SYSTEM_PROMPT:-}
+      append_system_prompt: ${CLAUDE_CODE_APPEND_SYSTEM_PROMPT:-}
+      bare: ${CLAUDE_CODE_BARE:-false}
+      no_session_persistence: ${CLAUDE_CODE_NO_SESSION_PERSISTENCE:-false}
+    models:
+      - id: sonnet
+        name: Claude Sonnet (Claude Code)
+      - id: opus
+        name: Claude Opus (Claude Code)
+      - id: claude-sonnet-4-6
+        name: Claude Sonnet 4.6
+
   # --------- Ollama (native /api/chat) -----------------------------------
   ollama:
     kind: ollama

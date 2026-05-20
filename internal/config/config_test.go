@@ -23,7 +23,7 @@ func TestLoadEmbeddedDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
-	expect := []string{"anthropic", "codex", "glm", "litellm", "ollama", "openai", "openai-responses", "openrouter"}
+	expect := []string{"anthropic", "claude-code", "codex", "glm", "litellm", "ollama", "openai", "openai-responses", "openrouter"}
 	got := m.Names()
 	if strings.Join(got, ",") != strings.Join(expect, ",") {
 		t.Errorf("providers: %v", got)

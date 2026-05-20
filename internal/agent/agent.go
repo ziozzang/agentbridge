@@ -29,6 +29,7 @@ import (
 	"github.com/ziozzang/glm-acp/internal/protocol/systemprompt"
 	"github.com/ziozzang/glm-acp/internal/provider"
 	_ "github.com/ziozzang/glm-acp/internal/provider/anthropic"  // register anthropic
+	_ "github.com/ziozzang/glm-acp/internal/provider/claudecode" // register claude-code-cli
 	_ "github.com/ziozzang/glm-acp/internal/provider/glmprov"    // register glm kind
 	_ "github.com/ziozzang/glm-acp/internal/provider/ollama"     // register ollama
 	_ "github.com/ziozzang/glm-acp/internal/provider/openaichat" // register openai-chat
@@ -793,7 +794,7 @@ func (a *Agent) ensureClient() error {
 	if rerr := resolveOAuthConfig(&cfg); rerr != nil {
 		return rerr
 	}
-	if cfg.APIKey == "" && cfg.Kind != "ollama" {
+	if cfg.APIKey == "" && cfg.Kind != "ollama" && cfg.Kind != "claude-code-cli" {
 		return errors.New("No API key configured. Set an API key via ACP_HARNESS_API_KEY, ACP_HARNESS_<PROVIDER>_API_KEY, the provider-specific env var (Z_AI_API_KEY/OPENAI_API_KEY/…), or run `glm-acp-agent --setup`.")
 	}
 	p, err := provider.Build(cfg)
