@@ -91,6 +91,13 @@ OAuth-refreshable access token (rather than a long-lived `sk-...`).
   `ACP_HARNESS_CODEX_TOKEN_FILE`.
 - The template sets `api_key: oauth:codex`, which makes the harness
   invoke the resolver in `internal/oauth/codex` to mint a Bearer token.
+- The resolver also reads the standard `~/.codex/auth.json` shape used by
+  Codex CLI when no harness token file is configured.
+- OpenAI providers can use the same flow with `api_key: oauth:openai` or
+  `ACP_HARNESS_API_KEY=oauth:openai`. The OpenAI-specific env names are
+  `ACP_HARNESS_OPENAI_ACCESS_TOKEN`,
+  `ACP_HARNESS_OPENAI_REFRESH_TOKEN`, and
+  `ACP_HARNESS_OPENAI_TOKEN_FILE`.
 
 ## Picking a provider
 

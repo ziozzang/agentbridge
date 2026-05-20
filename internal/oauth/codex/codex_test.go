@@ -119,3 +119,39 @@ func TestResolveRefreshFromEnvWhenNoFile(t *testing.T) {
 		t.Errorf("got %q", got)
 	}
 }
+
+func TestResolveReadsCodexAuthJSONShape(t *testing.T) {
+	t.Setenv("ACP_HARNESS_CODEX_ACCESS_TOKEN", "")
+	path := filepath.Join(t.TempDir(), "auth.json")
+	body := `{
+	  "auth_mode": "chatgpt",
+	  "tokens": {
+	    "access_token": "nested-at",
+	    "refresh_token": "nested-rt"
+	  },
+	  "last_refresh": "` + time.Now().UTC().Format(time.RFC3339) + `"
+	}`
+	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	r := New(path)
+	got, err := r.Resolve(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "nested-at" {
+		t.Errorf("got %q", got)
+	}
+}
+
+func TestOpenAIFlavourHonoursOpenAIEnv(t *testing.T) {
+	t.Setenv("ACP_HARNESS_OPENAI_ACCESS_TOKEN", "openai-at")
+	r := NewForFlavour("openai", filepath.Join(t.TempDir(), "missing.json"))
+	got, err := r.Resolve(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "openai-at" {
+		t.Errorf("got %q", got)
+	}
+}

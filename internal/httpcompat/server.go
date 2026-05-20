@@ -4,8 +4,11 @@ package httpcompat
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"strings"
@@ -13,6 +16,7 @@ import (
 
 	"github.com/ziozzang/glm-acp/internal/config"
 	"github.com/ziozzang/glm-acp/internal/credentials"
+	codexoauth "github.com/ziozzang/glm-acp/internal/oauth/codex"
 	"github.com/ziozzang/glm-acp/internal/provider"
 	_ "github.com/ziozzang/glm-acp/internal/provider/anthropic"
 	_ "github.com/ziozzang/glm-acp/internal/provider/glmprov"
@@ -38,19 +42,34 @@ func NewHandler() http.Handler {
 
 type handler struct{}
 
+type requestMeta struct {
+	RequestID   string         `json:"request_id,omitempty"`
+	Cache       map[string]any `json:"cache,omitempty"`
+	CacheStatus string         `json:"cache_status,omitempty"`
+}
+
+type commonRequest struct {
+	Metadata     map[string]any `json:"metadata,omitempty"`
+	Cache        map[string]any `json:"cache,omitempty"`
+	CacheControl map[string]any `json:"cache_control,omitempty"`
+}
+
 type chatRequest struct {
+	commonRequest
 	Model    string             `json:"model"`
 	Messages []provider.Message `json:"messages"`
 	Stream   bool               `json:"stream"`
 }
 
 type responsesRequest struct {
+	commonRequest
 	Model  string `json:"model"`
 	Input  any    `json:"input"`
 	Stream bool   `json:"stream"`
 }
 
 type messagesRequest struct {
+	commonRequest
 	Model    string             `json:"model"`
 	Messages []provider.Message `json:"messages"`
 	Stream   bool               `json:"stream"`
@@ -74,6 +93,8 @@ func (h *handler) chatCompletions(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, errors.New("messages is required"))
 		return
 	}
+	meta := newRequestMeta(r, req.commonRequest)
+	w.Header().Set("X-Request-Id", meta.RequestID)
 	text, usage, stop, err := runProvider(r.Context(), req.Model, req.Messages)
 	if err != nil {
 		writeError(w, http.StatusBadGateway, err)
@@ -87,16 +108,18 @@ func (h *handler) chatCompletions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"id":      "chatcmpl-" + time.Now().UTC().Format("20060102150405.000000000"),
-		"object":  "chat.completion",
-		"created": time.Now().Unix(),
-		"model":   firstNonEmpty(req.Model, defaultModel()),
+		"id":         responseID("chatcmpl", meta.RequestID),
+		"request_id": meta.RequestID,
+		"object":     "chat.completion",
+		"created":    time.Now().Unix(),
+		"model":      firstNonEmpty(req.Model, defaultModel()),
 		"choices": []map[string]any{{
 			"index":         0,
 			"finish_reason": stopReason(stop),
 			"message":       map[string]any{"role": "assistant", "content": text},
 		}},
-		"usage": openAIUsage(usage),
+		"usage":    openAIUsage(usage),
+		"metadata": meta,
 	})
 }
 
@@ -115,6 +138,8 @@ func (h *handler) responses(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, errors.New("input is required"))
 		return
 	}
+	meta := newRequestMeta(r, req.commonRequest)
+	w.Header().Set("X-Request-Id", meta.RequestID)
 	text, usage, stop, err := runProvider(r.Context(), req.Model, messages)
 	if err != nil {
 		writeError(w, http.StatusBadGateway, err)
@@ -128,7 +153,8 @@ func (h *handler) responses(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"id":          "resp-" + time.Now().UTC().Format("20060102150405.000000000"),
+		"id":          responseID("resp", meta.RequestID),
+		"request_id":  meta.RequestID,
 		"object":      "response",
 		"created_at":  time.Now().Unix(),
 		"model":       firstNonEmpty(req.Model, defaultModel()),
@@ -141,6 +167,7 @@ func (h *handler) responses(w http.ResponseWriter, r *http.Request) {
 		}},
 		"usage":       openAIUsage(usage),
 		"stop_reason": stopReason(stop),
+		"metadata":    meta,
 	})
 }
 
@@ -158,6 +185,8 @@ func (h *handler) messages(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, errors.New("messages is required"))
 		return
 	}
+	meta := newRequestMeta(r, req.commonRequest)
+	w.Header().Set("X-Request-Id", meta.RequestID)
 	text, usage, stop, err := runProvider(r.Context(), req.Model, req.Messages)
 	if err != nil {
 		writeError(w, http.StatusBadGateway, err)
@@ -171,7 +200,8 @@ func (h *handler) messages(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"id":          "msg-" + time.Now().UTC().Format("20060102150405.000000000"),
+		"id":          responseID("msg", meta.RequestID),
+		"request_id":  meta.RequestID,
 		"type":        "message",
 		"role":        "assistant",
 		"model":       firstNonEmpty(req.Model, defaultModel()),
@@ -181,7 +211,44 @@ func (h *handler) messages(w http.ResponseWriter, r *http.Request) {
 			"input_tokens":  usage.InputTokens,
 			"output_tokens": usage.OutputTokens,
 		},
+		"metadata": meta,
 	})
+}
+
+func newRequestMeta(r *http.Request, req commonRequest) requestMeta {
+	id := strings.TrimSpace(r.Header.Get("X-Request-Id"))
+	if id == "" {
+		if v, ok := req.Metadata["request_id"].(string); ok {
+			id = strings.TrimSpace(v)
+		}
+	}
+	if id == "" {
+		id = generateID("req")
+	}
+	return requestMeta{
+		RequestID:   id,
+		Cache:       cacheHints(req),
+		CacheStatus: "bypass",
+	}
+}
+
+func cacheHints(req commonRequest) map[string]any {
+	out := map[string]any{}
+	for k, v := range req.Cache {
+		out[k] = v
+	}
+	for k, v := range req.CacheControl {
+		out[k] = v
+	}
+	if nested, ok := req.Metadata["cache"].(map[string]any); ok {
+		for k, v := range nested {
+			out[k] = v
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }
 
 func runProvider(ctx context.Context, model string, messages []provider.Message) (string, provider.Usage, string, error) {
@@ -220,10 +287,28 @@ func buildProvider() (provider.Provider, error) {
 	if cfg.APIKey == "" && (cfg.Kind == "glm" || cfg.Kind == "" || cfg.Kind == "openai-chat") {
 		cfg.APIKey = credentials.Resolve()
 	}
+	if resolved, err := resolveOAuthKey(cfg.APIKey); err != nil {
+		return nil, err
+	} else {
+		cfg.APIKey = resolved
+	}
 	if cfg.APIKey == "" && cfg.Kind != "ollama" {
 		return nil, errors.New("no API key configured")
 	}
 	return provider.Build(cfg)
+}
+
+func resolveOAuthKey(key string) (string, error) {
+	if !strings.HasPrefix(key, "oauth:") {
+		return key, nil
+	}
+	flavour := strings.TrimPrefix(key, "oauth:")
+	switch flavour {
+	case "codex", "openai":
+		return codexoauth.NewForFlavour(flavour, "").Resolve(context.Background())
+	default:
+		return "", fmt.Errorf("oauth resolver for %q is not registered", flavour)
+	}
 }
 
 func defaultModel() string {
@@ -313,4 +398,19 @@ func firstNonEmpty(values ...string) string {
 		}
 	}
 	return ""
+}
+
+func responseID(prefix, requestID string) string {
+	if requestID != "" {
+		return prefix + "-" + requestID
+	}
+	return generateID(prefix)
+}
+
+func generateID(prefix string) string {
+	var b [12]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		return prefix + "-" + time.Now().UTC().Format("20060102150405.000000000")
+	}
+	return prefix + "-" + hex.EncodeToString(b[:])
 }

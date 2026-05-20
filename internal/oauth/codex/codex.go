@@ -25,7 +25,6 @@ package codexoauth
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -59,6 +58,8 @@ type Token struct {
 type Resolver struct {
 	path       string
 	httpClient *http.Client
+	envPrefix  string
+	label      string
 
 	mu  sync.Mutex
 	tok *Token
@@ -67,23 +68,50 @@ type Resolver struct {
 // New constructs a Resolver. tokenPath is the cache file location; if
 // empty, the default location is used.
 func New(tokenPath string) *Resolver {
-	if tokenPath == "" {
-		tokenPath = DefaultTokenPath()
+	return NewForFlavour("codex", tokenPath)
+}
+
+// NewForFlavour constructs a Resolver for "codex" or "openai". The token
+// format and refresh flow are the same; env var names and default cache file
+// names differ.
+func NewForFlavour(flavour, tokenPath string) *Resolver {
+	flavour = strings.ToLower(strings.TrimSpace(flavour))
+	if flavour == "" {
+		flavour = "codex"
 	}
-	return &Resolver{path: tokenPath, httpClient: http.DefaultClient}
+	envPrefix := "ACP_HARNESS_" + strings.ToUpper(flavour)
+	fileName := flavour + "-token.json"
+	if tokenPath == "" {
+		tokenPath = defaultTokenPath(envPrefix+"_TOKEN_FILE", fileName)
+		if flavour == "codex" && !fileExists(tokenPath) {
+			if p := defaultCodexAuthPath(); fileExists(p) {
+				tokenPath = p
+			}
+		}
+	}
+	return &Resolver{
+		path:       tokenPath,
+		httpClient: http.DefaultClient,
+		envPrefix:  envPrefix,
+		label:      flavour,
+	}
 }
 
 // DefaultTokenPath returns the on-disk token file path according to env
 // variables and XDG defaults.
 func DefaultTokenPath() string {
-	if v := os.Getenv("ACP_HARNESS_CODEX_TOKEN_FILE"); v != "" {
+	return defaultTokenPath("ACP_HARNESS_CODEX_TOKEN_FILE", "codex-token.json")
+}
+
+func defaultTokenPath(envName, fileName string) string {
+	if v := os.Getenv(envName); v != "" {
 		return v
 	}
 	if h := os.Getenv("XDG_CONFIG_HOME"); h != "" {
-		return filepath.Join(h, "acp-harness", "codex-token.json")
+		return filepath.Join(h, "acp-harness", fileName)
 	}
 	if h, err := os.UserHomeDir(); err == nil {
-		return filepath.Join(h, ".config", "acp-harness", "codex-token.json")
+		return filepath.Join(h, ".config", "acp-harness", fileName)
 	}
 	return ""
 }
@@ -92,7 +120,7 @@ func DefaultTokenPath() string {
 // returned string can be used directly as a Bearer token.
 func (r *Resolver) Resolve(ctx context.Context) (string, error) {
 	// Highest-priority override: explicit access token from env.
-	if v := os.Getenv("ACP_HARNESS_CODEX_ACCESS_TOKEN"); v != "" {
+	if v := os.Getenv(r.env("ACCESS_TOKEN")); v != "" {
 		return v, nil
 	}
 	tok, err := r.loadCached()
@@ -103,10 +131,10 @@ func (r *Resolver) Resolve(ctx context.Context) (string, error) {
 		return tok.AccessToken, nil
 	}
 	if tok.RefreshToken == "" {
-		if v := os.Getenv("ACP_HARNESS_CODEX_REFRESH_TOKEN"); v != "" {
+		if v := os.Getenv(r.env("REFRESH_TOKEN")); v != "" {
 			tok.RefreshToken = v
 		} else {
-			return "", errors.New("codex oauth: access token expired and no refresh token available")
+			return "", fmt.Errorf("%s oauth: access token expired and no refresh token available", r.label)
 		}
 	}
 	refreshed, err := r.refresh(ctx, tok)
@@ -127,11 +155,11 @@ func (r *Resolver) loadCached() (*Token, error) {
 		return r.tok, nil
 	}
 	if r.path == "" || !fileExists(r.path) {
-		if rt := os.Getenv("ACP_HARNESS_CODEX_REFRESH_TOKEN"); rt != "" {
+		if rt := os.Getenv(r.env("REFRESH_TOKEN")); rt != "" {
 			r.tok = &Token{RefreshToken: rt}
 			return r.tok, nil
 		}
-		return nil, fmt.Errorf("codex oauth: token file not found at %s and no ACP_HARNESS_CODEX_REFRESH_TOKEN set", r.path)
+		return nil, fmt.Errorf("%s oauth: token file not found at %s and no %s set", r.label, r.path, r.env("REFRESH_TOKEN"))
 	}
 	data, err := os.ReadFile(r.path)
 	if err != nil {
@@ -139,7 +167,23 @@ func (r *Resolver) loadCached() (*Token, error) {
 	}
 	var t Token
 	if err := json.Unmarshal(data, &t); err != nil {
-		return nil, fmt.Errorf("codex oauth: parse %s: %w", r.path, err)
+		return nil, fmt.Errorf("%s oauth: parse %s: %w", r.label, r.path, err)
+	}
+	if t.AccessToken == "" && t.RefreshToken == "" {
+		var nested struct {
+			Tokens struct {
+				AccessToken  string `json:"access_token"`
+				RefreshToken string `json:"refresh_token"`
+				IDToken      string `json:"id_token"`
+				AccountID    string `json:"account_id"`
+			} `json:"tokens"`
+			LastRefresh string `json:"last_refresh"`
+		}
+		if err := json.Unmarshal(data, &nested); err != nil {
+			return nil, fmt.Errorf("%s oauth: parse %s: %w", r.label, r.path, err)
+		}
+		t.AccessToken = nested.Tokens.AccessToken
+		t.RefreshToken = nested.Tokens.RefreshToken
 	}
 	r.tok = &t
 	return r.tok, nil
@@ -161,14 +205,14 @@ func (r *Resolver) persist(t *Token) error {
 
 func (r *Resolver) refresh(ctx context.Context, t *Token) (*Token, error) {
 	tokenURL := t.TokenURL
-	if v := os.Getenv("ACP_HARNESS_CODEX_TOKEN_URL"); v != "" {
+	if v := os.Getenv(r.env("TOKEN_URL")); v != "" {
 		tokenURL = v
 	}
 	if tokenURL == "" {
 		tokenURL = DefaultTokenURL
 	}
 	clientID := t.ClientID
-	if v := os.Getenv("ACP_HARNESS_CODEX_CLIENT_ID"); v != "" {
+	if v := os.Getenv(r.env("CLIENT_ID")); v != "" {
 		clientID = v
 	}
 	if clientID == "" {
@@ -187,12 +231,12 @@ func (r *Resolver) refresh(ctx context.Context, t *Token) (*Token, error) {
 	req.Header.Set("Accept", "application/json")
 	resp, err := r.httpClient.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("codex oauth: refresh request: %w", err)
+		return nil, fmt.Errorf("%s oauth: refresh request: %w", r.label, err)
 	}
 	defer resp.Body.Close()
 	body, _ := io.ReadAll(resp.Body)
 	if resp.StatusCode/100 != 2 {
-		return nil, fmt.Errorf("codex oauth: refresh failed: HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+		return nil, fmt.Errorf("%s oauth: refresh failed: HTTP %d: %s", r.label, resp.StatusCode, strings.TrimSpace(string(body)))
 	}
 	var payload struct {
 		AccessToken  string `json:"access_token"`
@@ -200,10 +244,10 @@ func (r *Resolver) refresh(ctx context.Context, t *Token) (*Token, error) {
 		ExpiresIn    int    `json:"expires_in"`
 	}
 	if err := json.Unmarshal(body, &payload); err != nil {
-		return nil, fmt.Errorf("codex oauth: parse response: %w", err)
+		return nil, fmt.Errorf("%s oauth: parse response: %w", r.label, err)
 	}
 	if payload.AccessToken == "" {
-		return nil, errors.New("codex oauth: refresh response missing access_token")
+		return nil, fmt.Errorf("%s oauth: refresh response missing access_token", r.label)
 	}
 	expiry := time.Now().UTC().Add(time.Duration(payload.ExpiresIn) * time.Second)
 	if payload.ExpiresIn == 0 {
@@ -239,4 +283,18 @@ func fileExists(p string) bool {
 	}
 	_, err := os.Stat(p)
 	return err == nil
+}
+
+func defaultCodexAuthPath() string {
+	if h, err := os.UserHomeDir(); err == nil {
+		return filepath.Join(h, ".codex", "auth.json")
+	}
+	return ""
+}
+
+func (r *Resolver) env(suffix string) string {
+	if r.envPrefix == "" {
+		return "ACP_HARNESS_CODEX_" + suffix
+	}
+	return r.envPrefix + "_" + suffix
 }

@@ -24,8 +24,9 @@ LiteLLM, Codex OAuth — through a single small static binary.
 - **Plugin system** activated with `ACP_HARNESS_PLUGINS=sqlite[,…]`.
   Ships with a pure-Go SQLite catalogue browser
   (`sqlite_list/load/query/…`).
-- **Codex OAuth** support: use `oauth:codex` API keys; the harness
-  refreshes access tokens automatically against the OpenAI OAuth endpoint.
+- **OpenAI/Codex OAuth** support: use `oauth:openai` or `oauth:codex`;
+  the harness refreshes access tokens automatically against the OpenAI
+  OAuth endpoint when refresh metadata is available.
 - **Structured logging** with level, file sink, and size-based rotation
   (`ACP_HARNESS_LOG_*`). Stdout stays pure JSON-RPC.
 - **Local tools** built in: `read_file`, `write_file`, `list_files`,
@@ -86,7 +87,11 @@ You can also expose HTTP compatibility endpoints on a separate listener:
 
 Supported routes are `/v1/chat/completions`, `/v1/responses`, and
 `/v1/messages` (plus the same paths without `/v1`). They use the same
-active provider configuration as ACP server mode.
+active provider configuration as ACP server mode. HTTP responses include
+`request_id` and `X-Request-Id`; clients may provide `X-Request-Id` or
+`metadata.request_id`. Cache hints may be sent via `cache`,
+`cache_control`, or `metadata.cache`; the current server reports them back
+with `cache_status: "bypass"` until a real cache backend is configured.
 
 ## Documentation
 

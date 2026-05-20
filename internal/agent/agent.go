@@ -816,16 +816,16 @@ func (a *Agent) ensureClient() error {
 }
 
 // resolveOAuthKey returns the API key after resolving any `oauth:*`
-// markers. Currently supports `oauth:codex` for the OpenAI Codex
-// refresh-token flow.
+// markers. Supports `oauth:codex` and `oauth:openai`, both backed by
+// OpenAI's OAuth refresh-token flow.
 var resolveOAuthKey = func(key string) (string, error) {
 	if !strings.HasPrefix(key, "oauth:") {
 		return key, nil
 	}
 	flavour := strings.TrimPrefix(key, "oauth:")
 	switch flavour {
-	case "codex":
-		r := codexoauth.New("")
+	case "codex", "openai":
+		r := codexoauth.NewForFlavour(flavour, "")
 		tok, err := r.Resolve(context.Background())
 		if err != nil {
 			return "", err
