@@ -41,6 +41,23 @@ configure your assistant settings to invoke `glm-acp-agent` as the agent
 command. See [docs/providers.md](./providers.md) for how to point it at a
 specific upstream LLM.
 
+## TCP server mode
+
+For daemon-style deployments, run the harness as a long-lived TCP ACP
+server instead of spawning one process per client:
+
+```bash
+ACP_HARNESS_PROVIDER=ollama \
+OLLAMA_BASE_URL=https://ollama.com \
+OLLAMA_MODEL=gpt-oss:120b \
+./glm-acp-agent --server --listen 127.0.0.1:8765 --pool-size 4
+```
+
+The TCP stream uses the same newline-delimited JSON-RPC ACP protocol as
+stdio. Each accepted connection gets an independent agent instance.
+`--pool-size` caps concurrent active connections; once the pool is full,
+new TCP connections are closed.
+
 ## First-time setup
 
 ```bash

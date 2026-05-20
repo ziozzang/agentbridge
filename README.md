@@ -5,7 +5,8 @@
 
 `glm-acp` is an [**Agent Client Protocol**](https://github.com/zed-industries/agent-client-protocol)
 (ACP) coding agent written in Go. It runs on stdio as a JSON-RPC 2.0 /
-newline-delimited JSON server and bridges any ACP-aware editor
+newline-delimited JSON server, or as a TCP server for long-running pooled
+deployments, and bridges any ACP-aware editor
 (e.g. Zed) to a wide range of LLM providers — OpenAI Chat Completions,
 OpenAI Responses, Anthropic Messages, Ollama, Z.AI/GLM, OpenRouter,
 LiteLLM, Codex OAuth — through a single small static binary.
@@ -31,6 +32,8 @@ LiteLLM, Codex OAuth — through a single small static binary.
   `run_command`, `web_search`, `web_reader`, `image_analysis`. Writes
   and shell commands always ask the ACP client for permission.
 - **Persistent sessions** under `$XDG_STATE_HOME/glm-acp-agent/sessions/`.
+- **Optional TCP server mode** with a bounded connection pool for shared
+  daemon-style deployments.
 - **Container-first**: ships with a multi-stage `Dockerfile`.
 - **Designed for editors**: lean memory and CPU profile; back-pressure-
   aware channel design; no polling loops.
@@ -59,8 +62,20 @@ ACP_HARNESS_PROVIDER=ollama ACP_HARNESS_MODEL=llama3.1 ./glm-acp-agent
 Z_AI_API_KEY=sk-... ACP_HARNESS_PROVIDER=glm ./glm-acp-agent
 ```
 
-The agent only speaks ACP on stdio — your editor spawns it and pipes
-JSON-RPC back and forth. There is no HTTP server.
+By default, editors spawn the agent and speak ACP over stdio. For a
+long-running daemon, use TCP server mode:
+
+```bash
+ACP_HARNESS_PROVIDER=ollama \
+OLLAMA_BASE_URL=https://ollama.com \
+OLLAMA_MODEL=gpt-oss:120b \
+OLLAMA_API_KEY=... \
+./glm-acp-agent --server --listen 127.0.0.1:8765 --pool-size 4
+```
+
+Each TCP client connection is one ACP JSON-RPC stream. `--pool-size`
+limits the number of concurrent active connections; excess connections
+are rejected.
 
 ## Documentation
 
@@ -76,7 +91,7 @@ JSON-RPC back and forth. There is no HTTP server.
 ## Repository layout
 
 ```
-cmd/glm-acp-agent              entrypoint binary (stdio + --setup)
+cmd/glm-acp-agent              entrypoint binary (stdio, TCP server, --setup)
 internal/acp                   ACP protocol types + JSON-RPC transport
 internal/agent                 ACP Agent, prompt loop, sessions
 internal/config                provider templates + layered loader
