@@ -134,12 +134,27 @@ Route 파일 형식:
 
 ```yaml
 default_model: ollama/gpt-oss:120b
+aliases:
+  oss: ollama/gpt-oss:120b
+  glm-fast: glm-5-turbo
 routes:
   - match: ollama/*
     provider: ollama-cloud
     target_model: "$1"
     api_key_envs: OLLAMA_API_KEY_A, OLLAMA_API_KEY_B
     retry_keys: true
+  - match: glm-5.1
+    aliases: [glm]
+    provider: zai
+    target_model: glm-5.1
+    request_defaults:
+      reasoning: off
+    fallbacks:
+      - provider: zai
+        target_model: glm-5-turbo
+  - models: "*"
+    provider: openrouter
+    target_model: "$model"
 ```
 
 Route field:
@@ -148,8 +163,12 @@ Route field:
 | --- | --- |
 | `match` | 요청 model pattern. `*` wildcard 지원. |
 | `model` | `match` alias. 짧은 JSON에 유용. |
+| `models` | 같은 provider로 보낼 model pattern 목록. `models: "*"`는 provider-wide catch-all route. |
 | `provider` | 위임할 provider 이름. |
 | `target_model` | upstream model. `$model`은 원 요청 유지, `$1`은 wildcard capture. |
+| `aliases` | 이 route로 보낼 추가 요청 model 이름. |
+| `fallbacks` | primary route가 streaming 전에 실패했을 때 순서대로 시도할 대체 route 목록. |
+| `request_defaults` | 지원 adapter가 upstream request body에 주입하는 추가 기본 필드. 현재 OpenAI Chat Completions 지원. |
 | `api_key_envs` | 하나 이상의 key 환경 변수 이름. list 또는 구분 문자열 허용. |
 | `api_keys` | literal key. list 또는 구분 문자열 허용. 가능하면 `api_key_envs` 권장. |
 | `retry_keys` | true면 pre-stream 429/quota/weekly/5h limit 오류 후 다음 key 재시도. |
@@ -172,6 +191,20 @@ HTTP 429와 `rate limit`, `quota`, `weekly limit`, `5h` 같은 문구를
 감지합니다. 감지된 key는 현재 프로세스에서 limited로 표시하고 이후
 round-robin에서 건너뜁니다. Reset 시간 parsing은 아직 provider마다 안정적이지
 않습니다.
+
+Fallback은 대체 upstream model/provider를 위한 기능입니다. 어떤 route가 이미
+출력을 시작한 뒤 실패하면 AgentBridge는 다른 모델로 재시도하지 않고 해당
+실패를 반환합니다. 중복 side effect와 mixed-model 응답을 피하기 위해서입니다.
+
+`request_defaults`는 provider별 기능입니다. `openai-chat`에서는 AgentBridge가
+일반 request를 만든 뒤 JSON body에 merge하므로 vendor별 필드를 강제로 넣을 수
+있습니다.
+
+```yaml
+request_defaults:
+  reasoning: off
+  reasoning_cost: 1234
+```
 
 ## Legacy alias
 

@@ -120,6 +120,84 @@ func TestRouterRetriesNextKeyOnRateLimitBeforeStreaming(t *testing.T) {
 	}
 }
 
+func TestRouterFallsBackToAlternateModel(t *testing.T) {
+	var models []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		models = append(models, body["model"].(string))
+		if body["model"] == "glm-5.1" {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			_, _ = w.Write([]byte(`{"error":{"message":"temporary failure"}}`))
+			return
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{\"content\":\"turbo\"},\"finish_reason\":\"stop\"}]}\n\n")
+		fmt.Fprint(w, "data: [DONE]\n\n")
+	}))
+	defer srv.Close()
+
+	c, err := New(provider.Config{
+		Name: "router", Kind: Kind, DefaultModel: "glm-5.1",
+		Extra: map[string]any{
+			"_providers": map[string]provider.Config{
+				"zai": {Name: "zai", Kind: "openai-chat", BaseURL: srv.URL, APIKey: "k"},
+			},
+			"routes": []any{map[string]any{
+				"match":        "glm-5.1",
+				"provider":     "zai",
+				"target_model": "glm-5.1",
+				"fallbacks": []any{map[string]any{
+					"provider":     "zai",
+					"target_model": "glm-5-turbo",
+				}},
+			}},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	chunks, errs := c.StreamChat(context.Background(), []provider.Message{{Role: "user", Content: "hi"}}, provider.StreamOptions{Model: "glm-5.1"})
+	text := ""
+	for ch := range chunks {
+		text += ch.Text
+	}
+	if err := <-errs; err != nil {
+		t.Fatal(err)
+	}
+	if text != "turbo" || fmt.Sprint(models) != "[glm-5.1 glm-5-turbo]" {
+		t.Fatalf("text=%q models=%v", text, models)
+	}
+}
+
+func TestRouterAliasesAndProviderWildcardModels(t *testing.T) {
+	c, err := New(provider.Config{
+		Name: "router", Kind: Kind,
+		Extra: map[string]any{
+			"_providers": map[string]provider.Config{
+				"ollama-cloud": {Name: "ollama-cloud", Kind: "openai-chat", BaseURL: "http://127.0.0.1", APIKey: "k"},
+			},
+			"aliases": map[string]any{"oss": "ollama/gpt-oss:120b"},
+			"routes": []any{map[string]any{
+				"models":       []any{"ollama/*"},
+				"provider":     "ollama-cloud",
+				"target_model": "$1",
+			}},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	chain, ok := c.resolveChain(c.expandAlias("oss"))
+	if !ok || len(chain) != 1 {
+		t.Fatalf("chain=%+v ok=%v", chain, ok)
+	}
+	cfg, target, _, ok := c.targetConfig(chain[0].index, chain[0].route, "ollama/gpt-oss:120b")
+	if !ok || cfg.Name != "ollama-cloud" || target != "gpt-oss:120b" {
+		t.Fatalf("cfg=%+v target=%q ok=%v", cfg, target, ok)
+	}
+}
+
 func TestGlobMatch(t *testing.T) {
 	cases := []struct {
 		pat, model string

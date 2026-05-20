@@ -183,7 +183,7 @@ func (c *Client) StreamChat(ctx context.Context, messages []provider.Message, op
 			req.Thinking = &thinkingObj{Type: c.cfg.Thinking}
 		}
 
-		body, err := json.Marshal(req)
+		body, err := marshalWithDefaults(req, c.cfg.Extra)
 		if err != nil {
 			errs <- err
 			return
@@ -306,6 +306,35 @@ func (c *Client) StreamChat(ctx context.Context, messages []provider.Message, op
 	}()
 
 	return chunks, errs
+}
+
+func marshalWithDefaults(req chatRequest, extra map[string]any) ([]byte, error) {
+	body, err := json.Marshal(req)
+	if err != nil {
+		return nil, err
+	}
+	defaults := asMap(extra["request_defaults"])
+	if len(defaults) == 0 {
+		return body, nil
+	}
+	var merged map[string]any
+	if err := json.Unmarshal(body, &merged); err != nil {
+		return nil, err
+	}
+	for k, v := range defaults {
+		if strings.TrimSpace(k) == "" {
+			continue
+		}
+		merged[k] = v
+	}
+	return json.Marshal(merged)
+}
+
+func asMap(v any) map[string]any {
+	if m, ok := v.(map[string]any); ok {
+		return m
+	}
+	return nil
 }
 
 // APIError is the parsed envelope of a non-2xx response.

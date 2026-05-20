@@ -34,27 +34,38 @@ type Client struct {
 	cfg        provider.Config
 	routes     []route
 	providers  map[string]provider.Config
+	aliases    map[string]string
 	mu         sync.Mutex
 	rr         map[int]int
 	limitedKey map[string]limitInfo
 }
 
 type route struct {
-	Match         string      `json:"match" yaml:"match"`
-	Model         string      `json:"model" yaml:"model"`
-	Provider      string      `json:"provider" yaml:"provider"`
-	TargetModel   string      `json:"target_model" yaml:"target_model"`
-	APIKeys       stringsList `json:"api_keys" yaml:"api_keys"`
-	APIKeyEnvs    stringsList `json:"api_key_envs" yaml:"api_key_envs"`
-	Default       bool        `json:"default" yaml:"default"`
-	MaxTokens     int         `json:"max_tokens" yaml:"max_tokens"`
-	ContextWindow int         `json:"context_window" yaml:"context_window"`
-	RetryKeys     bool        `json:"retry_keys" yaml:"retry_keys"`
+	Match           string         `json:"match" yaml:"match"`
+	Model           string         `json:"model" yaml:"model"`
+	Models          stringsList    `json:"models" yaml:"models"`
+	Provider        string         `json:"provider" yaml:"provider"`
+	TargetModel     string         `json:"target_model" yaml:"target_model"`
+	Aliases         stringsList    `json:"aliases" yaml:"aliases"`
+	Fallbacks       []route        `json:"fallbacks" yaml:"fallbacks"`
+	RequestDefaults map[string]any `json:"request_defaults" yaml:"request_defaults"`
+	APIKeys         stringsList    `json:"api_keys" yaml:"api_keys"`
+	APIKeyEnvs      stringsList    `json:"api_key_envs" yaml:"api_key_envs"`
+	Default         bool           `json:"default" yaml:"default"`
+	MaxTokens       int            `json:"max_tokens" yaml:"max_tokens"`
+	ContextWindow   int            `json:"context_window" yaml:"context_window"`
+	RetryKeys       bool           `json:"retry_keys" yaml:"retry_keys"`
 }
 
 type routeFile struct {
-	DefaultModel string  `json:"default_model" yaml:"default_model"`
-	Routes       []route `json:"routes" yaml:"routes"`
+	DefaultModel string            `json:"default_model" yaml:"default_model"`
+	Aliases      map[string]string `json:"aliases" yaml:"aliases"`
+	Routes       []route           `json:"routes" yaml:"routes"`
+}
+
+type routeSet struct {
+	routes  []route
+	aliases map[string]string
 }
 
 // New constructs a router.
@@ -63,17 +74,17 @@ func New(cfg provider.Config) (*Client, error) {
 	if len(providers) == 0 {
 		return nil, errors.New("router: no provider configs were injected")
 	}
-	routes, defaultModel, err := loadRoutes(cfg)
+	loaded, defaultModel, err := loadRoutes(cfg)
 	if err != nil {
 		return nil, err
 	}
 	if cfg.DefaultModel == "" {
 		cfg.DefaultModel = defaultModel
 	}
-	if cfg.DefaultModel == "" && len(routes) > 0 {
-		cfg.DefaultModel = firstNonEmpty(routes[0].Match, routes[0].Model, routes[0].TargetModel)
+	if cfg.DefaultModel == "" && len(loaded.routes) > 0 {
+		cfg.DefaultModel = firstNonEmpty(loaded.routes[0].Match, loaded.routes[0].Model, loaded.routes[0].TargetModel)
 	}
-	return &Client{cfg: cfg, routes: routes, providers: providers, rr: map[int]int{}, limitedKey: map[string]limitInfo{}}, nil
+	return &Client{cfg: cfg, routes: loaded.routes, aliases: loaded.aliases, providers: providers, rr: map[int]int{}, limitedKey: map[string]limitInfo{}}, nil
 }
 
 func (c *Client) Name() string { return firstNonEmpty(c.cfg.Name, Kind) }
@@ -104,14 +115,19 @@ func (c *Client) AvailableModels() []provider.ModelInfo {
 func (c *Client) DefaultModel() string { return c.cfg.DefaultModel }
 
 func (c *Client) ContextWindow(model string) int {
-	_, r, cfg, target, _, ok := c.resolve(model)
-	if ok {
-		if r.ContextWindow > 0 {
-			return r.ContextWindow
+	model = c.expandAlias(model)
+	chain, ok := c.resolveChain(model)
+	if ok && len(chain) > 0 {
+		first := chain[0]
+		cfg, target, _, ok := c.targetConfig(first.index, first.route, model)
+		if ok && first.route.ContextWindow > 0 {
+			return first.route.ContextWindow
 		}
-		p, err := provider.Build(cfg)
-		if err == nil {
-			return p.ContextWindow(target)
+		if ok {
+			p, err := provider.Build(cfg)
+			if err == nil {
+				return p.ContextWindow(target)
+			}
 		}
 	}
 	if c.cfg.ContextWindow > 0 {
@@ -125,7 +141,8 @@ func (c *Client) StreamChat(ctx context.Context, messages []provider.Message, op
 	if model == "" {
 		model = c.DefaultModel()
 	}
-	routeIndex, r, cfg, target, keySig, ok := c.resolve(model)
+	model = c.expandAlias(model)
+	chain, ok := c.resolveChain(model)
 	if !ok {
 		chunks := make(chan provider.Chunk)
 		errs := make(chan error, 1)
@@ -134,10 +151,15 @@ func (c *Client) StreamChat(ctx context.Context, messages []provider.Message, op
 		close(errs)
 		return chunks, errs
 	}
-	return c.streamWithRetry(ctx, routeIndex, r, cfg, target, keySig, messages, opts)
+	return c.streamChain(ctx, chain, model, messages, opts)
 }
 
-func (c *Client) resolve(model string) (int, route, provider.Config, string, string, bool) {
+type resolvedRoute struct {
+	index int
+	route route
+}
+
+func (c *Client) resolveChain(model string) ([]resolvedRoute, bool) {
 	var fallback *route
 	fallbackIndex := -1
 	for i := range c.routes {
@@ -147,15 +169,41 @@ func (c *Client) resolve(model string) (int, route, provider.Config, string, str
 			fallbackIndex = i
 		}
 		if routeMatches(*r, model) {
-			cfg, target, keySig, ok := c.targetConfig(i, *r, model)
-			return i, *r, cfg, target, keySig, ok
+			return buildChain(i, *r), true
 		}
 	}
 	if fallback != nil {
-		cfg, target, keySig, ok := c.targetConfig(fallbackIndex, *fallback, model)
-		return fallbackIndex, *fallback, cfg, target, keySig, ok
+		return buildChain(fallbackIndex, *fallback), true
 	}
-	return -1, route{}, provider.Config{}, "", "", false
+	return nil, false
+}
+
+func buildChain(index int, r route) []resolvedRoute {
+	out := []resolvedRoute{{index: index, route: r}}
+	for i, fb := range r.Fallbacks {
+		fb.normalize()
+		out = append(out, resolvedRoute{index: fallbackRouteIndex(index, i), route: fb})
+	}
+	return out
+}
+
+func fallbackRouteIndex(parent, child int) int {
+	return -((parent+1)*1000 + child + 1)
+}
+
+func (c *Client) expandAlias(model string) string {
+	seen := map[string]struct{}{}
+	for {
+		next, ok := c.aliases[model]
+		if !ok || next == "" {
+			return model
+		}
+		if _, loop := seen[model]; loop {
+			return model
+		}
+		seen[model] = struct{}{}
+		model = next
+	}
 }
 
 func (c *Client) targetConfig(routeIndex int, r route, requested string) (provider.Config, string, string, bool) {
@@ -168,6 +216,12 @@ func (c *Client) targetConfig(routeIndex int, r route, requested string) (provid
 	}
 	if r.ContextWindow > 0 {
 		cfg.ContextWindow = r.ContextWindow
+	}
+	if len(r.RequestDefaults) > 0 {
+		if cfg.Extra == nil {
+			cfg.Extra = map[string]any{}
+		}
+		cfg.Extra["request_defaults"] = mergeMaps(asMap(cfg.Extra["request_defaults"]), r.RequestDefaults)
 	}
 	key, keySig := c.pickKey(routeIndex, r)
 	if key != "" {
@@ -205,69 +259,98 @@ func (c *Client) pickKey(routeIndex int, r route) (string, string) {
 	return keys[next], keySignature(routeIndex, next, keys[next])
 }
 
-func (c *Client) streamWithRetry(ctx context.Context, routeIndex int, r route, cfg provider.Config, target, keySig string, messages []provider.Message, opts provider.StreamOptions) (<-chan provider.Chunk, <-chan error) {
+func (c *Client) streamChain(ctx context.Context, chain []resolvedRoute, requested string, messages []provider.Message, opts provider.StreamOptions) (<-chan provider.Chunk, <-chan error) {
 	out := make(chan provider.Chunk)
 	errs := make(chan error, 1)
 	go func() {
 		defer close(out)
 		defer close(errs)
-		attempts := 1
-		if r.RetryKeys && len(r.keys()) > 1 {
-			attempts = len(r.keys())
-		}
 		var lastErr error
-		for attempt := 0; attempt < attempts; attempt++ {
-			if attempt > 0 {
-				var ok bool
-				cfg, target, keySig, ok = c.targetConfig(routeIndex, r, opts.Model)
+		for _, candidate := range chain {
+			r := candidate.route
+			attempts := 1
+			if r.RetryKeys && len(r.keys()) > 1 {
+				attempts = len(r.keys())
+			}
+			for attempt := 0; attempt < attempts; attempt++ {
+				cfg, target, keySig, ok := c.targetConfig(candidate.index, r, requested)
 				if !ok {
-					errs <- lastErr
+					if lastErr == nil {
+						lastErr = fmt.Errorf("router: route provider %q is not configured", r.Provider)
+					}
+					break
+				}
+				p, err := provider.Build(cfg)
+				if err != nil {
+					errs <- err
 					return
 				}
-			}
-			p, err := provider.Build(cfg)
-			if err != nil {
-				errs <- err
-				return
-			}
-			callOpts := opts
-			callOpts.Model = target
-			chunks, upstreamErrs := p.StreamChat(ctx, messages, callOpts)
-			buffered := make([]provider.Chunk, 0, 16)
-			for ch := range chunks {
-				buffered = append(buffered, ch)
-			}
-			err = <-upstreamErrs
-			if err == nil {
-				for _, ch := range buffered {
-					out <- ch
+				callOpts := opts
+				callOpts.Model = target
+				chunks, upstreamErrs := p.StreamChat(ctx, messages, callOpts)
+				buffered := make([]provider.Chunk, 0, 16)
+				for ch := range chunks {
+					buffered = append(buffered, ch)
 				}
-				errs <- nil
-				return
-			}
-			lastErr = err
-			if isLimitError(err) && keySig != "" {
-				c.markLimited(keySig, err)
-			}
-			if len(buffered) > 0 || !r.RetryKeys || !isLimitError(err) {
-				for _, ch := range buffered {
-					out <- ch
+				err = <-upstreamErrs
+				if err == nil {
+					for _, ch := range buffered {
+						out <- ch
+					}
+					errs <- nil
+					return
 				}
-				errs <- err
-				return
+				lastErr = err
+				if isLimitError(err) && keySig != "" {
+					c.markLimited(keySig, err)
+				}
+				if len(buffered) > 0 {
+					for _, ch := range buffered {
+						out <- ch
+					}
+					errs <- err
+					return
+				}
+				if r.RetryKeys && isLimitError(err) && attempt+1 < attempts {
+					continue
+				}
+				if !routeShouldFallback(err) {
+					errs <- err
+					return
+				}
+				break
 			}
+		}
+		if lastErr == nil {
+			lastErr = errors.New("router: no fallback route succeeded")
 		}
 		errs <- lastErr
 	}()
 	return out, errs
 }
 
-func routeMatches(r route, model string) bool {
-	pat := firstNonEmpty(r.Match, r.Model)
-	if pat == "" {
-		return r.Default
+func routeShouldFallback(err error) bool {
+	if err == nil {
+		return false
 	}
-	return globMatch(pat, model)
+	if provider.IsContextOverflow(err) {
+		return false
+	}
+	return true
+}
+
+func routeMatches(r route, model string) bool {
+	for _, alias := range r.Aliases {
+		if globMatch(alias, model) {
+			return true
+		}
+	}
+	for _, pat := range r.patterns() {
+		if globMatch(pat, model) {
+			return true
+		}
+	}
+	return len(r.patterns()) == 0 && r.Default
 }
 
 func resolveTargetModel(r route, requested, fallback string) string {
@@ -276,7 +359,7 @@ func resolveTargetModel(r route, requested, fallback string) string {
 		return requested
 	}
 	if strings.Contains(target, "$1") {
-		target = strings.ReplaceAll(target, "$1", wildcardCapture(firstNonEmpty(r.Match, r.Model), requested))
+		target = strings.ReplaceAll(target, "$1", wildcardCapture(r.primaryPattern(), requested))
 	}
 	return target
 }
@@ -326,15 +409,25 @@ func globMatch(pattern, value string) bool {
 	return last == "" || strings.HasSuffix(value, last)
 }
 
-func loadRoutes(cfg provider.Config) ([]route, string, error) {
+func loadRoutes(cfg provider.Config) (routeSet, string, error) {
 	var routes []route
+	aliases := map[string]string{}
+	if raw, ok := cfg.Extra["aliases"]; ok {
+		b, err := json.Marshal(raw)
+		if err != nil {
+			return routeSet{}, "", err
+		}
+		if err := json.Unmarshal(b, &aliases); err != nil {
+			return routeSet{}, "", fmt.Errorf("router: parse aliases: %w", err)
+		}
+	}
 	if raw, ok := cfg.Extra["routes"]; ok {
 		b, err := json.Marshal(raw)
 		if err != nil {
-			return nil, "", err
+			return routeSet{}, "", err
 		}
 		if err := json.Unmarshal(b, &routes); err != nil {
-			return nil, "", fmt.Errorf("router: parse routes: %w", err)
+			return routeSet{}, "", fmt.Errorf("router: parse routes: %w", err)
 		}
 	}
 	path := firstNonEmpty(strExtra(cfg.Extra, "routes_file"), os.Getenv("AGENTBRIDGE_ROUTER_FILE"))
@@ -345,20 +438,26 @@ func loadRoutes(cfg provider.Config) ([]route, string, error) {
 	if path != "" {
 		more, def, err := loadRouteFile(path)
 		if err != nil {
-			return nil, "", err
+			return routeSet{}, "", err
 		}
 		if def != "" {
 			defaultModel = def
 		}
-		routes = append(routes, more...)
+		for k, v := range more.Aliases {
+			aliases[k] = v
+		}
+		routes = append(routes, more.Routes...)
 	}
 	if len(routes) == 0 {
-		return nil, "", errors.New("router: no routes configured")
+		return routeSet{}, "", errors.New("router: no routes configured")
 	}
+	routes = expandRoutes(routes)
 	for i := range routes {
-		routes[i].normalize()
+		for _, alias := range routes[i].Aliases {
+			aliases[alias] = firstNonEmpty(routes[i].Match, routes[i].Model, routes[i].TargetModel)
+		}
 	}
-	return routes, defaultModel, nil
+	return routeSet{routes: routes, aliases: aliases}, defaultModel, nil
 }
 
 type stringsList []string
@@ -404,8 +503,51 @@ func (s *stringsList) UnmarshalYAML(value *yaml.Node) error {
 }
 
 func (r *route) normalize() {
+	r.Models = normalizeList(r.Models)
+	r.Aliases = normalizeList(r.Aliases)
 	r.APIKeys = normalizeList(r.APIKeys)
 	r.APIKeyEnvs = normalizeList(r.APIKeyEnvs)
+	for i := range r.Fallbacks {
+		r.Fallbacks[i].normalize()
+	}
+}
+
+func (r route) patterns() []string {
+	out := make([]string, 0, 2+len(r.Models))
+	out = appendIfNonEmpty(out, r.Match)
+	out = appendIfNonEmpty(out, r.Model)
+	out = append(out, r.Models...)
+	return out
+}
+
+func (r route) primaryPattern() string {
+	return firstNonEmpty(append([]string{r.Match, r.Model}, r.Models...)...)
+}
+
+func expandRoutes(routes []route) []route {
+	out := make([]route, 0, len(routes))
+	for _, r := range routes {
+		r.normalize()
+		if len(r.Models) == 0 {
+			out = append(out, r)
+			continue
+		}
+		for _, model := range r.Models {
+			cp := r
+			cp.Match = model
+			cp.Model = ""
+			cp.Models = nil
+			out = append(out, cp)
+		}
+	}
+	return out
+}
+
+func appendIfNonEmpty(out []string, v string) []string {
+	if strings.TrimSpace(v) == "" {
+		return out
+	}
+	return append(out, strings.TrimSpace(v))
 }
 
 func (r route) keys() []string {
@@ -485,6 +627,24 @@ func keySignature(routeIndex, keyIndex int, key string) string {
 	return fmt.Sprintf("%d:%d:%d", routeIndex, keyIndex, len(key))
 }
 
+func asMap(v any) map[string]any {
+	if m, ok := v.(map[string]any); ok {
+		return m
+	}
+	return nil
+}
+
+func mergeMaps(base, overlay map[string]any) map[string]any {
+	out := map[string]any{}
+	for k, v := range base {
+		out[k] = v
+	}
+	for k, v := range overlay {
+		out[k] = v
+	}
+	return out
+}
+
 func defaultRouteFile() string {
 	if dir, err := os.UserConfigDir(); err == nil && dir != "" {
 		p := filepath.Join(dir, "agentbridge", "router.yaml")
@@ -499,23 +659,23 @@ func defaultRouteFile() string {
 	return ""
 }
 
-func loadRouteFile(path string) ([]route, string, error) {
+func loadRouteFile(path string) (routeFile, string, error) {
 	data, err := os.ReadFile(filepath.Clean(path))
 	if err != nil {
-		return nil, "", fmt.Errorf("router: read routes file %s: %w", path, err)
+		return routeFile{}, "", fmt.Errorf("router: read routes file %s: %w", path, err)
 	}
 	var rf routeFile
 	switch {
 	case strings.HasSuffix(path, ".yaml"), strings.HasSuffix(path, ".yml"):
 		if err := yaml.Unmarshal(data, &rf); err != nil {
-			return nil, "", fmt.Errorf("router: parse routes file %s: %w", path, err)
+			return routeFile{}, "", fmt.Errorf("router: parse routes file %s: %w", path, err)
 		}
 	default:
 		if err := json.Unmarshal(data, &rf); err != nil {
-			return nil, "", fmt.Errorf("router: parse routes file %s: %w", path, err)
+			return routeFile{}, "", fmt.Errorf("router: parse routes file %s: %w", path, err)
 		}
 	}
-	return rf.Routes, rf.DefaultModel, nil
+	return rf, rf.DefaultModel, nil
 }
 
 func strExtra(extra map[string]any, key string) string {

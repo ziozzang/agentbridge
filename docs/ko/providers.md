@@ -177,12 +177,21 @@ routes:
     target_model: "$1"
     api_key_envs: [OLLAMA_API_KEY_A, OLLAMA_API_KEY_B]
     retry_keys: true
+  - match: glm-5.1
+    provider: zai
+    target_model: glm-5.1
+    fallbacks:
+      - provider: zai
+        target_model: glm-5-turbo
   - match: grok
     provider: xai
     target_model: grok-4.3
   - match: zai:*
     provider: zai
     target_model: "$1"
+  - models: "*"
+    provider: openrouter
+    target_model: "$model"
 ```
 
 `api_key_envs`와 `api_keys`는 YAML/JSON list뿐 아니라 구분 문자열도

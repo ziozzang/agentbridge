@@ -136,12 +136,27 @@ Route file shape:
 
 ```yaml
 default_model: ollama/gpt-oss:120b
+aliases:
+  oss: ollama/gpt-oss:120b
+  glm-fast: glm-5-turbo
 routes:
   - match: ollama/*
     provider: ollama-cloud
     target_model: "$1"
     api_key_envs: OLLAMA_API_KEY_A, OLLAMA_API_KEY_B
     retry_keys: true
+  - match: glm-5.1
+    aliases: [glm]
+    provider: zai
+    target_model: glm-5.1
+    request_defaults:
+      reasoning: off
+    fallbacks:
+      - provider: zai
+        target_model: glm-5-turbo
+  - models: "*"
+    provider: openrouter
+    target_model: "$model"
 ```
 
 Route fields:
@@ -150,8 +165,12 @@ Route fields:
 | --- | --- |
 | `match` | Requested model pattern. Supports `*` wildcard. |
 | `model` | Alias for `match`, useful in compact JSON. |
+| `models` | One or more model patterns for the same provider. `models: "*"` creates a provider-wide catch-all route. |
 | `provider` | Configured provider name to delegate to. |
 | `target_model` | Upstream model. `$model` keeps the original request; `$1` uses the wildcard capture. |
+| `aliases` | Extra requested model names that should hit this route. |
+| `fallbacks` | Ordered alternate route list tried when the primary route fails before streaming output. |
+| `request_defaults` | Extra upstream request-body fields injected by adapters that support it, currently OpenAI Chat Completions. |
 | `api_key_envs` | Environment variable names for one or more keys. Accepts list or delimited string. |
 | `api_keys` | Literal keys. Accepts list or delimited string; prefer `api_key_envs`. |
 | `retry_keys` | If true, retry the next key after pre-stream 429/quota/weekly/5h limit errors. |
@@ -174,6 +193,21 @@ signals such as `rate limit`, `quota`, `weekly limit`, and `5h` before any
 streamed output is emitted. It marks the key as limited for the current
 process and skips it on later round-robin picks. Reset time parsing is not
 provider-stable yet.
+
+Fallbacks are for alternate upstream models/providers, not for continuing a
+partially streamed response. If a route emits any output and then fails,
+AgentBridge returns that failure instead of replaying the conversation against
+another model. This avoids duplicating side effects and mixed-model answers.
+
+`request_defaults` is intentionally provider-specific. For `openai-chat` it is
+merged into the JSON body after AgentBridge builds the normal request, so it
+can force vendor-specific fields such as:
+
+```yaml
+request_defaults:
+  reasoning: off
+  reasoning_cost: 1234
+```
 
 ## Legacy Aliases
 

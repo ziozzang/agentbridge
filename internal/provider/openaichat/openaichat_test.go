@@ -189,3 +189,30 @@ func TestThinkingEnabledWhenConfigured(t *testing.T) {
 		t.Errorf("expected thinking flag in request body")
 	}
 }
+
+func TestRequestDefaultsInjected(t *testing.T) {
+	var body map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		w.Header().Set("Content-Type", "text/event-stream")
+		fmt.Fprint(w, "data: [DONE]\n\n")
+	}))
+	defer srv.Close()
+	c := New(provider.Config{
+		BaseURL: srv.URL, APIKey: "k",
+		Extra: map[string]any{"request_defaults": map[string]any{
+			"reasoning":      "off",
+			"reasoning_cost": 1234,
+		}},
+	})
+	c.HTTPClient = srv.Client()
+	chunks, errs := c.StreamChat(context.Background(), nil, provider.StreamOptions{Model: "m"})
+	for range chunks {
+	}
+	if err := <-errs; err != nil {
+		t.Fatal(err)
+	}
+	if body["reasoning"] != "off" || body["reasoning_cost"].(float64) != 1234 {
+		t.Fatalf("defaults not injected: %#v", body)
+	}
+}
