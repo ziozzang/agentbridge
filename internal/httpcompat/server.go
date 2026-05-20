@@ -18,6 +18,7 @@ import (
 	"github.com/ziozzang/agentbridge/internal/config"
 	"github.com/ziozzang/agentbridge/internal/credentials"
 	codexoauth "github.com/ziozzang/agentbridge/internal/oauth/codex"
+	xaioauth "github.com/ziozzang/agentbridge/internal/oauth/xai"
 	"github.com/ziozzang/agentbridge/internal/provider"
 	_ "github.com/ziozzang/agentbridge/internal/provider/anthropic"
 	_ "github.com/ziozzang/agentbridge/internal/provider/claudecode"
@@ -864,6 +865,12 @@ func resolveOAuthKey(key string) (string, string, error) {
 			return "", "", err
 		}
 		return tok.AccessToken, tok.AccountID, nil
+	case "xai", "xai-oauth", "grok-oauth":
+		tok, err := xaioauth.New("").ResolveToken(context.Background())
+		if err != nil {
+			return "", "", err
+		}
+		return tok.AccessToken, "", nil
 	default:
 		return "", "", fmt.Errorf("oauth resolver for %q is not registered", flavour)
 	}

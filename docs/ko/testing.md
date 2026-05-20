@@ -42,6 +42,33 @@ curl -sS http://127.0.0.1:8766/openapi.json
 curl -sS http://127.0.0.1:8766/metrics
 ```
 
+Codex live web search smoke:
+
+```bash
+AGENTBRIDGE_PROVIDER=codex \
+CODEX_WEB_SEARCH=live \
+CODEX_WEB_SEARCH_CONTEXT_SIZE=low \
+agentbridge --http-listen 127.0.0.1:8766
+
+curl -sS -X POST http://127.0.0.1:8766/v1/responses \
+  -H 'Content-Type: application/json' \
+  -d '{"model":"gpt-5.5","input":"Use live web search. What is the current top headline title on the OpenAI News page? Include the source URL.","store":false}'
+```
+
+xAI Grok OAuth resolver smoke:
+
+```bash
+AGENTBRIDGE_PROVIDER=xai-oauth agentbridge --http-listen 127.0.0.1:8766
+curl -sS -X POST http://127.0.0.1:8766/v1/responses \
+  -H 'Content-Type: application/json' \
+  -d '{"model":"grok-4.3","input":"Say OK","store":false}'
+```
+
+이 테스트는 유효한 `~/.grok/auth.json` 또는
+`AGENTBRIDGE_XAI_OAUTH_ACCESS_TOKEN`이 필요합니다. xAI가 계정 tier를
+제한하면 OAuth inference가 HTTP 403을 반환할 수 있습니다. 그 경우
+`XAI_API_KEY`와 `AGENTBRIDGE_PROVIDER=xai` 경로를 테스트하세요.
+
 회귀 테스트 원칙:
 
 - 변경한 package 근처에 테스트를 추가합니다.

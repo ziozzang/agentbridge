@@ -152,6 +152,46 @@ providers:
       - id: google/gemini-2.5-pro
         name: Gemini 2.5 Pro (via OpenRouter)
 
+  # --------- xAI Grok (API key) ------------------------------------------
+  xai:
+    kind: openai-responses
+    base_url: ${XAI_BASE_URL:-https://api.x.ai/v1}
+    api_key: ${XAI_API_KEY:-${AGENTBRIDGE_XAI_API_KEY}}
+    default_model: ${XAI_MODEL:-grok-4.3}
+    max_tokens: 4096
+    context_window: 1000000
+    extra:
+      responses_path: ${XAI_RESPONSES_PATH:-/responses}
+      service_tier: ${XAI_SERVICE_TIER:-}
+    models:
+      - id: grok-4.3
+        name: Grok 4.3
+      - id: grok-4.20-0309-reasoning
+        name: Grok 4.20 Reasoning
+      - id: grok-4.20-0309-non-reasoning
+        name: Grok 4.20 Non-Reasoning
+
+  # --------- xAI Grok OAuth (SuperGrok / X Premium+) ---------------------
+  # Uses ~/.grok/auth.json by default. A Hermes ~/.hermes/auth.json
+  # xai-oauth entry is accepted as a fallback during migration.
+  xai-oauth:
+    kind: openai-responses
+    base_url: ${XAI_BASE_URL:-https://api.x.ai/v1}
+    api_key: oauth:xai
+    default_model: ${XAI_MODEL:-grok-4.3}
+    max_tokens: 4096
+    context_window: 1000000
+    extra:
+      responses_path: ${XAI_RESPONSES_PATH:-/responses}
+      service_tier: ${XAI_SERVICE_TIER:-}
+    models:
+      - id: grok-4.3
+        name: Grok 4.3
+      - id: grok-4.20-0309-reasoning
+        name: Grok 4.20 Reasoning
+      - id: grok-4.20-0309-non-reasoning
+        name: Grok 4.20 Non-Reasoning
+
   # --------- LiteLLM proxy (OpenAI-compatible) ---------------------------
   litellm:
     kind: openai-chat

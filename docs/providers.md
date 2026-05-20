@@ -16,6 +16,8 @@ interface. Select one with `AGENTBRIDGE_PROVIDER=<name>`.
 | `openrouter` | `openai-chat` | OpenRouter Chat Completions. |
 | `litellm` | `openai-chat` | LiteLLM proxy or any OpenAI-compatible gateway. |
 | `codex` | `openai-responses` | ChatGPT Codex backend via Codex/OpenAI OAuth. |
+| `xai` | `openai-responses` | xAI Grok Responses API with `XAI_API_KEY`. |
+| `xai-oauth` | `openai-responses` | xAI Grok OAuth bearer from `~/.grok/auth.json`. |
 
 ## Examples
 
@@ -107,6 +109,55 @@ providers:
             city: Seoul
             timezone: Asia/Seoul
 ```
+
+xAI Grok API key:
+
+```bash
+AGENTBRIDGE_PROVIDER=xai \
+XAI_API_KEY=xai-... \
+XAI_MODEL=grok-4.3 \
+agentbridge
+```
+
+xAI Grok OAuth:
+
+```bash
+AGENTBRIDGE_PROVIDER=xai-oauth agentbridge
+```
+
+AgentBridge expects Grok OAuth credentials in `~/.grok/auth.json`. The file
+uses the Hermes-compatible provider entry shape:
+
+```json
+{
+  "providers": {
+    "xai-oauth": {
+      "tokens": {
+        "access_token": "...",
+        "refresh_token": "..."
+      },
+      "discovery": {
+        "token_endpoint": "https://auth.x.ai/oauth2/token"
+      }
+    }
+  }
+}
+```
+
+The resolver refreshes expiring JWT access tokens with xAI's public OAuth
+client (`b1a00492-073a-47ea-816f-4c329264a828`). During migration it also
+accepts Hermes' `~/.hermes/auth.json` if `~/.grok/auth.json` does not exist.
+Interactive browser PKCE login is still external; use Hermes
+`hermes auth add xai-oauth` and copy/import the auth store, or provide
+`AGENTBRIDGE_XAI_OAUTH_ACCESS_TOKEN` / `AGENTBRIDGE_XAI_OAUTH_REFRESH_TOKEN`.
+
+Notes from the upstream xAI/Hermes flow:
+
+- Authorization server: `https://accounts.x.ai` / `https://auth.x.ai`
+- Redirect: `http://127.0.0.1:56121/callback`
+- Scope: `openid profile email offline_access grok-cli:access api:access`
+- OAuth API access can return HTTP 403 for subscription/tier gating. In that
+  case use the `xai` provider with `XAI_API_KEY`.
 
 ## Provider YAML
 

@@ -16,6 +16,8 @@ AgentBridge는 모든 프로토콜 표면을 공통 provider interface로 라우
 | `openrouter` | `openai-chat` | OpenRouter Chat Completions. |
 | `litellm` | `openai-chat` | LiteLLM proxy 또는 OpenAI 호환 gateway. |
 | `codex` | `openai-responses` | Codex/OpenAI OAuth 기반 ChatGPT Codex backend. |
+| `xai` | `openai-responses` | `XAI_API_KEY`를 쓰는 xAI Grok Responses API. |
+| `xai-oauth` | `openai-responses` | `~/.grok/auth.json`의 xAI Grok OAuth bearer 사용. |
 
 ## 예시
 
@@ -98,3 +100,53 @@ providers:
             city: Seoul
             timezone: Asia/Seoul
 ```
+
+xAI Grok API key:
+
+```bash
+AGENTBRIDGE_PROVIDER=xai \
+XAI_API_KEY=xai-... \
+XAI_MODEL=grok-4.3 \
+agentbridge
+```
+
+xAI Grok OAuth:
+
+```bash
+AGENTBRIDGE_PROVIDER=xai-oauth agentbridge
+```
+
+AgentBridge의 Grok OAuth 기본 저장소는 `~/.grok/auth.json`입니다. 파일은
+Hermes와 호환되는 provider entry shape을 사용합니다.
+
+```json
+{
+  "providers": {
+    "xai-oauth": {
+      "tokens": {
+        "access_token": "...",
+        "refresh_token": "..."
+      },
+      "discovery": {
+        "token_endpoint": "https://auth.x.ai/oauth2/token"
+      }
+    }
+  }
+}
+```
+
+resolver는 JWT access token이 만료에 가까우면 xAI public OAuth client
+(`b1a00492-073a-47ea-816f-4c329264a828`)로 refresh합니다. 이전 중간 단계와
+호환하기 위해 `~/.grok/auth.json`이 없으면 Hermes의 `~/.hermes/auth.json`도
+읽습니다. 브라우저 PKCE 로그인 자체는 아직 외부에서 수행해야 합니다.
+`hermes auth add xai-oauth`로 로그인한 뒤 auth store를 가져오거나,
+`AGENTBRIDGE_XAI_OAUTH_ACCESS_TOKEN` /
+`AGENTBRIDGE_XAI_OAUTH_REFRESH_TOKEN`을 직접 설정하세요.
+
+upstream xAI/Hermes flow에서 확인한 값:
+
+- Authorization server: `https://accounts.x.ai` / `https://auth.x.ai`
+- Redirect: `http://127.0.0.1:56121/callback`
+- Scope: `openid profile email offline_access grok-cli:access api:access`
+- OAuth API access는 구독/tier gating으로 HTTP 403이 날 수 있습니다. 이 경우
+  `XAI_API_KEY` 기반 `xai` provider를 사용하세요.

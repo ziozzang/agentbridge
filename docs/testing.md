@@ -42,6 +42,33 @@ curl -sS http://127.0.0.1:8766/openapi.json
 curl -sS http://127.0.0.1:8766/metrics
 ```
 
+Codex live web search smoke:
+
+```bash
+AGENTBRIDGE_PROVIDER=codex \
+CODEX_WEB_SEARCH=live \
+CODEX_WEB_SEARCH_CONTEXT_SIZE=low \
+agentbridge --http-listen 127.0.0.1:8766
+
+curl -sS -X POST http://127.0.0.1:8766/v1/responses \
+  -H 'Content-Type: application/json' \
+  -d '{"model":"gpt-5.5","input":"Use live web search. What is the current top headline title on the OpenAI News page? Include the source URL.","store":false}'
+```
+
+xAI Grok OAuth resolver smoke:
+
+```bash
+AGENTBRIDGE_PROVIDER=xai-oauth agentbridge --http-listen 127.0.0.1:8766
+curl -sS -X POST http://127.0.0.1:8766/v1/responses \
+  -H 'Content-Type: application/json' \
+  -d '{"model":"grok-4.3","input":"Say OK","store":false}'
+```
+
+This requires a valid `~/.grok/auth.json` or
+`AGENTBRIDGE_XAI_OAUTH_ACCESS_TOKEN`. OAuth inference may return HTTP 403
+when xAI gates the account tier; in that case test `AGENTBRIDGE_PROVIDER=xai`
+with `XAI_API_KEY`.
+
 Regression policy:
 
 - Add tests beside the package you change.

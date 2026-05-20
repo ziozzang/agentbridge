@@ -20,6 +20,7 @@ import (
 	"github.com/ziozzang/agentbridge/internal/credentials"
 	"github.com/ziozzang/agentbridge/internal/logger"
 	codexoauth "github.com/ziozzang/agentbridge/internal/oauth/codex"
+	xaioauth "github.com/ziozzang/agentbridge/internal/oauth/xai"
 	"github.com/ziozzang/agentbridge/internal/plugins"
 	_ "github.com/ziozzang/agentbridge/internal/plugins/duckdb" // register duckdb stub
 	_ "github.com/ziozzang/agentbridge/internal/plugins/jina"   // register Jina tools
@@ -815,9 +816,7 @@ func (a *Agent) ensureClient() error {
 	return nil
 }
 
-// resolveOAuthConfig resolves any `oauth:*` marker on cfg.APIKey. Supports
-// `oauth:codex` and `oauth:openai`, both backed by OpenAI's OAuth refresh-token
-// flow. For ChatGPT-backed Codex tokens it also forwards ChatGPT-Account-ID.
+// resolveOAuthConfig resolves any `oauth:*` marker on cfg.APIKey.
 var resolveOAuthConfig = func(cfg *provider.Config) error {
 	if cfg == nil || !strings.HasPrefix(cfg.APIKey, "oauth:") {
 		return nil
@@ -839,6 +838,13 @@ var resolveOAuthConfig = func(cfg *provider.Config) error {
 				cfg.Headers["ChatGPT-Account-ID"] = tok.AccountID
 			}
 		}
+		return nil
+	case "xai", "xai-oauth", "grok-oauth":
+		tok, err := xaioauth.New("").ResolveToken(context.Background())
+		if err != nil {
+			return err
+		}
+		cfg.APIKey = tok.AccessToken
 		return nil
 	default:
 		return fmt.Errorf("oauth resolver for %q is not registered", flavour)
