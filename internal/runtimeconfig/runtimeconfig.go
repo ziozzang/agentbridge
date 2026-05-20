@@ -10,7 +10,8 @@ import (
 )
 
 type Config struct {
-	Server Server `yaml:"server"`
+	Server     Server     `yaml:"server"`
+	Compaction Compaction `yaml:"compaction"`
 }
 
 type Server struct {
@@ -20,6 +21,19 @@ type Server struct {
 	WaitSize   *int   `yaml:"wait_size"`
 	HTTPListen string `yaml:"http_listen"`
 	GRPCListen string `yaml:"grpc_listen"`
+}
+
+type Compaction struct {
+	Enabled           *bool    `yaml:"enabled"`
+	Native            *bool    `yaml:"native"`
+	Summary           *bool    `yaml:"summary"`
+	PruneFallback     *bool    `yaml:"prune_fallback"`
+	ThresholdPct      *float64 `yaml:"threshold_pct"`
+	TargetPct         *float64 `yaml:"target_pct"`
+	OverflowTargetPct *float64 `yaml:"overflow_target_pct"`
+	PreserveTurns     int      `yaml:"preserve_turns"`
+	KeepRecentTokens  int      `yaml:"keep_recent_tokens"`
+	ReserveTokens     int      `yaml:"reserve_tokens"`
 }
 
 func Defaults() Config {

@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/ziozzang/agentbridge/internal/acp"
+	contextcompact "github.com/ziozzang/agentbridge/internal/compaction"
 	"github.com/ziozzang/agentbridge/internal/provider"
 	"github.com/ziozzang/agentbridge/internal/provider/glm"
 )
@@ -231,7 +232,7 @@ func TestCompactPromptMessagesUsesStructuredSummaryAndRecentHistory(t *testing.T
 	}
 	messages = append(messages, glm.Message{Role: "user", Content: "recent request"})
 
-	result := a.compactPromptMessages(context.Background(), messages, "glm-test", nil, 12000, "test compaction")
+	result := a.compactPromptMessages(context.Background(), messages, "glm-test", nil, contextcompact.DefaultSettings(), 12000, "test compaction")
 	if !result.Compacted {
 		t.Fatal("expected compaction")
 	}
@@ -276,7 +277,7 @@ func TestCompactPromptMessagesPrefersProviderNativeCompaction(t *testing.T) {
 		{Role: "assistant", Content: "answer"},
 		{Role: "user", Content: "new"},
 	}
-	result := a.compactPromptMessages(context.Background(), messages, "gpt-5.5", nil, 1000, "test native")
+	result := a.compactPromptMessages(context.Background(), messages, "gpt-5.5", nil, contextcompact.DefaultSettings(), 1000, "test native")
 	if !result.Compacted {
 		t.Fatal("expected provider-native compaction")
 	}

@@ -106,6 +106,18 @@ server:
   http_listen: 127.0.0.1:8766
   grpc_listen: 127.0.0.1:8767
 
+compaction:
+  enabled: true
+  native: true
+  summary: true
+  prune_fallback: true
+  threshold_pct: 0.90
+  target_pct: 0.80
+  overflow_target_pct: 0.70
+  preserve_turns: 10
+  keep_recent_tokens: 20000
+  reserve_tokens: 16384
+
 providers:
   router:
     kind: router
@@ -115,6 +127,23 @@ providers:
 ```
 
 CLI flag는 여전히 `server:` 값보다 우선합니다.
+
+Compaction은 ACP와 HTTP/A2A agent loop에 모두 적용됩니다. AgentBridge는
+provider-native compaction을 먼저 시도하고, structured summary fallback,
+마지막으로 `prune_fallback`이 켜진 경우에만 pruning을 사용합니다. 퍼센트 값은
+`0.90` 같은 fraction 또는 `90` 같은 percentage로 쓸 수 있습니다. 환경 변수
+override도 지원합니다.
+
+- `AGENTBRIDGE_COMPACTION_ENABLED`
+- `AGENTBRIDGE_COMPACTION_NATIVE`
+- `AGENTBRIDGE_COMPACTION_SUMMARY`
+- `AGENTBRIDGE_COMPACTION_PRUNE_FALLBACK`
+- `AGENTBRIDGE_COMPACTION_THRESHOLD_PCT`
+- `AGENTBRIDGE_COMPACTION_TARGET_PCT`
+- `AGENTBRIDGE_COMPACTION_OVERFLOW_TARGET_PCT`
+- `AGENTBRIDGE_COMPACTION_PRESERVE_TURNS`
+- `AGENTBRIDGE_COMPACTION_KEEP_RECENT_TOKENS`
+- `AGENTBRIDGE_COMPACTION_RESERVE_TOKENS`
 
 ## Embedding Model Mapping
 

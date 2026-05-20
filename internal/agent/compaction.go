@@ -9,9 +9,11 @@ import (
 	"sort"
 	"strings"
 
+	contextcompact "github.com/ziozzang/agentbridge/internal/compaction"
 	"github.com/ziozzang/agentbridge/internal/logger"
 	"github.com/ziozzang/agentbridge/internal/provider"
 	"github.com/ziozzang/agentbridge/internal/provider/glm"
+	"github.com/ziozzang/agentbridge/internal/runtimeconfig"
 	"github.com/ziozzang/agentbridge/internal/tools/definitions"
 )
 
@@ -28,22 +30,12 @@ type compactResult struct {
 	Compacted    bool
 }
 
-type compactionSettings struct {
-	ReserveTokens    int
-	KeepRecentTokens int
-}
-
-var defaultCompactionSettings = compactionSettings{
-	ReserveTokens:    16_384,
-	KeepRecentTokens: 20_000,
-}
-
-func (a *Agent) compactPromptMessages(ctx context.Context, messages []glm.Message, model string, tools []definitions.Tool, targetTokens int, reason string) compactResult {
+func (a *Agent) compactPromptMessages(ctx context.Context, messages []glm.Message, model string, tools []definitions.Tool, settings contextcompact.Settings, targetTokens int, reason string) compactResult {
 	before := estimateMessagesTokens(messages)
-	if len(messages) <= 3 {
+	if !settings.Enabled || len(messages) <= 3 {
 		return compactResult{Messages: messages, TokensBefore: before}
 	}
-	if a.Provider != nil {
+	if settings.NativeEnabled && a.Provider != nil {
 		if compactor, ok := a.Provider.(provider.ConversationCompactor); ok {
 			compacted, err := compactor.CompactConversation(ctx, messages, provider.CompactOptions{
 				Model:        model,
@@ -66,7 +58,9 @@ func (a *Agent) compactPromptMessages(ctx context.Context, messages []glm.Messag
 			}
 		}
 	}
-	settings := defaultCompactionSettings
+	if !settings.SummaryEnabled {
+		return compactResult{Messages: messages, TokensBefore: before}
+	}
 	if targetTokens > 0 && settings.KeepRecentTokens > targetTokens/2 {
 		settings.KeepRecentTokens = max(4_000, targetTokens/2)
 	}
@@ -100,6 +94,26 @@ func (a *Agent) compactPromptMessages(ctx context.Context, messages []glm.Messag
 		TokensBefore: before,
 		Compacted:    true,
 	}
+}
+
+func loadCompactionSettings() contextcompact.Settings {
+	rc, err := runtimeconfig.Load()
+	if err != nil {
+		logger.Warnf("compaction: failed to load runtime config, using defaults: %v", err)
+		return contextcompact.SettingsFromEnv(contextcompact.DefaultSettings())
+	}
+	return contextcompact.SettingsFromConfig(contextcompact.RuntimeConfig{
+		Enabled:           rc.Compaction.Enabled,
+		Native:            rc.Compaction.Native,
+		Summary:           rc.Compaction.Summary,
+		PruneFallback:     rc.Compaction.PruneFallback,
+		ThresholdPct:      rc.Compaction.ThresholdPct,
+		TargetPct:         rc.Compaction.TargetPct,
+		OverflowTargetPct: rc.Compaction.OverflowTargetPct,
+		PreserveTurns:     rc.Compaction.PreserveTurns,
+		KeepRecentTokens:  rc.Compaction.KeepRecentTokens,
+		ReserveTokens:     rc.Compaction.ReserveTokens,
+	})
 }
 
 func (a *Agent) generateCompactionSummary(ctx context.Context, messages []glm.Message, model, previousSummary, reason string) (string, error) {

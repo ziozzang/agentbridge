@@ -17,6 +17,7 @@ import (
 
 	"github.com/ziozzang/agentbridge/internal/acp"
 	"github.com/ziozzang/agentbridge/internal/agentprofiles"
+	contextcompact "github.com/ziozzang/agentbridge/internal/compaction"
 	"github.com/ziozzang/agentbridge/internal/config"
 	"github.com/ziozzang/agentbridge/internal/credentials"
 	"github.com/ziozzang/agentbridge/internal/logger"
@@ -638,20 +639,21 @@ func (a *Agent) Prompt(ctx context.Context, p acp.PromptParams) (acp.PromptRespo
 	stop := "max_turn_requests"
 	var lastUsage *glm.Usage
 	overflowRetries := 0
+	compactSettings := loadCompactionSettings()
 	for iter := 0; iter < maxTurns; iter++ {
 		if promptCtx.Err() != nil {
 			stop = "cancelled"
 			break
 		}
-		// Proactive compaction: if history exceeds ~90% of the model's window.
+		// Proactive compaction: threshold and fallback behavior are runtime-configurable.
 		window := a.contextWindow(a.effectiveModel(s.Model))
-		if glm.EstimateTokens(messages) > (window*9)/10 {
-			result := a.compactPromptMessages(promptCtx, messages, a.effectiveModel(s.Model), tools, (window*8)/10, "proactive context compaction")
+		if compactSettings.Enabled && contextcompact.EstimateTokens(messages) > compactSettings.ProactiveThreshold(window) {
+			result := a.compactPromptMessages(promptCtx, messages, a.effectiveModel(s.Model), tools, compactSettings, compactSettings.TargetTokens(window), "proactive context compaction")
 			if result.Compacted {
-				logger.Debugf("prompt: compacted context tokens_before=%d tokens_after=%d", result.TokensBefore, glm.EstimateTokens(result.Messages))
+				logger.Debugf("prompt: compacted context tokens_before=%d tokens_after=%d", result.TokensBefore, contextcompact.EstimateTokens(result.Messages))
 				messages = result.Messages
-			} else {
-				messages = glm.Compact(messages, (window*8)/10, 10)
+			} else if compactSettings.PruneFallbackEnabled {
+				messages = contextcompact.PruneMessages(messages, compactSettings.TargetTokens(window), compactSettings.PreserveTurns)
 			}
 			if len(messages) > 0 {
 				s.Messages = append([]glm.Message(nil), messages[1:]...)
@@ -702,12 +704,12 @@ func (a *Agent) Prompt(ctx context.Context, p acp.PromptParams) (acp.PromptRespo
 				// Emergency compaction: aggressive (~70%) then retry once.
 				logger.Debugf("prompt: context overflow detected; emergency compaction")
 				window := a.contextWindow(a.effectiveModel(s.Model))
-				result := a.compactPromptMessages(promptCtx, messages, a.effectiveModel(s.Model), tools, (window*7)/10, "context overflow retry")
+				result := a.compactPromptMessages(promptCtx, messages, a.effectiveModel(s.Model), tools, compactSettings, compactSettings.OverflowTargetTokens(window), "context overflow retry")
 				if result.Compacted {
-					logger.Debugf("prompt: emergency compacted context tokens_before=%d tokens_after=%d", result.TokensBefore, glm.EstimateTokens(result.Messages))
+					logger.Debugf("prompt: emergency compacted context tokens_before=%d tokens_after=%d", result.TokensBefore, contextcompact.EstimateTokens(result.Messages))
 					messages = result.Messages
-				} else {
-					messages = glm.Compact(messages, (window*7)/10, 10)
+				} else if compactSettings.PruneFallbackEnabled {
+					messages = contextcompact.PruneMessages(messages, compactSettings.OverflowTargetTokens(window), compactSettings.PreserveTurns)
 				}
 				if len(messages) > 0 {
 					s.Messages = append([]glm.Message(nil), messages[1:]...)
