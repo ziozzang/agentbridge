@@ -177,6 +177,7 @@ routes:
     provider: ollama-cloud
     target_model: "$1"
     api_key_envs: [OLLAMA_API_KEY_A, OLLAMA_API_KEY_B]
+    retry_keys: true
   - match: grok
     provider: xai
     target_model: grok-4.3
@@ -184,6 +185,18 @@ routes:
     provider: zai
     target_model: "$1"
 ```
+
+`api_key_envs` and `api_keys` accept either YAML/JSON lists or delimited
+strings:
+
+```yaml
+api_key_envs: OLLAMA_API_KEY_A, OLLAMA_API_KEY_B
+```
+
+When `retry_keys: true` is set, the router detects 429/quota/weekly-limit/5h
+limit style errors before any streamed output is emitted, marks that key
+limited for the current process, and retries the next configured key. This is
+best-effort because providers differ in how they report reset times.
 
 ## Examples
 

@@ -31,23 +31,25 @@ func init() {
 
 // Client routes each request to another configured provider.
 type Client struct {
-	cfg       provider.Config
-	routes    []route
-	providers map[string]provider.Config
-	mu        sync.Mutex
-	rr        map[int]int
+	cfg        provider.Config
+	routes     []route
+	providers  map[string]provider.Config
+	mu         sync.Mutex
+	rr         map[int]int
+	limitedKey map[string]limitInfo
 }
 
 type route struct {
-	Match         string   `json:"match" yaml:"match"`
-	Model         string   `json:"model" yaml:"model"`
-	Provider      string   `json:"provider" yaml:"provider"`
-	TargetModel   string   `json:"target_model" yaml:"target_model"`
-	APIKeys       []string `json:"api_keys" yaml:"api_keys"`
-	APIKeyEnvs    []string `json:"api_key_envs" yaml:"api_key_envs"`
-	Default       bool     `json:"default" yaml:"default"`
-	MaxTokens     int      `json:"max_tokens" yaml:"max_tokens"`
-	ContextWindow int      `json:"context_window" yaml:"context_window"`
+	Match         string      `json:"match" yaml:"match"`
+	Model         string      `json:"model" yaml:"model"`
+	Provider      string      `json:"provider" yaml:"provider"`
+	TargetModel   string      `json:"target_model" yaml:"target_model"`
+	APIKeys       stringsList `json:"api_keys" yaml:"api_keys"`
+	APIKeyEnvs    stringsList `json:"api_key_envs" yaml:"api_key_envs"`
+	Default       bool        `json:"default" yaml:"default"`
+	MaxTokens     int         `json:"max_tokens" yaml:"max_tokens"`
+	ContextWindow int         `json:"context_window" yaml:"context_window"`
+	RetryKeys     bool        `json:"retry_keys" yaml:"retry_keys"`
 }
 
 type routeFile struct {
@@ -71,7 +73,7 @@ func New(cfg provider.Config) (*Client, error) {
 	if cfg.DefaultModel == "" && len(routes) > 0 {
 		cfg.DefaultModel = firstNonEmpty(routes[0].Match, routes[0].Model, routes[0].TargetModel)
 	}
-	return &Client{cfg: cfg, routes: routes, providers: providers, rr: map[int]int{}}, nil
+	return &Client{cfg: cfg, routes: routes, providers: providers, rr: map[int]int{}, limitedKey: map[string]limitInfo{}}, nil
 }
 
 func (c *Client) Name() string { return firstNonEmpty(c.cfg.Name, Kind) }
@@ -102,7 +104,7 @@ func (c *Client) AvailableModels() []provider.ModelInfo {
 func (c *Client) DefaultModel() string { return c.cfg.DefaultModel }
 
 func (c *Client) ContextWindow(model string) int {
-	r, cfg, target, ok := c.resolve(model)
+	_, r, cfg, target, _, ok := c.resolve(model)
 	if ok {
 		if r.ContextWindow > 0 {
 			return r.ContextWindow
@@ -123,7 +125,7 @@ func (c *Client) StreamChat(ctx context.Context, messages []provider.Message, op
 	if model == "" {
 		model = c.DefaultModel()
 	}
-	_, cfg, target, ok := c.resolve(model)
+	routeIndex, r, cfg, target, keySig, ok := c.resolve(model)
 	if !ok {
 		chunks := make(chan provider.Chunk)
 		errs := make(chan error, 1)
@@ -132,42 +134,34 @@ func (c *Client) StreamChat(ctx context.Context, messages []provider.Message, op
 		close(errs)
 		return chunks, errs
 	}
-	p, err := provider.Build(cfg)
-	if err != nil {
-		chunks := make(chan provider.Chunk)
-		errs := make(chan error, 1)
-		close(chunks)
-		errs <- err
-		close(errs)
-		return chunks, errs
-	}
-	opts.Model = target
-	return p.StreamChat(ctx, messages, opts)
+	return c.streamWithRetry(ctx, routeIndex, r, cfg, target, keySig, messages, opts)
 }
 
-func (c *Client) resolve(model string) (route, provider.Config, string, bool) {
+func (c *Client) resolve(model string) (int, route, provider.Config, string, string, bool) {
 	var fallback *route
+	fallbackIndex := -1
 	for i := range c.routes {
 		r := &c.routes[i]
 		if r.Default {
 			fallback = r
+			fallbackIndex = i
 		}
 		if routeMatches(*r, model) {
-			cfg, target, ok := c.targetConfig(i, *r, model)
-			return *r, cfg, target, ok
+			cfg, target, keySig, ok := c.targetConfig(i, *r, model)
+			return i, *r, cfg, target, keySig, ok
 		}
 	}
 	if fallback != nil {
-		cfg, target, ok := c.targetConfig(-1, *fallback, model)
-		return *fallback, cfg, target, ok
+		cfg, target, keySig, ok := c.targetConfig(fallbackIndex, *fallback, model)
+		return fallbackIndex, *fallback, cfg, target, keySig, ok
 	}
-	return route{}, provider.Config{}, "", false
+	return -1, route{}, provider.Config{}, "", "", false
 }
 
-func (c *Client) targetConfig(routeIndex int, r route, requested string) (provider.Config, string, bool) {
+func (c *Client) targetConfig(routeIndex int, r route, requested string) (provider.Config, string, string, bool) {
 	cfg, ok := c.providers[r.Provider]
 	if !ok {
-		return provider.Config{}, "", false
+		return provider.Config{}, "", "", false
 	}
 	if r.MaxTokens > 0 {
 		cfg.MaxTokens = r.MaxTokens
@@ -175,14 +169,15 @@ func (c *Client) targetConfig(routeIndex int, r route, requested string) (provid
 	if r.ContextWindow > 0 {
 		cfg.ContextWindow = r.ContextWindow
 	}
-	if key := c.pickKey(routeIndex, r); key != "" {
+	key, keySig := c.pickKey(routeIndex, r)
+	if key != "" {
 		cfg.APIKey = key
 	}
 	target := resolveTargetModel(r, requested, cfg.DefaultModel)
-	return cfg, target, true
+	return cfg, target, keySig, true
 }
 
-func (c *Client) pickKey(routeIndex int, r route) string {
+func (c *Client) pickKey(routeIndex int, r route) (string, string) {
 	keys := append([]string{}, r.APIKeys...)
 	for _, env := range r.APIKeyEnvs {
 		if v := os.Getenv(strings.TrimSpace(env)); v != "" {
@@ -190,16 +185,81 @@ func (c *Client) pickKey(routeIndex int, r route) string {
 		}
 	}
 	if len(keys) == 0 {
-		return ""
+		return "", ""
 	}
 	if len(keys) == 1 {
-		return keys[0]
+		return keys[0], keySignature(routeIndex, 0, keys[0])
 	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	for tries := 0; tries < len(keys); tries++ {
+		next := c.rr[routeIndex] % len(keys)
+		c.rr[routeIndex] = next + 1
+		sig := keySignature(routeIndex, next, keys[next])
+		if _, limited := c.limitedKey[sig]; !limited {
+			return keys[next], sig
+		}
+	}
 	next := c.rr[routeIndex] % len(keys)
 	c.rr[routeIndex] = next + 1
-	return keys[next]
+	return keys[next], keySignature(routeIndex, next, keys[next])
+}
+
+func (c *Client) streamWithRetry(ctx context.Context, routeIndex int, r route, cfg provider.Config, target, keySig string, messages []provider.Message, opts provider.StreamOptions) (<-chan provider.Chunk, <-chan error) {
+	out := make(chan provider.Chunk)
+	errs := make(chan error, 1)
+	go func() {
+		defer close(out)
+		defer close(errs)
+		attempts := 1
+		if r.RetryKeys && len(r.keys()) > 1 {
+			attempts = len(r.keys())
+		}
+		var lastErr error
+		for attempt := 0; attempt < attempts; attempt++ {
+			if attempt > 0 {
+				var ok bool
+				cfg, target, keySig, ok = c.targetConfig(routeIndex, r, opts.Model)
+				if !ok {
+					errs <- lastErr
+					return
+				}
+			}
+			p, err := provider.Build(cfg)
+			if err != nil {
+				errs <- err
+				return
+			}
+			callOpts := opts
+			callOpts.Model = target
+			chunks, upstreamErrs := p.StreamChat(ctx, messages, callOpts)
+			buffered := make([]provider.Chunk, 0, 16)
+			for ch := range chunks {
+				buffered = append(buffered, ch)
+			}
+			err = <-upstreamErrs
+			if err == nil {
+				for _, ch := range buffered {
+					out <- ch
+				}
+				errs <- nil
+				return
+			}
+			lastErr = err
+			if isLimitError(err) && keySig != "" {
+				c.markLimited(keySig, err)
+			}
+			if len(buffered) > 0 || !r.RetryKeys || !isLimitError(err) {
+				for _, ch := range buffered {
+					out <- ch
+				}
+				errs <- err
+				return
+			}
+		}
+		errs <- lastErr
+	}()
+	return out, errs
 }
 
 func routeMatches(r route, model string) bool {
@@ -295,7 +355,134 @@ func loadRoutes(cfg provider.Config) ([]route, string, error) {
 	if len(routes) == 0 {
 		return nil, "", errors.New("router: no routes configured")
 	}
+	for i := range routes {
+		routes[i].normalize()
+	}
 	return routes, defaultModel, nil
+}
+
+type stringsList []string
+
+func (s *stringsList) UnmarshalJSON(data []byte) error {
+	var one string
+	if err := json.Unmarshal(data, &one); err == nil {
+		*s = splitList(one)
+		return nil
+	}
+	var many []string
+	if err := json.Unmarshal(data, &many); err == nil {
+		*s = normalizeList(many)
+		return nil
+	}
+	var anyMany []any
+	if err := json.Unmarshal(data, &anyMany); err != nil {
+		return err
+	}
+	vals := make([]string, 0, len(anyMany))
+	for _, v := range anyMany {
+		vals = append(vals, fmt.Sprint(v))
+	}
+	*s = normalizeList(vals)
+	return nil
+}
+
+func (s *stringsList) UnmarshalYAML(value *yaml.Node) error {
+	switch value.Kind {
+	case yaml.ScalarNode:
+		*s = splitList(value.Value)
+		return nil
+	case yaml.SequenceNode:
+		vals := make([]string, 0, len(value.Content))
+		for _, node := range value.Content {
+			vals = append(vals, node.Value)
+		}
+		*s = normalizeList(vals)
+		return nil
+	default:
+		return fmt.Errorf("expected string or list, got YAML kind %d", value.Kind)
+	}
+}
+
+func (r *route) normalize() {
+	r.APIKeys = normalizeList(r.APIKeys)
+	r.APIKeyEnvs = normalizeList(r.APIKeyEnvs)
+}
+
+func (r route) keys() []string {
+	keys := append([]string{}, r.APIKeys...)
+	for _, env := range r.APIKeyEnvs {
+		if v := os.Getenv(strings.TrimSpace(env)); v != "" {
+			keys = append(keys, v)
+		}
+	}
+	return normalizeList(keys)
+}
+
+func splitList(s string) stringsList {
+	if s == "" {
+		return nil
+	}
+	f := func(r rune) bool {
+		return r == ',' || r == '\n' || r == ';'
+	}
+	return normalizeList(strings.FieldsFunc(s, f))
+}
+
+func normalizeList(in []string) stringsList {
+	out := make([]string, 0, len(in))
+	for _, v := range in {
+		for _, part := range splitWhitespace(v) {
+			if part != "" {
+				out = append(out, part)
+			}
+		}
+	}
+	return out
+}
+
+func splitWhitespace(s string) []string {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return nil
+	}
+	if strings.ContainsAny(s, ",;\n") {
+		return []string(splitList(s))
+	}
+	return []string{s}
+}
+
+type limitInfo struct {
+	Message string
+}
+
+func (c *Client) markLimited(sig string, err error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.limitedKey[sig] = limitInfo{Message: err.Error()}
+}
+
+func isLimitError(err error) bool {
+	if err == nil {
+		return false
+	}
+	var httpStatus interface{ StatusCode() int }
+	if errors.As(err, &httpStatus) {
+		if httpStatus.StatusCode() == 429 {
+			return true
+		}
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, " 429") ||
+		strings.Contains(msg, "rate limit") ||
+		strings.Contains(msg, "rate_limit") ||
+		strings.Contains(msg, "too many requests") ||
+		strings.Contains(msg, "weekly limit") ||
+		strings.Contains(msg, "5h") ||
+		strings.Contains(msg, "quota")
+}
+
+func keySignature(routeIndex, keyIndex int, key string) string {
+	return fmt.Sprintf("%d:%d:%d", routeIndex, keyIndex, len(key))
 }
 
 func defaultRouteFile() string {

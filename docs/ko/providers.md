@@ -176,6 +176,7 @@ routes:
     provider: ollama-cloud
     target_model: "$1"
     api_key_envs: [OLLAMA_API_KEY_A, OLLAMA_API_KEY_B]
+    retry_keys: true
   - match: grok
     provider: xai
     target_model: grok-4.3
@@ -183,6 +184,18 @@ routes:
     provider: zai
     target_model: "$1"
 ```
+
+`api_key_envs`와 `api_keys`는 YAML/JSON list뿐 아니라 구분 문자열도
+허용합니다.
+
+```yaml
+api_key_envs: OLLAMA_API_KEY_A, OLLAMA_API_KEY_B
+```
+
+`retry_keys: true`를 켜면 router는 streamed output이 아직 나오기 전의
+429/quota/weekly-limit/5h limit 계열 오류를 감지하고, 해당 key를 현재
+프로세스에서 limited로 표시한 뒤 다음 key로 재시도합니다. Reset 시간 표현은
+provider마다 달라서 현재는 best-effort 감지입니다.
 
 ## 예시
 
