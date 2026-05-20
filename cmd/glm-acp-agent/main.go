@@ -32,6 +32,7 @@ import (
 	"github.com/ziozzang/glm-acp/internal/acp"
 	"github.com/ziozzang/glm-acp/internal/agent"
 	"github.com/ziozzang/glm-acp/internal/credentials"
+	"github.com/ziozzang/glm-acp/internal/grpccompat"
 	"github.com/ziozzang/glm-acp/internal/httpcompat"
 	"github.com/ziozzang/glm-acp/internal/logger"
 	"github.com/ziozzang/glm-acp/internal/protocol/sessionstore"
@@ -50,6 +51,7 @@ Server flags:
   --pool-size N              max concurrent TCP ACP connections (default 4)
   --wait-size N              max queued TCP ACP connections (default pool-size/2)
   --http-listen ADDR         optional HTTP compatibility API listen address
+  --grpc-listen ADDR         optional gRPC compatibility API listen address
 
 Environment:
   Z_AI_API_KEY               (required for chat) Z.AI Coding Plan API key
@@ -73,6 +75,7 @@ func main() {
 	poolSizeFlag := flag.Int("pool-size", 4, "max concurrent TCP ACP connections for --server")
 	waitSizeFlag := flag.Int("wait-size", -1, "max queued TCP ACP connections for --server; default is pool-size/2")
 	httpListenFlag := flag.String("http-listen", "", "HTTP compatibility API listen address")
+	grpcListenFlag := flag.String("grpc-listen", "", "gRPC compatibility API listen address")
 	flag.Usage = func() { fmt.Fprint(os.Stderr, usage) }
 	flag.Parse()
 
@@ -91,10 +94,10 @@ func main() {
 		}
 		return
 	}
-	if *serverFlag || *httpListenFlag != "" {
+	if *serverFlag || *httpListenFlag != "" || *grpcListenFlag != "" {
 		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 		defer stop()
-		if err := runServers(ctx, *serverFlag, *listenFlag, *poolSizeFlag, *waitSizeFlag, *httpListenFlag); err != nil {
+		if err := runServers(ctx, *serverFlag, *listenFlag, *poolSizeFlag, *waitSizeFlag, *httpListenFlag, *grpcListenFlag); err != nil {
 			fmt.Fprintln(os.Stderr, "server terminated:", err)
 			os.Exit(1)
 		}
@@ -132,16 +135,24 @@ func runServer(ctx context.Context, addr string, poolSize, waitSize int) error {
 	return serveListener(ctx, ln, poolSize, waitSize)
 }
 
-func runServers(ctx context.Context, tcpEnabled bool, tcpAddr string, poolSize, waitSize int, httpAddr string) error {
-	if httpAddr == "" {
+func runServers(ctx context.Context, tcpEnabled bool, tcpAddr string, poolSize, waitSize int, httpAddr, grpcAddr string) error {
+	if httpAddr == "" && grpcAddr == "" {
 		return runServer(ctx, tcpAddr, poolSize, waitSize)
 	}
-	errCh := make(chan error, 2)
+	errCh := make(chan error, 3)
 	if tcpEnabled {
 		go func() { errCh <- runServer(ctx, tcpAddr, poolSize, waitSize) }()
 	}
-	go func() { errCh <- runHTTPServer(ctx, httpAddr) }()
-	if !tcpEnabled {
+	if httpAddr != "" {
+		go func() { errCh <- runHTTPServer(ctx, httpAddr) }()
+	}
+	if grpcAddr != "" {
+		go func() { errCh <- runGRPCServer(ctx, grpcAddr) }()
+	}
+	if !tcpEnabled && httpAddr == "" {
+		return <-errCh
+	}
+	if !tcpEnabled && grpcAddr == "" {
 		return <-errCh
 	}
 	select {
@@ -165,6 +176,26 @@ func runHTTPServer(ctx context.Context, addr string) error {
 	}()
 	err := srv.ListenAndServe()
 	if err != nil && err != http.ErrServerClosed {
+		return err
+	}
+	return nil
+}
+
+func runGRPCServer(ctx context.Context, addr string) error {
+	if err := logger.Configure(); err != nil {
+		fmt.Fprintln(os.Stderr, "logger init failed:", err)
+	}
+	ln, err := net.Listen("tcp", addr)
+	if err != nil {
+		return err
+	}
+	srv := grpccompat.NewServer()
+	go func() {
+		<-ctx.Done()
+		srv.GracefulStop()
+	}()
+	err = srv.Serve(ln)
+	if err != nil {
 		return err
 	}
 	return nil

@@ -281,7 +281,7 @@ func (h *handler) chatCompletions(w http.ResponseWriter, r *http.Request) {
 	}
 	meta := newRequestMeta(r, req.commonRequest)
 	w.Header().Set("X-Request-Id", meta.RequestID)
-	text, usage, stop, err := runProvider(r.Context(), req.Model, req.Messages)
+	text, usage, stop, err := RunProvider(r.Context(), req.Model, req.Messages)
 	if err != nil {
 		writeError(w, http.StatusBadGateway, err)
 		return
@@ -326,7 +326,7 @@ func (h *handler) responses(w http.ResponseWriter, r *http.Request) {
 	}
 	meta := newRequestMeta(r, req.commonRequest)
 	w.Header().Set("X-Request-Id", meta.RequestID)
-	text, usage, stop, err := runProvider(r.Context(), req.Model, messages)
+	text, usage, stop, err := RunProvider(r.Context(), req.Model, messages)
 	if err != nil {
 		writeError(w, http.StatusBadGateway, err)
 		return
@@ -373,7 +373,7 @@ func (h *handler) messages(w http.ResponseWriter, r *http.Request) {
 	}
 	meta := newRequestMeta(r, req.commonRequest)
 	w.Header().Set("X-Request-Id", meta.RequestID)
-	text, usage, stop, err := runProvider(r.Context(), req.Model, req.Messages)
+	text, usage, stop, err := RunProvider(r.Context(), req.Model, req.Messages)
 	if err != nil {
 		writeError(w, http.StatusBadGateway, err)
 		return
@@ -454,7 +454,7 @@ func (h *handler) a2aSendMessage(ctx context.Context, params json.RawMessage) (*
 	h.updateA2ATask(task.TaskID, func(t *a2aTask) {
 		t.Status = newA2AStatus("TASK_STATE_WORKING", nil)
 	})
-	text, _, _, err := runProvider(taskCtx, a2aModel(req), []provider.Message{{Role: "user", Content: a2aMessageText(msg)}})
+	text, _, _, err := RunProvider(taskCtx, a2aModel(req), []provider.Message{{Role: "user", Content: a2aMessageText(msg)}})
 	if err != nil {
 		h.updateA2ATask(task.TaskID, func(t *a2aTask) {
 			failed := a2aAgentMessage(t, err.Error())
@@ -505,12 +505,11 @@ func (h *handler) a2aSendStreamingMessage(w http.ResponseWriter, r *http.Request
 	})
 	writeA2ASSE(w, map[string]any{"statusUpdate": map[string]any{"taskId": task.TaskID, "contextId": task.ContextID, "status": newA2AStatus("TASK_STATE_WORKING", nil)}})
 
-	p, err := buildProvider()
+	chunks, errs, err := StreamProvider(taskCtx, a2aModel(req), []provider.Message{{Role: "user", Content: a2aMessageText(msg)}})
 	if err != nil {
 		h.finishA2AStreamWithError(w, task.TaskID, err)
 		return
 	}
-	chunks, errs := p.StreamChat(taskCtx, []provider.Message{{Role: "user", Content: a2aMessageText(msg)}}, provider.StreamOptions{Model: a2aModel(req)})
 	var b strings.Builder
 	for ch := range chunks {
 		if ch.Text == "" {
@@ -698,12 +697,11 @@ func (h *handler) unregisterTaskCancel(taskID string) {
 	delete(h.cancels, taskID)
 }
 
-func runProvider(ctx context.Context, model string, messages []provider.Message) (string, provider.Usage, string, error) {
-	p, err := buildProvider()
+func RunProvider(ctx context.Context, model string, messages []provider.Message) (string, provider.Usage, string, error) {
+	chunks, errs, err := StreamProvider(ctx, model, messages)
 	if err != nil {
 		return "", provider.Usage{}, "", err
 	}
-	chunks, errs := p.StreamChat(ctx, messages, provider.StreamOptions{Model: model, Tools: nil})
 	var b strings.Builder
 	var usage provider.Usage
 	var stop string
@@ -720,6 +718,15 @@ func runProvider(ctx context.Context, model string, messages []provider.Message)
 		return "", usage, stop, err
 	}
 	return b.String(), usage, stop, nil
+}
+
+func StreamProvider(ctx context.Context, model string, messages []provider.Message) (<-chan provider.Chunk, <-chan error, error) {
+	p, err := buildProvider()
+	if err != nil {
+		return nil, nil, err
+	}
+	chunks, errs := p.StreamChat(ctx, messages, provider.StreamOptions{Model: model, Tools: nil})
+	return chunks, errs, nil
 }
 
 func buildProvider() (provider.Provider, error) {

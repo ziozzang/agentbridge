@@ -76,10 +76,33 @@ The HTTP listener supports:
 - `POST /v1/chat/completions`
 - `POST /v1/responses`
 - `POST /v1/messages`
+- `POST /v1/a2a/rpc`
 
 The same paths are also accepted without the `/v1` prefix. The endpoints
 use the same configured provider as ACP mode and return OpenAI/Anthropic
 compatible response shapes.
+
+## gRPC compatibility API
+
+For long-lived service clients that benefit from HTTP/2 multiplexing and
+server streaming, start the gRPC listener:
+
+```bash
+ACP_HARNESS_PROVIDER=glm ACP_GLM_MODEL=glm-5.1 \
+./glm-acp-agent --grpc-listen 127.0.0.1:8767
+```
+
+The service name is `glm_acp.v1.AgentService`:
+
+- `Chat`
+- `ChatStream`
+- `A2A`
+- `A2AStream`
+
+All methods use `google.protobuf.Struct` for request and response payloads.
+A minimal chat request can be either `{"input":"hi","model":"glm-5.1"}` or
+`{"messages":[{"role":"user","content":"hi"}],"model":"glm-5.1"}`.
+The standard `grpc.health.v1.Health` service is also registered.
 
 ## First-time setup
 

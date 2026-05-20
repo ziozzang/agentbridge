@@ -208,3 +208,39 @@ func TestDefaultWaitSize(t *testing.T) {
 		}
 	}
 }
+
+func TestRunGRPCServerStops(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	addr := ln.Addr().String()
+	if err := ln.Close(); err != nil {
+		t.Fatal(err)
+	}
+	errCh := make(chan error, 1)
+	go func() { errCh <- runGRPCServer(ctx, addr) }()
+
+	var conn net.Conn
+	for i := 0; i < 20; i++ {
+		conn, err = net.DialTimeout("tcp", addr, 100*time.Millisecond)
+		if err == nil {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = conn.Close()
+	cancel()
+	select {
+	case err := <-errCh:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("grpc server did not stop")
+	}
+}

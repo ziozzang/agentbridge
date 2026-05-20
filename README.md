@@ -93,6 +93,17 @@ active provider configuration as ACP server mode. HTTP responses include
 `cache_control`, or `metadata.cache`; the current server reports them back
 with `cache_status: "bypass"` until a real cache backend is configured.
 
+For lower-overhead long-lived clients, expose the gRPC compatibility API:
+
+```bash
+./glm-acp-agent --grpc-listen 127.0.0.1:8767
+```
+
+The gRPC service is `glm_acp.v1.AgentService` and currently provides
+`Chat`, `ChatStream`, `A2A`, and `A2AStream`. Requests and responses use
+`google.protobuf.Struct`, so clients can call it without generated project
+stubs while still using standard gRPC/protobuf transport.
+
 ## Documentation
 
 | Topic | Doc |
