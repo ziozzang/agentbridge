@@ -96,6 +96,7 @@ providers:
   ollama:
     kind: ollama
     base_url: ${OLLAMA_BASE_URL:-http://localhost:11434}
+    api_key: ${OLLAMA_API_KEY:-${ACP_HARNESS_API_KEY}}
     default_model: ${OLLAMA_MODEL:-llama3.1}
     max_tokens: 4096
     context_window: 32000

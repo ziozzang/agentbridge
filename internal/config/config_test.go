@@ -92,6 +92,25 @@ func TestLoadEmbeddedGLMKeyFromNestedDefault(t *testing.T) {
 	}
 }
 
+func TestLoadEmbeddedOllamaAPIKey(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(t.TempDir(), "missing"))
+	_ = os.Unsetenv("ACP_HARNESS_PROVIDERS_FILE")
+	t.Setenv("OLLAMA_API_KEY", "ollama-key")
+	t.Setenv("ACP_HARNESS_API_KEY", "")
+
+	m, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := m.Resolve("ollama")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.APIKey != "ollama-key" {
+		t.Errorf("key = %q", cfg.APIKey)
+	}
+}
+
 func TestResolveAppliesEnvOverrides(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(t.TempDir(), "missing"))
 	_ = os.Unsetenv("ACP_HARNESS_PROVIDERS_FILE")
