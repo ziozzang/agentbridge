@@ -147,10 +147,36 @@ Variables:
 | `AGENTBRIDGE_EMBEDDINGS_BASE_URL` | OpenAI-compatible API base. Falls back to `LITELLM_BASE_URL`, `OPENAI_BASE_URL`, then `http://localhost:4000/v1`. |
 | `AGENTBRIDGE_EMBEDDINGS_API_KEY` | Bearer token. Falls back to `LITELLM_API_KEY`, `OPENAI_API_KEY`, `AGENTBRIDGE_API_KEY`. |
 | `AGENTBRIDGE_EMBEDDINGS_MODEL` | Default embedding model. Falls back to `LITELLM_EMBEDDINGS_MODEL`, `OPENAI_EMBEDDINGS_MODEL`, then `text-embedding-3-small`. |
+| `AGENTBRIDGE_EMBEDDINGS_FILE` | External model mapping file. Defaults to `$XDG_CONFIG_HOME/agentbridge/embeddings.json` when present. |
 
 Tool:
 
 - `embed`
+
+External model mapping is useful when a gateway exposes different model IDs
+than OpenAI, or when aliases should route to different endpoints:
+
+```json
+{
+  "default": "fast",
+  "models": {
+    "fast": {
+      "base_url": "${LITELLM_OPENAI_BASE_URL}",
+      "api_key_env": "LITELLM_OPENAI_API_KEY",
+      "model": "jina-embeddings-v5-text-small"
+    },
+    "local-gemma": {
+      "base_url": "http://127.0.0.1:4000/v1",
+      "api_key_env": "LITELLM_API_KEY",
+      "model": "embeddinggemma-300m"
+    }
+  }
+}
+```
+
+The user-facing `model` argument can be either an upstream model ID or a
+mapping alias. Mapping fields support `${VAR}` environment expansion. Prefer
+`api_key_env` over storing `api_key` directly in the file.
 
 ## MCP Tool-Only Mode
 

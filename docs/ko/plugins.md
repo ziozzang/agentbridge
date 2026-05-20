@@ -135,10 +135,36 @@ agentbridge
 | `AGENTBRIDGE_EMBEDDINGS_BASE_URL` | OpenAI 호환 API base. `LITELLM_BASE_URL`, `OPENAI_BASE_URL`, `http://localhost:4000/v1` 순서로 fallback. |
 | `AGENTBRIDGE_EMBEDDINGS_API_KEY` | Bearer token. `LITELLM_API_KEY`, `OPENAI_API_KEY`, `AGENTBRIDGE_API_KEY` fallback. |
 | `AGENTBRIDGE_EMBEDDINGS_MODEL` | 기본 embedding model. `LITELLM_EMBEDDINGS_MODEL`, `OPENAI_EMBEDDINGS_MODEL`, `text-embedding-3-small` fallback. |
+| `AGENTBRIDGE_EMBEDDINGS_FILE` | 외부 model mapping 파일. 있으면 기본값은 `$XDG_CONFIG_HOME/agentbridge/embeddings.json`. |
 
 도구:
 
 - `embed`
+
+외부 model mapping은 gateway가 OpenAI와 다른 model ID를 노출하거나, alias별로
+다른 endpoint에 라우팅해야 할 때 사용합니다.
+
+```json
+{
+  "default": "fast",
+  "models": {
+    "fast": {
+      "base_url": "${LITELLM_OPENAI_BASE_URL}",
+      "api_key_env": "LITELLM_OPENAI_API_KEY",
+      "model": "jina-embeddings-v5-text-small"
+    },
+    "local-gemma": {
+      "base_url": "http://127.0.0.1:4000/v1",
+      "api_key_env": "LITELLM_API_KEY",
+      "model": "embeddinggemma-300m"
+    }
+  }
+}
+```
+
+사용자가 넘기는 `model` 값은 upstream model ID일 수도 있고 mapping alias일 수도
+있습니다. Mapping field는 `${VAR}` 환경 변수 확장을 지원합니다. 파일에
+`api_key`를 직접 넣기보다는 `api_key_env`를 쓰는 것을 권장합니다.
 
 ## MCP Tool-Only Mode
 
