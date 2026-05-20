@@ -17,7 +17,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"regexp"
 	"sort"
 	"strings"
 
@@ -165,29 +164,82 @@ func deepMerge(dst, src map[string]any) {
 	}
 }
 
-// envPattern matches `${NAME}` and `${NAME:-default}`.
-//
-// The default segment captures everything up to the matching close-brace,
-// which allows nested expansions in user-supplied templates as long as
-// they don't themselves contain `}`.
-var envPattern = regexp.MustCompile(`\$\{([A-Za-z_][A-Za-z0-9_]*)(?::-([^}]*))?\}`)
-
-// expandEnv replaces ${VAR[:-default]} markers in s using getenv. Two
-// passes are run so a default referencing another env var resolves.
+// expandEnv replaces ${VAR} and ${VAR:-default} markers in s using getenv.
+// Defaults may contain nested expansions, e.g. ${A:-${B}}.
 func expandEnv(s []byte, getenv func(string) string) string {
-	out := string(s)
-	for i := 0; i < 2; i++ {
-		out = envPattern.ReplaceAllStringFunc(out, func(m string) string {
-			sub := envPattern.FindStringSubmatch(m)
-			name := sub[1]
-			def := sub[2]
-			if v := getenv(name); v != "" {
-				return v
-			}
-			return def
-		})
+	return expandEnvString(string(s), getenv, 0)
+}
+
+func expandEnvString(in string, getenv func(string) string, depth int) string {
+	if depth > 10 {
+		return in
 	}
-	return out
+	var b strings.Builder
+	for i := 0; i < len(in); {
+		if i+2 > len(in) || in[i] != '$' || in[i+1] != '{' {
+			b.WriteByte(in[i])
+			i++
+			continue
+		}
+		start := i
+		i += 2
+		if i >= len(in) || !isEnvNameStart(in[i]) {
+			b.WriteString(in[start:i])
+			continue
+		}
+		nameStart := i
+		i++
+		for i < len(in) && isEnvNameChar(in[i]) {
+			i++
+		}
+		name := in[nameStart:i]
+		def := ""
+		switch {
+		case i < len(in) && in[i] == '}':
+			i++
+		case i+2 < len(in) && in[i] == ':' && in[i+1] == '-':
+			i += 2
+			defStart := i
+			nested := 0
+			for i < len(in) {
+				if i+1 < len(in) && in[i] == '$' && in[i+1] == '{' {
+					nested++
+					i += 2
+					continue
+				}
+				if in[i] == '}' {
+					if nested == 0 {
+						def = in[defStart:i]
+						i++
+						break
+					}
+					nested--
+				}
+				i++
+			}
+			if i > len(in) || (i == len(in) && (len(in) == 0 || in[len(in)-1] != '}')) {
+				b.WriteString(in[start:])
+				return b.String()
+			}
+		default:
+			b.WriteString(in[start:i])
+			continue
+		}
+		if v := getenv(name); v != "" {
+			b.WriteString(v)
+		} else {
+			b.WriteString(expandEnvString(def, getenv, depth+1))
+		}
+	}
+	return b.String()
+}
+
+func isEnvNameStart(c byte) bool {
+	return c == '_' || (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z')
+}
+
+func isEnvNameChar(c byte) bool {
+	return isEnvNameStart(c) || (c >= '0' && c <= '9')
 }
 
 // SelectedProviderName returns the user's chosen provider name, falling

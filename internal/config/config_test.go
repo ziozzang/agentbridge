@@ -52,6 +52,46 @@ func TestExpandEnvHonorsDefaults(t *testing.T) {
 	}
 }
 
+func TestExpandEnvHonorsNestedDefaults(t *testing.T) {
+	env := map[string]string{"FALLBACK": "secret"}
+	got := expandEnv([]byte(`a: ${PRIMARY:-${FALLBACK}}`), func(k string) string {
+		return env[k]
+	})
+	if !strings.Contains(got, "a: secret") {
+		t.Errorf("nested default not expanded: %q", got)
+	}
+	if strings.Contains(got, "}") {
+		t.Errorf("nested default left trailing brace: %q", got)
+	}
+
+	env["PRIMARY"] = "primary"
+	got = expandEnv([]byte(`a: ${PRIMARY:-${FALLBACK}}`), func(k string) string {
+		return env[k]
+	})
+	if !strings.Contains(got, "a: primary") {
+		t.Errorf("primary var not preferred: %q", got)
+	}
+}
+
+func TestLoadEmbeddedGLMKeyFromNestedDefault(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(t.TempDir(), "missing"))
+	_ = os.Unsetenv("ACP_HARNESS_PROVIDERS_FILE")
+	t.Setenv("Z_AI_API_KEY", "")
+	t.Setenv("ACP_HARNESS_API_KEY", "fallback-key")
+
+	m, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := m.Resolve("glm")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.APIKey != "fallback-key" {
+		t.Errorf("key = %q", cfg.APIKey)
+	}
+}
+
 func TestResolveAppliesEnvOverrides(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(t.TempDir(), "missing"))
 	_ = os.Unsetenv("ACP_HARNESS_PROVIDERS_FILE")
