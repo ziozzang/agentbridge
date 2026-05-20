@@ -179,6 +179,33 @@ func TestSessionMcpUnknownTool(t *testing.T) {
 	}
 }
 
+func TestSessionMcpToolFilters(t *testing.T) {
+	f := &fakeMCPServer{tools: []map[string]any{
+		{"name": "foo", "inputSchema": map[string]any{}},
+		{"name": "foo_debug", "inputSchema": map[string]any{}},
+		{"name": "bar", "inputSchema": map[string]any{}},
+	}}
+	srv := httptest.NewServer(http.HandlerFunc(f.handler))
+	defer srv.Close()
+
+	specs := []acp.McpServer{
+		{Type: "http", Name: "test", URL: srv.URL, AllowTools: []string{"foo*"}, DenyTools: []string{"foo_debug"}},
+	}
+	client, err := NewWithHTTP(specs, srv.Client())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer client.Dispose()
+
+	tools := client.ToolDefinitions()
+	if len(tools) != 1 || tools[0].Function.Name != "mcp__test__foo" {
+		t.Fatalf("tools=%v", tools)
+	}
+	if _, err := client.CallTool(context.Background(), "mcp__test__foo_debug", map[string]any{}); err == nil {
+		t.Fatal("expected filtered tool to be unavailable")
+	}
+}
+
 func TestSessionMcpSkipNonHttp(t *testing.T) {
 	specs := []acp.McpServer{
 		{Type: "stdio", Name: "stdio-server"},

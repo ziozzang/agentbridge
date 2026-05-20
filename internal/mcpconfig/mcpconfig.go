@@ -22,11 +22,49 @@ type server struct {
 	Name     string            `json:"name" yaml:"name"`
 	URL      string            `json:"url" yaml:"url"`
 	Headers  map[string]string `json:"headers" yaml:"headers"`
+	Allow    stringList        `json:"allow_tools" yaml:"allow_tools"`
+	Deny     stringList        `json:"deny_tools" yaml:"deny_tools"`
 	Disabled bool              `json:"disabled" yaml:"disabled"`
 	Enabled  *bool             `json:"enabled" yaml:"enabled"`
 }
 
 type flexibleServers []server
+type stringList []string
+
+func (s *stringList) UnmarshalJSON(data []byte) error {
+	var list []string
+	if err := json.Unmarshal(data, &list); err == nil {
+		*s = list
+		return nil
+	}
+	var single string
+	if err := json.Unmarshal(data, &single); err != nil {
+		return err
+	}
+	*s = splitList(single)
+	return nil
+}
+
+func (s *stringList) UnmarshalYAML(value *yaml.Node) error {
+	switch value.Kind {
+	case yaml.SequenceNode:
+		var list []string
+		if err := value.Decode(&list); err != nil {
+			return err
+		}
+		*s = list
+		return nil
+	case yaml.ScalarNode:
+		var single string
+		if err := value.Decode(&single); err != nil {
+			return err
+		}
+		*s = splitList(single)
+		return nil
+	default:
+		return fmt.Errorf("expected string or string list")
+	}
+}
 
 func (s *flexibleServers) UnmarshalJSON(data []byte) error {
 	var list []server
@@ -122,10 +160,35 @@ func Load() ([]acp.McpServer, error) {
 			headers[k] = os.ExpandEnv(v)
 		}
 		out = append(out, acp.McpServer{
-			Type: strings.ToLower(srv.Type), Name: srv.Name, URL: os.ExpandEnv(srv.URL), Headers: headers,
+			Type:       strings.ToLower(srv.Type),
+			Name:       srv.Name,
+			URL:        os.ExpandEnv(srv.URL),
+			Headers:    headers,
+			AllowTools: acp.StringList(expandList(srv.Allow)),
+			DenyTools:  acp.StringList(expandList(srv.Deny)),
 		})
 	}
 	return out, nil
+}
+
+func expandList(in []string) []string {
+	out := make([]string, 0, len(in))
+	for _, v := range in {
+		if s := strings.TrimSpace(os.ExpandEnv(v)); s != "" {
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
+func splitList(spec string) []string {
+	var out []string
+	for _, part := range strings.FieldsFunc(spec, func(r rune) bool { return r == ',' || r == ';' || r == '\n' }) {
+		if s := strings.TrimSpace(part); s != "" {
+			out = append(out, s)
+		}
+	}
+	return out
 }
 
 func defaultPath() string {

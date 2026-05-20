@@ -214,6 +214,8 @@ mcp_servers:
   - name: search
     type: http
     url: http://127.0.0.1:8090/mcp
+    allow_tools: [foo, search*]
+    deny_tools: [search_debug]
     headers:
       Authorization: Bearer ${MCP_TOKEN}
     enabled: true
@@ -224,6 +226,11 @@ compatibility with existing MCP config files. Set `disabled: true`,
 `enabled: false`, or list names in
 `AGENTBRIDGE_DISABLED_MCPS=search,docs` to turn external MCP servers off
 without removing them from the file.
+
+Use `allow_tools` to expose only selected upstream tool names. Use
+`deny_tools` to hide specific tools after the allow list is applied. Both
+fields accept a list or a comma/newline-separated string, and support simple
+wildcards such as `search*`.
 
 Configured external MCP tools are exposed as `mcp__<server>__<tool>` and are
 available both to ACP sessions and to HTTP MCP clients.

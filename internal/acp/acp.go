@@ -13,6 +13,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"strings"
 	"sync"
 	"sync/atomic"
 )
@@ -92,10 +93,39 @@ type MCPServerSpec = json.RawMessage
 
 // McpServer describes a single MCP server configuration.
 type McpServer struct {
-	Type    string            `json:"type"` // "http" | "sse" | "stdio"
-	Name    string            `json:"name"`
-	URL     string            `json:"url,omitempty"`
-	Headers map[string]string `json:"headers,omitempty"`
+	Type       string            `json:"type"` // "http" | "sse" | "stdio"
+	Name       string            `json:"name"`
+	URL        string            `json:"url,omitempty"`
+	Headers    map[string]string `json:"headers,omitempty"`
+	AllowTools StringList        `json:"allow_tools,omitempty"`
+	DenyTools  StringList        `json:"deny_tools,omitempty"`
+}
+
+// StringList accepts either a JSON string or array of strings.
+type StringList []string
+
+func (s *StringList) UnmarshalJSON(data []byte) error {
+	var list []string
+	if err := json.Unmarshal(data, &list); err == nil {
+		*s = list
+		return nil
+	}
+	var single string
+	if err := json.Unmarshal(data, &single); err != nil {
+		return err
+	}
+	*s = splitStringList(single)
+	return nil
+}
+
+func splitStringList(spec string) []string {
+	var out []string
+	for _, part := range strings.FieldsFunc(spec, func(r rune) bool { return r == ',' || r == ';' || r == '\n' }) {
+		if s := strings.TrimSpace(part); s != "" {
+			out = append(out, s)
+		}
+	}
+	return out
 }
 
 // NewSessionParams is the argument to `session/new`.

@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"path"
 	"regexp"
 	"strings"
 	"sync"
@@ -45,6 +46,8 @@ type serverState struct {
 	name      string
 	url       string
 	headers   map[string]string
+	allow     []string
+	deny      []string
 	sessionID string
 	http      *http.Client
 	nextID    atomic.Int64
@@ -72,6 +75,8 @@ func NewWithHTTP(specs []acp.McpServer, httpClient *http.Client) (*Client, error
 			name:    spec.Name,
 			url:     spec.URL,
 			headers: spec.Headers,
+			allow:   spec.AllowTools,
+			deny:    spec.DenyTools,
 			http:    httpClient,
 		}
 		if err := srv.initialize(ctx); err != nil {
@@ -93,6 +98,10 @@ func (c *Client) registerTools(srv *serverState, upstreamTools []mcpTool) {
 		usedNames[t.exposedName] = struct{}{}
 	}
 	for _, tool := range upstreamTools {
+		if !toolAllowed(tool.Name, srv.allow, srv.deny) {
+			logger.Debugf("sessionmcp: filtered tool %q from server %q", tool.Name, srv.name)
+			continue
+		}
 		exposedName := chooseToolName(tool.Name, srv.name, usedNames)
 		usedNames[exposedName] = struct{}{}
 		desc := tool.Description
@@ -114,6 +123,39 @@ func (c *Client) registerTools(srv *serverState, upstreamTools []mcpTool) {
 			},
 		}
 	}
+}
+
+func toolAllowed(name string, allow, deny []string) bool {
+	if len(allow) > 0 && !matchesAny(name, allow) {
+		return false
+	}
+	if len(deny) > 0 && matchesAny(name, deny) {
+		return false
+	}
+	return true
+}
+
+func matchesAny(name string, patterns []string) bool {
+	for _, pattern := range patterns {
+		pattern = strings.TrimSpace(pattern)
+		if pattern == "" {
+			continue
+		}
+		if ok, err := filepathMatch(pattern, name); err == nil && ok {
+			return true
+		}
+		if pattern == name {
+			return true
+		}
+	}
+	return false
+}
+
+func filepathMatch(pattern, name string) (bool, error) {
+	if !strings.ContainsAny(pattern, "*?[") {
+		return pattern == name, nil
+	}
+	return path.Match(pattern, name)
 }
 
 // ToolDefinitions returns the list of all tools exposed by the connected MCP servers.

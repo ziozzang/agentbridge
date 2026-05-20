@@ -16,6 +16,9 @@ mcp_servers:
   - name: search
     type: http
     url: http://${MCP_HOST}/mcp
+    allow_tools: foo, bar*
+    deny_tools:
+      - bar_debug
     headers:
       Authorization: Bearer ${MCP_TOKEN}
   - name: off
@@ -42,6 +45,12 @@ mcp_servers:
 	}
 	if got[0].Headers["Authorization"] != "Bearer secret-token" {
 		t.Fatalf("headers=%#v", got[0].Headers)
+	}
+	if len(got[0].AllowTools) != 2 || got[0].AllowTools[0] != "foo" || got[0].AllowTools[1] != "bar*" {
+		t.Fatalf("allow=%#v", got[0].AllowTools)
+	}
+	if len(got[0].DenyTools) != 1 || got[0].DenyTools[0] != "bar_debug" {
+		t.Fatalf("deny=%#v", got[0].DenyTools)
 	}
 }
 

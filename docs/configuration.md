@@ -117,6 +117,8 @@ mcp_servers:
   - name: search
     type: http
     url: http://127.0.0.1:8090/mcp
+    allow_tools: [foo, search*]
+    deny_tools: [search_debug]
     headers:
       Authorization: Bearer ${MCP_TOKEN}
     enabled: true
@@ -125,6 +127,9 @@ mcp_servers:
 `mcpServers` is also accepted as either a list or a name-keyed object. Set
 `disabled: true`, `enabled: false`, or `AGENTBRIDGE_DISABLED_MCPS=search` to
 turn a server off. HTTP MCP tools are exported as `mcp__<server>__<tool>`.
+Use `allow_tools` / `deny_tools` to filter which upstream commands are
+exposed; both fields accept lists or comma/newline-separated strings and
+support wildcards.
 
 ## Provider YAML
 

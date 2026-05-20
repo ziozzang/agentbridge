@@ -202,6 +202,8 @@ mcp_servers:
   - name: search
     type: http
     url: http://127.0.0.1:8090/mcp
+    allow_tools: [foo, search*]
+    deny_tools: [search_debug]
     headers:
       Authorization: Bearer ${MCP_TOKEN}
     enabled: true
@@ -211,6 +213,10 @@ mcp_servers:
 형식을 모두 받을 수 있습니다. 파일에서 제거하지 않고 끄려면
 `disabled: true`, `enabled: false`, 또는
 `AGENTBRIDGE_DISABLED_MCPS=search,docs`를 사용하세요.
+
+`allow_tools`를 쓰면 특정 upstream tool 이름만 노출할 수 있습니다.
+`deny_tools`는 allow list 적용 후 특정 tool을 숨깁니다. 두 필드는 list 또는
+쉼표/개행 구분 문자열을 받으며, `search*` 같은 단순 wildcard를 지원합니다.
 
 외부 MCP tool은 `mcp__<server>__<tool>` 이름으로 노출되며, ACP session과 HTTP
 MCP client 양쪽에서 사용할 수 있습니다.

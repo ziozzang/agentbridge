@@ -115,6 +115,8 @@ mcp_servers:
   - name: search
     type: http
     url: http://127.0.0.1:8090/mcp
+    allow_tools: [foo, search*]
+    deny_tools: [search_debug]
     headers:
       Authorization: Bearer ${MCP_TOKEN}
     enabled: true
@@ -124,6 +126,8 @@ mcp_servers:
 있습니다. 끄려면 `disabled: true`, `enabled: false`, 또는
 `AGENTBRIDGE_DISABLED_MCPS=search`를 사용합니다. HTTP MCP tool은
 `mcp__<server>__<tool>` 이름으로 노출됩니다.
+노출할 upstream command를 제한하려면 `allow_tools` / `deny_tools`를 사용합니다.
+두 필드는 list 또는 쉼표/개행 구분 문자열을 받으며 wildcard를 지원합니다.
 
 ## Provider YAML
 
