@@ -64,6 +64,10 @@ providers:
       responses_path: ${OPENAI_RESPONSES_PATH:-/v1/responses}
       compaction: ${OPENAI_COMPACTION:-responses_compact}
       compact_path: ${OPENAI_COMPACT_PATH:-/v1/responses/compact}
+      responses_server_compaction: ${OPENAI_RESPONSES_SERVER_COMPACTION:-false}
+      responses_compact_threshold: ${OPENAI_RESPONSES_COMPACT_THRESHOLD:-}
+      prompt_cache_key: ${OPENAI_PROMPT_CACHE_KEY:-{session_id}}
+      prompt_cache_retention: ${OPENAI_PROMPT_CACHE_RETENTION:-}
     models:
       - id: gpt-5
         name: GPT-5
@@ -97,6 +101,27 @@ providers:
       - id: claude-haiku-4-5
         name: Claude Haiku 4.5
         description: Fast lightweight model
+
+  # --------- Google Gemini native ----------------------------------------
+  google:
+    kind: google
+    base_url: ${GOOGLE_BASE_URL:-https://generativelanguage.googleapis.com}
+    api_key: ${GOOGLE_API_KEY:-${GEMINI_API_KEY:-${AGENTBRIDGE_API_KEY:-${ACP_HARNESS_API_KEY}}}}
+    auth_header: ${GOOGLE_AUTH_HEADER:-x-goog-api-key}
+    default_model: ${GOOGLE_MODEL:-gemini-3-pro-preview}
+    max_tokens: 8192
+    context_window: 1000000
+    extra:
+      cache_retention: ${GOOGLE_CACHE_RETENTION:-short}
+    models:
+      - id: gemini-3-pro-preview
+        name: Gemini 3 Pro Preview
+      - id: gemini-3-flash
+        name: Gemini 3 Flash
+      - id: gemini-2.5-pro
+        name: Gemini 2.5 Pro
+      - id: gemini-2.5-flash
+        name: Gemini 2.5 Flash
 
   # --------- Claude Code CLI ---------------------------------------------
   claude-code:
@@ -479,6 +504,220 @@ providers:
     models:
       - id: hy3-preview
         name: Hunyuan 3 Preview
+
+  # --------- OpenClaw-derived OpenAI-compatible provider templates --------
+  mistral:
+    kind: openai-chat
+    base_url: ${MISTRAL_BASE_URL:-https://api.mistral.ai/v1}
+    api_key: ${MISTRAL_API_KEY:-${AGENTBRIDGE_API_KEY:-${ACP_HARNESS_API_KEY}}}
+    default_model: ${MISTRAL_MODEL:-mistral-large-latest}
+    max_tokens: 16384
+    context_window: 262144
+    models:
+      - id: mistral-large-latest
+        name: Mistral Large
+      - id: mistral-medium-latest
+        name: Mistral Medium
+      - id: mistral-small-latest
+        name: Mistral Small
+      - id: codestral-latest
+        name: Codestral
+
+  groq:
+    kind: openai-chat
+    base_url: ${GROQ_BASE_URL:-https://api.groq.com/openai/v1}
+    api_key: ${GROQ_API_KEY:-${AGENTBRIDGE_API_KEY:-${ACP_HARNESS_API_KEY}}}
+    default_model: ${GROQ_MODEL:-openai/gpt-oss-120b}
+    max_tokens: 8192
+    context_window: 131072
+    models:
+      - id: openai/gpt-oss-120b
+        name: GPT-OSS 120B
+      - id: llama-3.3-70b-versatile
+        name: Llama 3.3 70B Versatile
+      - id: moonshotai/kimi-k2-instruct
+        name: Kimi K2 Instruct
+
+  fireworks:
+    kind: openai-chat
+    base_url: ${FIREWORKS_BASE_URL:-https://api.fireworks.ai/inference/v1}
+    api_key: ${FIREWORKS_API_KEY:-${AGENTBRIDGE_API_KEY:-${ACP_HARNESS_API_KEY}}}
+    default_model: ${FIREWORKS_MODEL:-accounts/fireworks/routers/kimi-k2p5-turbo}
+    max_tokens: 8192
+    context_window: 128000
+    models:
+      - id: accounts/fireworks/routers/kimi-k2p5-turbo
+        name: Kimi K2.5 Turbo
+      - id: accounts/fireworks/models/kimi-k2p6
+        name: Kimi K2.6
+      - id: accounts/fireworks/models/glm-5
+        name: GLM-5
+
+  together:
+    kind: openai-chat
+    base_url: ${TOGETHER_BASE_URL:-https://api.together.xyz/v1}
+    api_key: ${TOGETHER_API_KEY:-${AGENTBRIDGE_API_KEY:-${ACP_HARNESS_API_KEY}}}
+    default_model: ${TOGETHER_MODEL:-Qwen/Qwen3-Coder-480B-A35B-Instruct}
+    max_tokens: 8192
+    context_window: 262144
+    extra:
+      reasoning_effort: ${TOGETHER_REASONING_EFFORT:-}
+      thinking_format: together
+    models:
+      - id: Qwen/Qwen3-Coder-480B-A35B-Instruct
+        name: Qwen3 Coder 480B
+      - id: moonshotai/Kimi-K2-Instruct
+        name: Kimi K2 Instruct
+      - id: deepseek-ai/DeepSeek-V3.2
+        name: DeepSeek V3.2
+
+  cerebras:
+    kind: openai-chat
+    base_url: ${CEREBRAS_BASE_URL:-https://api.cerebras.ai/v1}
+    api_key: ${CEREBRAS_API_KEY:-${AGENTBRIDGE_API_KEY:-${ACP_HARNESS_API_KEY}}}
+    default_model: ${CEREBRAS_MODEL:-llama-4-scout-17b-16e-instruct}
+    max_tokens: 8192
+    context_window: 128000
+    models:
+      - id: llama-4-scout-17b-16e-instruct
+        name: Llama 4 Scout
+      - id: qwen-3-32b
+        name: Qwen 3 32B
+
+  chutes:
+    kind: openai-chat
+    base_url: ${CHUTES_BASE_URL:-https://llm.chutes.ai/v1}
+    api_key: ${CHUTES_API_KEY:-${AGENTBRIDGE_API_KEY:-${ACP_HARNESS_API_KEY}}}
+    default_model: ${CHUTES_MODEL:-deepseek-ai/DeepSeek-V3.2}
+    max_tokens: 8192
+    context_window: 128000
+    models:
+      - id: deepseek-ai/DeepSeek-V3.2
+        name: DeepSeek V3.2
+      - id: Qwen/Qwen3-Coder-480B-A35B-Instruct
+        name: Qwen3 Coder 480B
+
+  deepinfra:
+    kind: openai-chat
+    base_url: ${DEEPINFRA_BASE_URL:-https://api.deepinfra.com/v1/openai}
+    api_key: ${DEEPINFRA_API_KEY:-${AGENTBRIDGE_API_KEY:-${ACP_HARNESS_API_KEY}}}
+    default_model: ${DEEPINFRA_MODEL:-Qwen/Qwen3-Coder-480B-A35B-Instruct}
+    max_tokens: 8192
+    context_window: 128000
+    models:
+      - id: Qwen/Qwen3-Coder-480B-A35B-Instruct
+        name: Qwen3 Coder 480B
+      - id: deepseek-ai/DeepSeek-V3.2
+        name: DeepSeek V3.2
+
+  moonshot:
+    kind: openai-chat
+    base_url: ${MOONSHOT_BASE_URL:-https://api.moonshot.ai/v1}
+    api_key: ${MOONSHOT_API_KEY:-${AGENTBRIDGE_API_KEY:-${ACP_HARNESS_API_KEY}}}
+    default_model: ${MOONSHOT_MODEL:-kimi-k2.6}
+    max_tokens: 8192
+    context_window: 262144
+    extra:
+      reasoning_effort: ${MOONSHOT_REASONING_EFFORT:-medium}
+    models:
+      - id: kimi-k2.6
+        name: Kimi K2.6
+      - id: kimi-k2.5
+        name: Kimi K2.5
+
+  minimax:
+    kind: openai-chat
+    base_url: ${MINIMAX_BASE_URL:-https://api.minimax.io/v1}
+    api_key: ${MINIMAX_API_KEY:-${AGENTBRIDGE_API_KEY:-${ACP_HARNESS_API_KEY}}}
+    default_model: ${MINIMAX_MODEL:-MiniMax-M2}
+    max_tokens: 8192
+    context_window: 200000
+    models:
+      - id: MiniMax-M2
+        name: MiniMax M2
+      - id: MiniMax-Text-01
+        name: MiniMax Text 01
+
+  qwen:
+    kind: openai-chat
+    base_url: ${QWEN_BASE_URL:-https://dashscope.aliyuncs.com/compatible-mode/v1}
+    api_key: ${QWEN_API_KEY:-${DASHSCOPE_API_KEY:-${AGENTBRIDGE_API_KEY:-${ACP_HARNESS_API_KEY}}}}
+    default_model: ${QWEN_MODEL:-qwen3-coder-plus}
+    max_tokens: 8192
+    context_window: 128000
+    models:
+      - id: qwen3-coder-plus
+        name: Qwen3 Coder Plus
+      - id: qwen3-plus
+        name: Qwen3 Plus
+
+  qianfan:
+    kind: openai-chat
+    base_url: ${QIANFAN_BASE_URL:-https://qianfan.baidubce.com/v2}
+    api_key: ${QIANFAN_API_KEY:-${AGENTBRIDGE_API_KEY:-${ACP_HARNESS_API_KEY}}}
+    default_model: ${QIANFAN_MODEL:-ernie-4.5-turbo-128k}
+    max_tokens: 8192
+    context_window: 128000
+    models:
+      - id: ernie-4.5-turbo-128k
+        name: ERNIE 4.5 Turbo 128K
+      - id: ernie-x1-turbo-32k
+        name: ERNIE X1 Turbo 32K
+
+  venice:
+    kind: openai-chat
+    base_url: ${VENICE_BASE_URL:-https://api.venice.ai/api/v1}
+    api_key: ${VENICE_API_KEY:-${AGENTBRIDGE_API_KEY:-${ACP_HARNESS_API_KEY}}}
+    default_model: ${VENICE_MODEL:-llama-3.3-70b}
+    max_tokens: 8192
+    context_window: 128000
+    models:
+      - id: llama-3.3-70b
+        name: Llama 3.3 70B
+      - id: qwen3-235b
+        name: Qwen3 235B
+
+  vllm:
+    kind: openai-chat
+    base_url: ${VLLM_BASE_URL:-http://127.0.0.1:8000/v1}
+    api_key: ${VLLM_API_KEY:-dummy-vllm-api-key}
+    default_model: ${VLLM_MODEL:-local-model}
+    max_tokens: 8192
+    context_window: 128000
+
+  sglang:
+    kind: openai-chat
+    base_url: ${SGLANG_BASE_URL:-http://127.0.0.1:30000/v1}
+    api_key: ${SGLANG_API_KEY:-dummy-sglang-api-key}
+    default_model: ${SGLANG_MODEL:-local-model}
+    max_tokens: 8192
+    context_window: 128000
+
+  cloudflare-ai-gateway:
+    kind: openai-chat
+    base_url: ${CLOUDFLARE_AI_GATEWAY_BASE_URL:-http://127.0.0.1:8787/v1}
+    api_key: ${CLOUDFLARE_AI_GATEWAY_API_KEY:-${CLOUDFLARE_API_TOKEN:-${AGENTBRIDGE_API_KEY:-${ACP_HARNESS_API_KEY}}}}
+    default_model: ${CLOUDFLARE_AI_GATEWAY_MODEL:-openai/gpt-4.1-mini}
+    max_tokens: 8192
+    context_window: 200000
+    models:
+      - id: openai/gpt-4.1-mini
+        name: GPT-4.1 mini
+      - id: workers-ai/@cf/meta/llama-3.1-8b-instruct
+        name: Workers AI Llama 3.1 8B
+
+  microsoft-foundry:
+    kind: openai-chat
+    base_url: ${MICROSOFT_FOUNDRY_BASE_URL:-https://models.inference.ai.azure.com}
+    api_key: ${MICROSOFT_FOUNDRY_API_KEY:-${GITHUB_TOKEN:-${AGENTBRIDGE_API_KEY:-${ACP_HARNESS_API_KEY}}}}
+    default_model: ${MICROSOFT_FOUNDRY_MODEL:-gpt-4.1}
+    max_tokens: 8192
+    context_window: 200000
+    models:
+      - id: gpt-4.1
+        name: GPT-4.1
+      - id: mistral-large-2411
+        name: Mistral Large 2411
 
   ollama-cloud:
     kind: openai-chat

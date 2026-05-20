@@ -326,6 +326,45 @@ func TestXAIReasoningEffortOmittedForUnsupportedGrok(t *testing.T) {
 	}
 }
 
+func TestResponsesServerCompactionAndCacheRetention(t *testing.T) {
+	var gotBody map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewDecoder(r.Body).Decode(&gotBody)
+		w.Header().Set("Content-Type", "text/event-stream")
+		fmt.Fprintln(w, `data: {"type":"response.completed","response":{"status":"completed"}}`)
+		fmt.Fprintln(w)
+	}))
+	defer srv.Close()
+
+	c := New(provider.Config{
+		Name: "openai-responses", BaseURL: srv.URL, APIKey: "key", ContextWindow: 100000,
+		Extra: map[string]any{
+			"responses_server_compaction": true,
+			"prompt_cache_retention":      "24h",
+		},
+	})
+	c.HTTPClient = srv.Client()
+	chunks, errs := c.StreamChat(context.Background(),
+		[]provider.Message{{Role: "user", Content: "hi"}},
+		provider.StreamOptions{Model: "gpt-5", PromptCacheKey: "session-1"})
+	for range chunks {
+	}
+	if err := <-errs; err != nil {
+		t.Fatal(err)
+	}
+	if gotBody["prompt_cache_key"] != "session-1" || gotBody["prompt_cache_retention"] != "24h" {
+		t.Fatalf("prompt cache fields = %#v", gotBody)
+	}
+	cm, _ := gotBody["context_management"].([]any)
+	if len(cm) != 1 {
+		t.Fatalf("context_management = %#v", gotBody["context_management"])
+	}
+	entry, _ := cm[0].(map[string]any)
+	if entry["type"] != "compaction" || entry["compact_threshold"].(float64) != 70000 {
+		t.Fatalf("context_management entry = %#v", entry)
+	}
+}
+
 func TestTranslateAssistantToolCalls(t *testing.T) {
 	in := []provider.Message{
 		{Role: "system", Content: "S"},

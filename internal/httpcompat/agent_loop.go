@@ -24,14 +24,15 @@ const (
 )
 
 type httpAgentOptions struct {
-	Enabled         bool
-	Model           string
-	Cwd             string
-	MaxTurns        int
-	SessionID       string
-	PromptCacheKey  string
-	ServiceTier     string
-	ReasoningEffort string
+	Enabled              bool
+	Model                string
+	Cwd                  string
+	MaxTurns             int
+	SessionID            string
+	PromptCacheKey       string
+	PromptCacheRetention string
+	ServiceTier          string
+	ReasoningEffort      string
 }
 
 type noopAgentConn struct{}
@@ -50,10 +51,11 @@ func (h *handler) runProvider(ctx context.Context, model string, messages []prov
 		return h.runAgentProvider(ctx, agentOpts, messages)
 	}
 	chunks, errs, err := StreamProviderWithOptions(ctx, model, messages, provider.StreamOptions{
-		SessionID:       agentOpts.SessionID,
-		PromptCacheKey:  agentOpts.PromptCacheKey,
-		ServiceTier:     agentOpts.ServiceTier,
-		ReasoningEffort: agentOpts.ReasoningEffort,
+		SessionID:            agentOpts.SessionID,
+		PromptCacheKey:       agentOpts.PromptCacheKey,
+		PromptCacheRetention: agentOpts.PromptCacheRetention,
+		ServiceTier:          agentOpts.ServiceTier,
+		ReasoningEffort:      agentOpts.ReasoningEffort,
 	})
 	if err != nil {
 		return "", provider.Usage{}, "", err
@@ -140,12 +142,13 @@ func (h *handler) runAgentProvider(ctx context.Context, opts httpAgentOptions, m
 			}
 		}
 		chunks, errs := p.StreamChat(ctx, loopMessages, provider.StreamOptions{
-			Model:           model,
-			Tools:           tools,
-			SessionID:       opts.SessionID,
-			PromptCacheKey:  opts.PromptCacheKey,
-			ServiceTier:     opts.ServiceTier,
-			ReasoningEffort: opts.ReasoningEffort,
+			Model:                model,
+			Tools:                tools,
+			SessionID:            opts.SessionID,
+			PromptCacheKey:       opts.PromptCacheKey,
+			PromptCacheRetention: opts.PromptCacheRetention,
+			ServiceTier:          opts.ServiceTier,
+			ReasoningEffort:      opts.ReasoningEffort,
 		})
 		var assistantText strings.Builder
 		var toolCalls []provider.ToolCall
@@ -412,6 +415,11 @@ func httpAgentOptionsFrom(model string, maps ...map[string]any) httpAgentOptions
 			opts.PromptCacheKey = v
 		} else if v := stringMeta(m, "cache_key"); v != "" {
 			opts.PromptCacheKey = v
+		}
+		if v := stringMeta(m, "prompt_cache_retention"); v != "" {
+			opts.PromptCacheRetention = v
+		} else if v := stringMeta(m, "cache_retention"); v != "" {
+			opts.PromptCacheRetention = v
 		}
 		if v := stringMeta(m, "service_tier"); v != "" {
 			opts.ServiceTier = v

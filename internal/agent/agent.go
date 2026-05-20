@@ -39,6 +39,7 @@ import (
 	_ "github.com/ziozzang/agentbridge/internal/provider/claudecode" // register claude-code-cli
 	"github.com/ziozzang/agentbridge/internal/provider/glm"
 	_ "github.com/ziozzang/agentbridge/internal/provider/glm/preset" // register glm kind
+	_ "github.com/ziozzang/agentbridge/internal/provider/google"     // register google
 	_ "github.com/ziozzang/agentbridge/internal/provider/ollama"     // register ollama
 	_ "github.com/ziozzang/agentbridge/internal/provider/openaichat" // register openai-chat
 	_ "github.com/ziozzang/agentbridge/internal/provider/openairesp" // register openai-responses

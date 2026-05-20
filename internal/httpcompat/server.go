@@ -32,6 +32,7 @@ import (
 	_ "github.com/ziozzang/agentbridge/internal/provider/anthropic"
 	_ "github.com/ziozzang/agentbridge/internal/provider/claudecode"
 	_ "github.com/ziozzang/agentbridge/internal/provider/glm/preset"
+	_ "github.com/ziozzang/agentbridge/internal/provider/google"
 	_ "github.com/ziozzang/agentbridge/internal/provider/ollama"
 	_ "github.com/ziozzang/agentbridge/internal/provider/openaichat"
 	_ "github.com/ziozzang/agentbridge/internal/provider/openairesp"
@@ -422,6 +423,9 @@ func (h *handler) responses(w http.ResponseWriter, r *http.Request) {
 	if req.PromptCacheKey != "" {
 		agentOpts.PromptCacheKey = req.PromptCacheKey
 	}
+	if req.PromptCacheRetention != "" {
+		agentOpts.PromptCacheRetention = req.PromptCacheRetention
+	}
 	text, usage, stop, err := h.runProvider(r.Context(), req.Model, messages, agentOpts)
 	if err != nil {
 		writeError(w, http.StatusBadGateway, err)
@@ -689,7 +693,7 @@ func (h *handler) a2aSendStreamingMessage(w http.ResponseWriter, r *http.Request
 		writeA2ASSE(w, map[string]any{"statusUpdate": map[string]any{"taskId": task.TaskID, "contextId": task.ContextID, "status": newA2AStatus("TASK_STATE_COMPLETED", nil)}})
 		return
 	}
-	chunks, errs, err := StreamProviderWithOptions(taskCtx, model, []provider.Message{{Role: "user", Content: a2aMessageText(msg)}}, provider.StreamOptions{SessionID: agentOpts.SessionID, PromptCacheKey: agentOpts.PromptCacheKey, ServiceTier: agentOpts.ServiceTier, ReasoningEffort: agentOpts.ReasoningEffort})
+	chunks, errs, err := StreamProviderWithOptions(taskCtx, model, []provider.Message{{Role: "user", Content: a2aMessageText(msg)}}, provider.StreamOptions{SessionID: agentOpts.SessionID, PromptCacheKey: agentOpts.PromptCacheKey, PromptCacheRetention: agentOpts.PromptCacheRetention, ServiceTier: agentOpts.ServiceTier, ReasoningEffort: agentOpts.ReasoningEffort})
 	if err != nil {
 		h.finishA2AStreamWithError(w, task.TaskID, err)
 		return

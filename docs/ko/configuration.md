@@ -160,7 +160,13 @@ Hermes에서 가져온 provider별 knob는 provider `extra` 또는 내장 templa
 | `XAI_REASONING_EFFORT` | `xai`, `xai-oauth` | `reasoning.effort`를 받는 Grok model에만 전송합니다. |
 | `KIMI_REASONING_EFFORT`, `KIMI_CN_REASONING_EFFORT` | `kimi-coding`, `kimi-coding-cn` | Chat Completions top-level `reasoning_effort`; 기본값 `medium`. |
 | `DEEPSEEK_REASONING_EFFORT` | `deepseek` | DeepSeek thinking-capable model에만 전송하며 `xhigh`는 `max`로 변환합니다. |
+| `TOGETHER_REASONING_EFFORT` | `together` | Together의 `reasoning.enabled` payload로 매핑합니다. |
 | `TOKENHUB_REASONING_EFFORT`, `LM_REASONING_EFFORT` | `tencent-tokenhub`, `lmstudio` | Chat Completions top-level `reasoning_effort`. |
+| `GOOGLE_CACHE_RETENTION` | `google` | Gemini 2.5/3에서 기본값 `short`; Google native `cachedContents`를 생성/갱신합니다. |
+| `OPENAI_RESPONSES_SERVER_COMPACTION` | `openai-responses` | OpenAI Responses `context_management` compaction hint를 켭니다. |
+| `OPENAI_RESPONSES_COMPACT_THRESHOLD` | `openai-responses` | 선택적 `context_management.compact_threshold`; 기본값은 context의 70%. |
+| `OPENAI_PROMPT_CACHE_KEY` | `openai-responses` | 기본값 `{session_id}`; `{model}`, `{provider}` template도 지원합니다. |
+| `OPENAI_PROMPT_CACHE_RETENTION` | `openai-responses` | 선택적 upstream `prompt_cache_retention`. |
 
 OpenAI-chat provider도 upstream이 지원하는 경우 Anthropic-style
 `cache_control` breakpoint를 사용할 수 있습니다. AgentBridge는
@@ -168,12 +174,16 @@ OpenRouter/Nous의 Claude route와 Alibaba/OpenCode/Nous의 Qwen route에서 이
 자동으로 켭니다. 사용자 정의 OpenAI 호환 provider에서는
 `extra.prompt_cache: on`을 설정하세요. upstream이 1시간 TTL을 지원하면
 `extra.prompt_cache_ttl: 1h`도 사용할 수 있습니다.
+OpenRouter response cache는 provider `extra`의 `response_cache`,
+`response_cache_ttl`, `response_cache_clear`로 조정하며, 각각
+`X-OpenRouter-Cache*` request header로 매핑됩니다.
 
 HTTP `/v1/chat/completions`, `/v1/responses`, Anthropic 호환 `/v1/messages`,
-A2A 요청에서는 `metadata.prompt_cache_key`, `metadata.service_tier`,
-`metadata.reasoning_effort`, session id(`metadata.session_id`, `sessionId`,
-`thread_id`)를 넘겨 request별 라우팅에 사용할 수 있습니다. `/v1/responses`의
-top-level `prompt_cache_key`도 provider request로 전달됩니다.
+A2A 요청에서는 `metadata.prompt_cache_key`, `metadata.prompt_cache_retention`,
+`metadata.cache_retention`, `metadata.service_tier`, `metadata.reasoning_effort`,
+session id(`metadata.session_id`, `sessionId`, `thread_id`)를 넘겨 request별
+라우팅에 사용할 수 있습니다. `/v1/responses`의 top-level `prompt_cache_key`와
+`prompt_cache_retention`도 provider request로 전달됩니다.
 
 ## Embedding Model Mapping
 

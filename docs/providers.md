@@ -11,6 +11,7 @@ interface. Select one with `AGENTBRIDGE_PROVIDER=<name>`.
 | `openai` | `openai-chat` | OpenAI Chat Completions and compatible gateways. |
 | `openai-responses` | `openai-responses` | OpenAI Responses API. |
 | `anthropic` | `anthropic` | Anthropic Messages API. |
+| `google` | `google` | Native Gemini Generative Language API with cachedContent prompt cache support. |
 | `claude-code` | `claude-code-cli` | Claude Code CLI one-shot adapter. |
 | `ollama` | `ollama` | Native Ollama `/api/chat`. |
 | `openrouter` | `openai-chat` | OpenRouter Chat Completions. |
@@ -36,6 +37,22 @@ interface. Select one with `AGENTBRIDGE_PROVIDER=<name>`.
 | `gmi` | `openai-chat` | GMI Cloud OpenAI-compatible endpoint. |
 | `xiaomi` | `openai-chat` | Xiaomi MiMo API. |
 | `tencent-tokenhub` | `openai-chat` | Tencent TokenHub API. |
+| `mistral` | `openai-chat` | Mistral OpenAI-compatible API. |
+| `groq` | `openai-chat` | Groq OpenAI-compatible API. |
+| `fireworks` | `openai-chat` | Fireworks AI OpenAI-compatible API. |
+| `together` | `openai-chat` | Together AI OpenAI-compatible API with `reasoning.enabled` mapping. |
+| `cerebras` | `openai-chat` | Cerebras OpenAI-compatible API. |
+| `chutes` | `openai-chat` | Chutes OpenAI-compatible API. |
+| `deepinfra` | `openai-chat` | DeepInfra OpenAI-compatible API. |
+| `moonshot` | `openai-chat` | Moonshot/Kimi OpenAI-compatible API. |
+| `minimax` | `openai-chat` | MiniMax OpenAI-compatible API. |
+| `qwen` | `openai-chat` | Qwen/DashScope OpenAI-compatible API. |
+| `qianfan` | `openai-chat` | Baidu Qianfan OpenAI-compatible API. |
+| `venice` | `openai-chat` | Venice OpenAI-compatible API. |
+| `vllm` | `openai-chat` | Local vLLM OpenAI-compatible server. |
+| `sglang` | `openai-chat` | Local SGLang OpenAI-compatible server. |
+| `cloudflare-ai-gateway` | `openai-chat` | Cloudflare AI Gateway template. |
+| `microsoft-foundry` | `openai-chat` | Azure/Microsoft Foundry OpenAI-compatible inference endpoint. |
 | `ollama-cloud` | `openai-chat` | Ollama Cloud OpenAI-compatible API. |
 | `lmstudio` | `openai-chat` | Local LM Studio OpenAI-compatible server. |
 
@@ -74,19 +91,21 @@ Provider-specific `*_BASE_URL`, `*_API_KEY`, and `*_MODEL` variables are
 preferred where available. `AGENTBRIDGE_<PROVIDER>_API_KEY` still works as a
 last-mile override after the YAML is resolved.
 
-Hermes entries that still need additional AgentBridge implementation are not
-enabled as default templates yet:
+OpenClaw/Hermes entries that still need additional AgentBridge implementation
+are not enabled as default templates yet:
 
 | Hermes provider | Reason |
 | --- | --- |
 | `nous` | Device-code OAuth and scoped inference token minting. |
 | `qwen-oauth` | Qwen OAuth token refresh/store integration. |
 | `google-gemini-cli` | Cloud Code Assist OAuth transport, not a plain HTTP base URL. |
+| `google-vertex`, `google-antigravity`, `anthropic-vertex` | Cloud/Vertex auth and endpoint signing. |
 | `copilot-acp` | External ACP process transport. |
 | `github-copilot` | Copilot token/catalog handling. |
-| `bedrock` | AWS SigV4 and Bedrock Converse transport. |
-| `minimax`, `minimax-cn`, `minimax-oauth` | Anthropic-compatible paths and OAuth need endpoint/header handling beyond the current Anthropic direct adapter. |
-| `azure-foundry` | User endpoint and API mode vary by deployment. |
+| `amazon-bedrock`, `amazon-bedrock-mantle` | AWS SigV4 and Bedrock Converse transport. |
+| `minimax-portal`, `minimax-oauth` | Portal/OAuth flow beyond API-key OpenAI-compatible MiniMax. |
+| `byteplus`, `byteplus-plan`, `volcengine`, `volcengine-plan`, `modelstudio`, `qwencloud` | Need endpoint/auth validation before default enablement. |
+| `fal`, `comfy`, `vydra` | Media-generation providers, not chat providers. |
 
 ## Provider API and Tool Matrix
 
@@ -100,6 +119,7 @@ tools can also be exposed directly through MCP `POST /mcp` and `/v1/mcp`.
 | `openai` | `OPENAI_API_KEY` | OpenAI Chat Completions | Built-in agent tools |
 | `openai-responses` | `OPENAI_API_KEY` | OpenAI Responses | Hosted `web_search` when configured in provider `extra` |
 | `codex` | Codex OAuth from `~/.codex/auth.json` | ChatGPT Codex Responses backend | Codex hosted `web_search`, prompt cache metadata |
+| `google` | `GOOGLE_API_KEY` / `GEMINI_API_KEY` | Gemini native `streamGenerateContent` | Built-in agent tools; native cachedContent prompt cache |
 | `xai` | `XAI_API_KEY` | xAI Responses-compatible Grok | xAI hosted `x_search` when used through plugin |
 | `xai-oauth` | `~/.grok/auth.json`, fallback `~/.hermes/auth.json` | xAI Responses-compatible Grok | Same OAuth token can be reused by `xai` plugin |
 | `anthropic` | `ANTHROPIC_API_KEY` | Anthropic Messages | Built-in agent tools |
@@ -113,7 +133,7 @@ tools can also be exposed directly through MCP `POST /mcp` and `/v1/mcp`.
 | `alibaba`, `alibaba-coding-plan` | `DASHSCOPE_API_KEY`, `ALIBABA_CODING_PLAN_API_KEY` | OpenAI Chat Completions | Built-in agent tools |
 | `nvidia` | `NVIDIA_API_KEY` | OpenAI Chat Completions | Built-in agent tools |
 | `ai-gateway`, `opencode-zen`, `opencode-go`, `kilocode` | gateway-specific API key | OpenAI Chat Completions gateway | Built-in agent tools |
-| `huggingface`, `novita`, `arcee`, `gmi`, `xiaomi`, `tencent-tokenhub`, `ollama-cloud`, `lmstudio` | provider-specific API key or local key | OpenAI Chat Completions-compatible | Built-in agent tools |
+| `huggingface`, `novita`, `arcee`, `gmi`, `xiaomi`, `tencent-tokenhub`, `mistral`, `groq`, `fireworks`, `together`, `cerebras`, `chutes`, `deepinfra`, `moonshot`, `minimax`, `qwen`, `qianfan`, `venice`, `cloudflare-ai-gateway`, `microsoft-foundry`, `ollama-cloud`, `lmstudio`, `vllm`, `sglang` | provider-specific API key or local key | OpenAI Chat Completions-compatible | Built-in agent tools |
 | `plugin:jina` | optional `JINA_API_KEY` | Jina Reader, Search, Embeddings, Rerank | `jina_reader`, `jina_search`, `jina_embed`, `jina_rerank`; HTTP `/v1/embeddings`, `/v1/rerank` |
 | `plugin:ollama_search` | `OLLAMA_API_KEY` | Ollama Cloud web search/fetch | `ollama_search`, `ollama_fetch` |
 | `plugin:xai` | xAI OAuth or `XAI_API_KEY` | xAI Responses `x_search`, Images generations/edits | `xai_x_search`, `xai_image_generate`, `xai_image_edit` |

@@ -99,19 +99,21 @@ func (c *Client) Config() provider.Config { return c.cfg }
 // ----- Request shape ------------------------------------------------------
 
 type respRequest struct {
-	Model           string          `json:"model"`
-	Input           []respInputItem `json:"input"`
-	Instructions    string          `json:"instructions,omitempty"`
-	Tools           []respTool      `json:"tools,omitempty"`
-	ToolChoice      string          `json:"tool_choice,omitempty"`
-	ParallelTools   bool            `json:"parallel_tool_calls"`
-	Reasoning       *respReasoning  `json:"reasoning,omitempty"`
-	Store           bool            `json:"store"`
-	Stream          bool            `json:"stream"`
-	Include         []string        `json:"include,omitempty"`
-	ServiceTier     string          `json:"service_tier,omitempty"`
-	PromptCacheKey  string          `json:"prompt_cache_key,omitempty"`
-	MaxOutputTokens int             `json:"max_output_tokens,omitempty"`
+	Model                string                  `json:"model"`
+	Input                []respInputItem         `json:"input"`
+	Instructions         string                  `json:"instructions,omitempty"`
+	Tools                []respTool              `json:"tools,omitempty"`
+	ToolChoice           string                  `json:"tool_choice,omitempty"`
+	ParallelTools        bool                    `json:"parallel_tool_calls"`
+	Reasoning            *respReasoning          `json:"reasoning,omitempty"`
+	Store                bool                    `json:"store"`
+	Stream               bool                    `json:"stream"`
+	Include              []string                `json:"include,omitempty"`
+	ServiceTier          string                  `json:"service_tier,omitempty"`
+	PromptCacheKey       string                  `json:"prompt_cache_key,omitempty"`
+	PromptCacheRetention string                  `json:"prompt_cache_retention,omitempty"`
+	ContextManagement    []respContextManagement `json:"context_management,omitempty"`
+	MaxOutputTokens      int                     `json:"max_output_tokens,omitempty"`
 }
 
 type respReasoning struct {
@@ -119,15 +121,21 @@ type respReasoning struct {
 	Summary string `json:"summary,omitempty"`
 }
 
+type respContextManagement struct {
+	Type             string `json:"type"`
+	CompactThreshold int    `json:"compact_threshold,omitempty"`
+}
+
 type respCompactRequest struct {
-	Model          string          `json:"model"`
-	Input          []respInputItem `json:"input"`
-	Instructions   string          `json:"instructions,omitempty"`
-	Tools          []respTool      `json:"tools,omitempty"`
-	ParallelTools  bool            `json:"parallel_tool_calls"`
-	Reasoning      *respReasoning  `json:"reasoning,omitempty"`
-	ServiceTier    string          `json:"service_tier,omitempty"`
-	PromptCacheKey string          `json:"prompt_cache_key,omitempty"`
+	Model                string          `json:"model"`
+	Input                []respInputItem `json:"input"`
+	Instructions         string          `json:"instructions,omitempty"`
+	Tools                []respTool      `json:"tools,omitempty"`
+	ParallelTools        bool            `json:"parallel_tool_calls"`
+	Reasoning            *respReasoning  `json:"reasoning,omitempty"`
+	ServiceTier          string          `json:"service_tier,omitempty"`
+	PromptCacheKey       string          `json:"prompt_cache_key,omitempty"`
+	PromptCacheRetention string          `json:"prompt_cache_retention,omitempty"`
 }
 
 type respCompactResponse struct {
@@ -231,19 +239,21 @@ func (c *Client) StreamChat(ctx context.Context, messages []provider.Message, op
 			c.Name(), model, len(input), len(toolList))
 
 		req := respRequest{
-			Model:           model,
-			Input:           input,
-			Instructions:    instructions,
-			Tools:           c.requestTools(toolList),
-			ToolChoice:      "auto",
-			ParallelTools:   c.extraBool("parallel_tool_calls", false),
-			Reasoning:       c.reasoning(model, opts.ReasoningEffort, opts.ReasoningSummary),
-			Store:           c.extraBool("store", false),
-			Stream:          true,
-			Include:         c.includeFields(),
-			ServiceTier:     firstNonEmpty(opts.ServiceTier, c.extraString("service_tier")),
-			PromptCacheKey:  c.promptCacheKey(model, opts.SessionID, opts.PromptCacheKey),
-			MaxOutputTokens: c.maxOutputTokens(),
+			Model:                model,
+			Input:                input,
+			Instructions:         instructions,
+			Tools:                c.requestTools(toolList),
+			ToolChoice:           "auto",
+			ParallelTools:        c.extraBool("parallel_tool_calls", false),
+			Reasoning:            c.reasoning(model, opts.ReasoningEffort, opts.ReasoningSummary),
+			Store:                c.extraBool("store", false),
+			Stream:               true,
+			Include:              c.includeFields(),
+			ServiceTier:          firstNonEmpty(opts.ServiceTier, c.extraString("service_tier")),
+			PromptCacheKey:       c.promptCacheKey(model, opts.SessionID, opts.PromptCacheKey),
+			PromptCacheRetention: firstNonEmpty(strings.TrimSpace(opts.PromptCacheRetention), c.extraString("prompt_cache_retention"), c.cacheRetentionParam()),
+			ContextManagement:    c.contextManagement(model),
+			MaxOutputTokens:      c.maxOutputTokens(),
 		}
 		body, err := json.Marshal(req)
 		if err != nil {
@@ -446,14 +456,15 @@ func (c *Client) CompactConversation(ctx context.Context, messages []provider.Me
 		instructions = c.extraString("instructions")
 	}
 	req := respCompactRequest{
-		Model:          model,
-		Input:          input,
-		Instructions:   instructions,
-		Tools:          c.requestTools(opts.Tools),
-		ParallelTools:  c.extraBool("parallel_tool_calls", false),
-		Reasoning:      c.reasoning(model, opts.ReasoningEffort, opts.ReasoningSummary),
-		ServiceTier:    firstNonEmpty(opts.ServiceTier, c.extraString("service_tier")),
-		PromptCacheKey: c.promptCacheKey(model, opts.SessionID, opts.PromptCacheKey),
+		Model:                model,
+		Input:                input,
+		Instructions:         instructions,
+		Tools:                c.requestTools(opts.Tools),
+		ParallelTools:        c.extraBool("parallel_tool_calls", false),
+		Reasoning:            c.reasoning(model, opts.ReasoningEffort, opts.ReasoningSummary),
+		ServiceTier:          firstNonEmpty(opts.ServiceTier, c.extraString("service_tier")),
+		PromptCacheKey:       c.promptCacheKey(model, opts.SessionID, opts.PromptCacheKey),
+		PromptCacheRetention: firstNonEmpty(strings.TrimSpace(opts.PromptCacheRetention), c.extraString("prompt_cache_retention"), c.cacheRetentionParam()),
 	}
 	body, err := json.Marshal(req)
 	if err != nil {
@@ -519,6 +530,35 @@ func (c *Client) maxOutputTokens() int {
 		return 0
 	}
 	return c.cfg.MaxTokens
+}
+
+func (c *Client) cacheRetentionParam() string {
+	switch strings.ToLower(c.extraString("cache_retention")) {
+	case "none", "off", "false", "0":
+		return ""
+	case "short":
+		return "24h"
+	case "long":
+		return "24h"
+	default:
+		return ""
+	}
+}
+
+func (c *Client) contextManagement(model string) []respContextManagement {
+	if !c.extraBool("responses_server_compaction", false) {
+		return nil
+	}
+	threshold := c.extraInt("responses_compact_threshold")
+	if threshold <= 0 {
+		if c.cfg.ContextWindow > 0 {
+			threshold = max(1000, int(float64(c.cfg.ContextWindow)*0.7))
+		} else {
+			threshold = 80000
+		}
+	}
+	_ = model
+	return []respContextManagement{{Type: "compaction", CompactThreshold: threshold}}
 }
 
 func (c *Client) reasoning(model, effortOverride, summaryOverride string) *respReasoning {
@@ -686,6 +726,26 @@ func (c *Client) extraBool(key string, def bool) bool {
 	default:
 		return def
 	}
+}
+
+func (c *Client) extraInt(key string) int {
+	if c.cfg.Extra == nil {
+		return 0
+	}
+	switch v := c.cfg.Extra[key].(type) {
+	case int:
+		return v
+	case int64:
+		return int(v)
+	case float64:
+		return int(v)
+	case string:
+		var n int
+		if _, err := fmt.Sscanf(strings.TrimSpace(v), "%d", &n); err == nil {
+			return n
+		}
+	}
+	return 0
 }
 
 func anyStringSlice(v any) []string {

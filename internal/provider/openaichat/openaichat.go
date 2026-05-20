@@ -100,6 +100,7 @@ type chatRequest struct {
 	StreamOptions   *streamOptions     `json:"stream_options,omitempty"`
 	MaxTokens       int                `json:"max_tokens,omitempty"`
 	ReasoningEffort string             `json:"reasoning_effort,omitempty"`
+	Reasoning       map[string]any     `json:"reasoning,omitempty"`
 	ExtraBody       map[string]any     `json:"extra_body,omitempty"`
 	// Thinking is a GLM-specific extension; included on every request when
 	// the provider is configured with cfg.Thinking != "".
@@ -173,6 +174,7 @@ func (c *Client) StreamChat(ctx context.Context, messages []provider.Message, op
 			c.Name(), model, c.cfg.BaseURL, len(messages), len(toolList))
 
 		outboundMessages := c.applyPromptCache(messages, model)
+		reasoningEffort := c.reasoningEffort(model, opts.ReasoningEffort)
 		req := chatRequest{
 			Model:           model,
 			Messages:        outboundMessages,
@@ -181,8 +183,12 @@ func (c *Client) StreamChat(ctx context.Context, messages []provider.Message, op
 			Stream:          true,
 			StreamOptions:   &streamOptions{IncludeUsage: true},
 			MaxTokens:       c.cfg.MaxTokens,
-			ReasoningEffort: c.reasoningEffort(model, opts.ReasoningEffort),
+			ReasoningEffort: reasoningEffort,
+			Reasoning:       c.reasoningObject(reasoningEffort),
 			ExtraBody:       c.extraBody(model),
+		}
+		if req.Reasoning != nil {
+			req.ReasoningEffort = ""
 		}
 		if c.cfg.Thinking != "" {
 			req.Thinking = &thinkingObj{Type: c.cfg.Thinking}
@@ -205,6 +211,9 @@ func (c *Client) StreamChat(ctx context.Context, messages []provider.Message, op
 			httpReq.Header.Set(c.cfg.AuthHeader, c.cfg.AuthPrefix+c.cfg.APIKey)
 		}
 		for k, v := range c.cfg.Headers {
+			httpReq.Header.Set(k, v)
+		}
+		for k, v := range c.openRouterResponseCacheHeaders() {
 			httpReq.Header.Set(k, v)
 		}
 
@@ -357,6 +366,14 @@ func (c *Client) reasoningEffort(model, override string) string {
 	return effort
 }
 
+func (c *Client) reasoningObject(effort string) map[string]any {
+	if c.extraString("thinking_format") != "together" {
+		return nil
+	}
+	enabled := effort != "" && effort != "none" && effort != "off" && effort != "disabled"
+	return map[string]any{"enabled": enabled}
+}
+
 func (c *Client) extraBody(model string) map[string]any {
 	out := map[string]any{}
 	name := strings.ToLower(c.Name())
@@ -424,6 +441,41 @@ func (c *Client) shouldApplyPromptCache(model string) bool {
 	return false
 }
 
+func (c *Client) openRouterResponseCacheHeaders() map[string]string {
+	if !c.isOpenRouterEndpoint() {
+		return nil
+	}
+	enabled, ok := c.extraBoolValue("response_cache")
+	if !ok {
+		enabled, ok = c.extraBoolValue("openrouter_response_cache")
+	}
+	clear, clearOK := c.extraBoolValue("response_cache_clear")
+	if !ok && clearOK && clear {
+		enabled = true
+		ok = true
+	}
+	if !ok {
+		return nil
+	}
+	headers := map[string]string{"X-OpenRouter-Cache": fmt.Sprintf("%t", enabled)}
+	if !enabled {
+		return headers
+	}
+	if ttl := c.extraIntString("response_cache_ttl_seconds", "response_cache_ttl", "openrouter_response_cache_ttl"); ttl != "" {
+		headers["X-OpenRouter-Cache-TTL"] = ttl
+	}
+	if clear {
+		headers["X-OpenRouter-Cache-Clear"] = "true"
+	}
+	return headers
+}
+
+func (c *Client) isOpenRouterEndpoint() bool {
+	name := strings.ToLower(c.Name())
+	base := strings.ToLower(c.cfg.BaseURL)
+	return name == "openrouter" || strings.Contains(base, "openrouter.ai")
+}
+
 func markMessageCacheControl(msg provider.Message, marker map[string]any) provider.Message {
 	if msg.Role == "tool" {
 		return msg
@@ -477,6 +529,56 @@ func (c *Client) extraString(key string) string {
 	}
 	v, _ := c.cfg.Extra[key].(string)
 	return strings.TrimSpace(v)
+}
+
+func (c *Client) extraBoolValue(key string) (bool, bool) {
+	if c.cfg.Extra == nil {
+		return false, false
+	}
+	switch v := c.cfg.Extra[key].(type) {
+	case bool:
+		return v, true
+	case string:
+		switch strings.ToLower(strings.TrimSpace(v)) {
+		case "1", "true", "yes", "on", "enable", "enabled":
+			return true, true
+		case "0", "false", "no", "off", "disable", "disabled":
+			return false, true
+		}
+	case int:
+		return v != 0, true
+	case float64:
+		return v != 0, true
+	}
+	return false, false
+}
+
+func (c *Client) extraIntString(keys ...string) string {
+	if c.cfg.Extra == nil {
+		return ""
+	}
+	for _, key := range keys {
+		switch v := c.cfg.Extra[key].(type) {
+		case int:
+			if v > 0 {
+				return fmt.Sprintf("%d", min(v, 86400))
+			}
+		case int64:
+			if v > 0 {
+				return fmt.Sprintf("%d", min(int(v), 86400))
+			}
+		case float64:
+			if v > 0 {
+				return fmt.Sprintf("%d", min(int(v), 86400))
+			}
+		case string:
+			var n int
+			if _, err := fmt.Sscanf(strings.TrimSpace(v), "%d", &n); err == nil && n > 0 {
+				return fmt.Sprintf("%d", min(n, 86400))
+			}
+		}
+	}
+	return ""
 }
 
 func deepseekSupportsThinking(model string) bool {

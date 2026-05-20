@@ -87,26 +87,28 @@ type Chunk struct {
 
 // StreamOptions tunes a single StreamChat invocation.
 type StreamOptions struct {
-	Model            string
-	Tools            []definitions.Tool
-	SessionID        string
-	PromptCacheKey   string
-	ServiceTier      string
-	ReasoningEffort  string
-	ReasoningSummary string
+	Model                string
+	Tools                []definitions.Tool
+	SessionID            string
+	PromptCacheKey       string
+	PromptCacheRetention string
+	ServiceTier          string
+	ReasoningEffort      string
+	ReasoningSummary     string
 }
 
 // CompactOptions tunes provider-native conversation compaction.
 type CompactOptions struct {
-	Model            string
-	Tools            []definitions.Tool
-	TargetTokens     int
-	Reason           string
-	SessionID        string
-	PromptCacheKey   string
-	ServiceTier      string
-	ReasoningEffort  string
-	ReasoningSummary string
+	Model                string
+	Tools                []definitions.Tool
+	TargetTokens         int
+	Reason               string
+	SessionID            string
+	PromptCacheKey       string
+	PromptCacheRetention string
+	ServiceTier          string
+	ReasoningEffort      string
+	ReasoningSummary     string
 }
 
 // Provider is the harness-side abstraction every adapter implements.

@@ -285,6 +285,34 @@ func TestDeepSeekReasoningOnlyForThinkingModels(t *testing.T) {
 	}
 }
 
+func TestTogetherReasoningUsesReasoningObject(t *testing.T) {
+	var body map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		w.Header().Set("Content-Type", "text/event-stream")
+		fmt.Fprint(w, "data: [DONE]\n\n")
+	}))
+	defer srv.Close()
+	c := New(provider.Config{
+		Name: "together", BaseURL: srv.URL, APIKey: "k",
+		Extra: map[string]any{"reasoning_effort": "high", "thinking_format": "together"},
+	})
+	c.HTTPClient = srv.Client()
+	chunks, errs := c.StreamChat(context.Background(), nil, provider.StreamOptions{Model: "Qwen/Qwen3-Coder-480B-A35B-Instruct"})
+	for range chunks {
+	}
+	if err := <-errs; err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := body["reasoning_effort"]; ok {
+		t.Fatalf("together should not get reasoning_effort: %#v", body)
+	}
+	reasoning, _ := body["reasoning"].(map[string]any)
+	if reasoning["enabled"] != true {
+		t.Fatalf("reasoning = %#v", reasoning)
+	}
+}
+
 func TestPromptCacheControlMarksSystemAndLastThreeChatMessages(t *testing.T) {
 	var body map[string]any
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -324,5 +352,39 @@ func TestPromptCacheControlMarksSystemAndLastThreeChatMessages(t *testing.T) {
 	}
 	if marked != 4 {
 		t.Fatalf("cache_control marked messages = %d body=%#v", marked, body)
+	}
+}
+
+func TestOpenRouterResponseCacheHeaders(t *testing.T) {
+	var headers http.Header
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		headers = r.Header.Clone()
+		w.Header().Set("Content-Type", "text/event-stream")
+		fmt.Fprint(w, "data: [DONE]\n\n")
+	}))
+	defer srv.Close()
+	c := New(provider.Config{
+		Name: "openrouter", BaseURL: srv.URL, APIKey: "k",
+		Extra: map[string]any{
+			"response_cache":       true,
+			"response_cache_ttl":   90000,
+			"response_cache_clear": true,
+		},
+	})
+	c.HTTPClient = srv.Client()
+	chunks, errs := c.StreamChat(context.Background(), nil, provider.StreamOptions{Model: "anthropic/claude-sonnet-4.5"})
+	for range chunks {
+	}
+	if err := <-errs; err != nil {
+		t.Fatal(err)
+	}
+	if headers.Get("X-OpenRouter-Cache") != "true" {
+		t.Fatalf("X-OpenRouter-Cache = %q", headers.Get("X-OpenRouter-Cache"))
+	}
+	if headers.Get("X-OpenRouter-Cache-TTL") != "86400" {
+		t.Fatalf("X-OpenRouter-Cache-TTL = %q", headers.Get("X-OpenRouter-Cache-TTL"))
+	}
+	if headers.Get("X-OpenRouter-Cache-Clear") != "true" {
+		t.Fatalf("X-OpenRouter-Cache-Clear = %q", headers.Get("X-OpenRouter-Cache-Clear"))
 	}
 }

@@ -162,20 +162,30 @@ or the embedded template environment variables:
 | `XAI_REASONING_EFFORT` | `xai`, `xai-oauth` | Sent only to Grok models that accept `reasoning.effort`. |
 | `KIMI_REASONING_EFFORT`, `KIMI_CN_REASONING_EFFORT` | `kimi-coding`, `kimi-coding-cn` | Top-level Chat Completions `reasoning_effort`; defaults to `medium`. |
 | `DEEPSEEK_REASONING_EFFORT` | `deepseek` | Sent only for DeepSeek thinking-capable models; `xhigh` maps to `max`. |
+| `TOGETHER_REASONING_EFFORT` | `together` | Maps to Together's `reasoning.enabled` payload. |
 | `TOKENHUB_REASONING_EFFORT`, `LM_REASONING_EFFORT` | `tencent-tokenhub`, `lmstudio` | Top-level Chat Completions `reasoning_effort`. |
+| `GOOGLE_CACHE_RETENTION` | `google` | `short` by default for Gemini 2.5/3; creates/refreshes native Google `cachedContents`. |
+| `OPENAI_RESPONSES_SERVER_COMPACTION` | `openai-responses` | Enables OpenAI Responses `context_management` compaction hints. |
+| `OPENAI_RESPONSES_COMPACT_THRESHOLD` | `openai-responses` | Optional `context_management.compact_threshold`; defaults to 70% of context. |
+| `OPENAI_PROMPT_CACHE_KEY` | `openai-responses` | Defaults to `{session_id}`; supports `{model}` and `{provider}` templates. |
+| `OPENAI_PROMPT_CACHE_RETENTION` | `openai-responses` | Optional upstream `prompt_cache_retention`. |
 
 OpenAI-chat providers can also use Anthropic-style `cache_control`
 breakpoints when the upstream supports them. AgentBridge auto-enables this
 for OpenRouter/Nous Claude routes and Qwen routes through Alibaba/OpenCode/Nous.
 For a custom OpenAI-compatible provider, set `extra.prompt_cache: on`; set
 `extra.prompt_cache_ttl: 1h` when the upstream supports the longer TTL.
+OpenRouter response caching can be controlled with provider `extra` keys
+`response_cache`, `response_cache_ttl`, and `response_cache_clear`, which map
+to the `X-OpenRouter-Cache*` request headers.
 
 HTTP `/v1/chat/completions`, `/v1/responses`, Anthropic-compatible `/v1/messages`,
 and A2A calls can also pass `metadata.prompt_cache_key`,
+`metadata.prompt_cache_retention`, `metadata.cache_retention`,
 `metadata.service_tier`, `metadata.reasoning_effort`, or a session id
 (`metadata.session_id`, `sessionId`, or `thread_id`) for per-request routing.
-`/v1/responses` additionally maps its top-level `prompt_cache_key` into the
-provider request.
+`/v1/responses` additionally maps its top-level `prompt_cache_key` and
+`prompt_cache_retention` into the provider request.
 
 ## Embedding Model Mapping
 
