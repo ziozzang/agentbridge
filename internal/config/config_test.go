@@ -162,12 +162,36 @@ func TestLoadEmbeddedCodexWebSearchDefaults(t *testing.T) {
 	if cfg.Extra["web_search"] != "cached" {
 		t.Fatalf("web_search = %#v", cfg.Extra["web_search"])
 	}
+	if cfg.Extra["compaction"] != "responses_compact" || cfg.Extra["compact_path"] != "/responses/compact" {
+		t.Fatalf("codex compaction defaults = %#v", cfg.Extra)
+	}
 	tools, ok := cfg.Extra["tools"].(map[string]any)
 	if !ok {
 		t.Fatalf("tools = %#v", cfg.Extra["tools"])
 	}
 	if _, ok := tools["web_search"].(map[string]any); !ok {
 		t.Fatalf("tools.web_search = %#v", tools["web_search"])
+	}
+}
+
+func TestLoadEmbeddedOpenAIResponsesCompactionDefaults(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(t.TempDir(), "missing"))
+	_ = os.Unsetenv("ACP_HARNESS_PROVIDERS_FILE")
+	t.Setenv("OPENAI_COMPACTION", "")
+
+	m, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := m.Resolve("openai-responses")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Extra["responses_path"] != "/v1/responses" {
+		t.Fatalf("responses_path = %#v", cfg.Extra["responses_path"])
+	}
+	if cfg.Extra["compaction"] != "responses_compact" || cfg.Extra["compact_path"] != "/v1/responses/compact" {
+		t.Fatalf("openai responses compaction defaults = %#v", cfg.Extra)
 	}
 }
 

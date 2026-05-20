@@ -60,6 +60,10 @@ providers:
     default_model: ${OPENAI_MODEL:-gpt-5}
     max_tokens: 4096
     context_window: 400000
+    extra:
+      responses_path: ${OPENAI_RESPONSES_PATH:-/v1/responses}
+      compaction: ${OPENAI_COMPACTION:-responses_compact}
+      compact_path: ${OPENAI_COMPACT_PATH:-/v1/responses/compact}
     models:
       - id: gpt-5
         name: GPT-5

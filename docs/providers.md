@@ -221,6 +221,15 @@ AGENTBRIDGE_MODEL=gpt-4.1-mini \
 agentbridge
 ```
 
+OpenAI Responses native conversation compaction is enabled by default via
+`/v1/responses/compact`, matching Codex's remote-compaction capability for
+OpenAI-family Responses providers. Override or disable it with:
+
+```bash
+OPENAI_COMPACTION=disabled AGENTBRIDGE_PROVIDER=openai-responses agentbridge
+OPENAI_COMPACT_PATH=/v1/responses/compact AGENTBRIDGE_PROVIDER=openai-responses agentbridge
+```
+
 Anthropic:
 
 ```bash
@@ -274,6 +283,11 @@ Codex native conversation compaction is enabled by default via the
 CODEX_COMPACTION=disabled AGENTBRIDGE_PROVIDER=codex agentbridge
 CODEX_COMPACT_PATH=/responses/compact AGENTBRIDGE_PROVIDER=codex agentbridge
 ```
+
+Hermes/OpenAI Codex source currently treats native remote compaction as
+available for OpenAI and Azure Responses providers. xAI/Grok also uses a
+Responses-shaped transport in Hermes, but is not marked as remote-compaction
+capable there, so AgentBridge leaves xAI on the generic summary fallback.
 
 Codex-style native web search is enabled for the Codex provider by default in
 cached mode, matching Codex CLI's current default. Override it with:
