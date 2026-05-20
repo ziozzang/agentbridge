@@ -485,6 +485,17 @@ providers:
     max_tokens: 8192
     context_window: 128000
 
+  # --------- Model router -------------------------------------------------
+  # LiteLLM-style frontend. Select AGENTBRIDGE_PROVIDER=router, then choose
+  # backends by model name. Routes are intentionally external so model/backend
+  # mappings do not have to be hardcoded in AgentBridge.
+  router:
+    kind: router
+    default_model: ${AGENTBRIDGE_ROUTER_MODEL:-}
+    context_window: 200000
+    extra:
+      routes_file: ${AGENTBRIDGE_ROUTER_FILE:-}
+
   # --------- LiteLLM proxy (OpenAI-compatible) ---------------------------
   litellm:
     kind: openai-chat

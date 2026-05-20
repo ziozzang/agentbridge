@@ -39,6 +39,7 @@ import (
 	_ "github.com/ziozzang/agentbridge/internal/provider/ollama"     // register ollama
 	_ "github.com/ziozzang/agentbridge/internal/provider/openaichat" // register openai-chat
 	_ "github.com/ziozzang/agentbridge/internal/provider/openairesp" // register openai-responses
+	_ "github.com/ziozzang/agentbridge/internal/provider/router"     // register model router
 	"github.com/ziozzang/agentbridge/internal/tools/definitions"
 	"github.com/ziozzang/agentbridge/internal/tools/executor"
 	"github.com/ziozzang/agentbridge/internal/tools/sessionmcp"

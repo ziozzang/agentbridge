@@ -78,28 +78,49 @@ func Load() (*Manifest, error) {
 	}
 	out := &Manifest{Providers: map[string]provider.Config{}}
 	for name, p := range raw.Providers {
-		cfg := provider.Config{
-			Name:          name,
-			Kind:          p.Kind,
-			BaseURL:       p.BaseURL,
-			APIKey:        p.APIKey,
-			AuthHeader:    p.AuthHeader,
-			AuthPrefix:    p.AuthPrefix,
-			DefaultModel:  p.DefaultModel,
-			MaxTokens:     p.MaxTokens,
-			ContextWindow: p.ContextWindow,
-			Thinking:      p.Thinking,
-			Headers:       p.Headers,
-			Extra:         p.Extra,
+		out.Providers[name] = convertProvider(name, p)
+	}
+	for name, cfg := range out.Providers {
+		if cfg.Kind != "router" {
+			continue
 		}
-		for _, m := range p.Models {
-			cfg.Models = append(cfg.Models, provider.ModelInfo{
-				ModelID: m.ID, Name: m.Name, Description: m.Description,
-			})
+		if cfg.Extra == nil {
+			cfg.Extra = map[string]any{}
 		}
+		providers := map[string]provider.Config{}
+		for nestedName, nested := range out.Providers {
+			if nestedName == name {
+				continue
+			}
+			providers[nestedName] = applyPerProviderOverrides(nestedName, nested)
+		}
+		cfg.Extra["_providers"] = providers
 		out.Providers[name] = cfg
 	}
 	return out, nil
+}
+
+func convertProvider(name string, p rawProvider) provider.Config {
+	cfg := provider.Config{
+		Name:          name,
+		Kind:          p.Kind,
+		BaseURL:       p.BaseURL,
+		APIKey:        p.APIKey,
+		AuthHeader:    p.AuthHeader,
+		AuthPrefix:    p.AuthPrefix,
+		DefaultModel:  p.DefaultModel,
+		MaxTokens:     p.MaxTokens,
+		ContextWindow: p.ContextWindow,
+		Thinking:      p.Thinking,
+		Headers:       p.Headers,
+		Extra:         p.Extra,
+	}
+	for _, m := range p.Models {
+		cfg.Models = append(cfg.Models, provider.ModelInfo{
+			ModelID: m.ID, Name: m.Name, Description: m.Description,
+		})
+	}
+	return cfg
 }
 
 func readMergedYAML() ([]byte, error) {
@@ -110,13 +131,25 @@ func readMergedYAML() ([]byte, error) {
 		return nil, fmt.Errorf("config: embedded defaults: %w", err)
 	}
 
-	for _, user := range userProvidersPaths() {
+	for _, user := range userConfigPaths() {
 		if data, err := os.ReadFile(user); err == nil {
 			var u map[string]any
 			if err := yaml.Unmarshal(data, &u); err == nil {
 				deepMerge(merged, u)
 			}
 		}
+	}
+
+	if override := envFirst("AGENTBRIDGE_CONFIG_FILE", "ACP_HARNESS_CONFIG_FILE"); override != "" {
+		data, err := os.ReadFile(override)
+		if err != nil {
+			return nil, fmt.Errorf("config: open %s: %w", override, err)
+		}
+		var u map[string]any
+		if err := yaml.Unmarshal(data, &u); err != nil {
+			return nil, fmt.Errorf("config: parse %s: %w", override, err)
+		}
+		deepMerge(merged, u)
 	}
 
 	// Override file from env
@@ -139,16 +172,20 @@ func readMergedYAML() ([]byte, error) {
 	return out, nil
 }
 
-func userProvidersPaths() []string {
+func userConfigPaths() []string {
 	if h := os.Getenv("XDG_CONFIG_HOME"); h != "" {
 		return []string{
+			filepath.Join(h, "agentbridge", "config.yaml"),
 			filepath.Join(h, "agentbridge", "providers.yaml"),
+			filepath.Join(h, "acp-harness", "config.yaml"),
 			filepath.Join(h, "acp-harness", "providers.yaml"),
 		}
 	}
 	if h, err := os.UserHomeDir(); err == nil {
 		return []string{
+			filepath.Join(h, ".config", "agentbridge", "config.yaml"),
 			filepath.Join(h, ".config", "agentbridge", "providers.yaml"),
+			filepath.Join(h, ".config", "acp-harness", "config.yaml"),
 			filepath.Join(h, ".config", "acp-harness", "providers.yaml"),
 		}
 	}
@@ -282,13 +319,18 @@ func (m *Manifest) Resolve(name string) (provider.Config, error) {
 	if v := envFirst("AGENTBRIDGE_API_KEY", "ACP_HARNESS_API_KEY"); v != "" {
 		cfg.APIKey = v
 	}
+	cfg = applyPerProviderOverrides(name, cfg)
+	return cfg, nil
+}
+
+func applyPerProviderOverrides(name string, cfg provider.Config) provider.Config {
 	// Per-provider key override: AGENTBRIDGE_<UPPER>_API_KEY, with
 	// ACP_HARNESS_<UPPER>_API_KEY retained as an alias.
 	suffix := strings.ToUpper(strings.NewReplacer("-", "_").Replace(name)) + "_API_KEY"
 	if v := envFirst("AGENTBRIDGE_"+suffix, "ACP_HARNESS_"+suffix); v != "" {
 		cfg.APIKey = v
 	}
-	return cfg, nil
+	return cfg
 }
 
 func envFirst(names ...string) string {

@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/ziozzang/agentbridge/internal/provider"
 )
 
 func TestLoadEmbeddedDefaults(t *testing.T) {
@@ -49,6 +51,7 @@ func TestLoadEmbeddedDefaults(t *testing.T) {
 		"opencode-go",
 		"opencode-zen",
 		"openrouter",
+		"router",
 		"stepfun",
 		"tencent-tokenhub",
 		"xai",
@@ -208,6 +211,29 @@ func TestHermesDerivedProviderDefaults(t *testing.T) {
 	}
 }
 
+func TestRouterProviderReceivesNestedProviderConfigs(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(t.TempDir(), "missing"))
+	_ = os.Unsetenv("ACP_HARNESS_PROVIDERS_FILE")
+	m, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := m.Resolve("router")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Kind != "router" {
+		t.Fatalf("kind = %q", cfg.Kind)
+	}
+	providers, ok := cfg.Extra["_providers"].(map[string]provider.Config)
+	if !ok {
+		t.Fatalf("nested providers missing: %#v", cfg.Extra["_providers"])
+	}
+	if providers["zai"].Kind != "openai-chat" || providers["xai"].Kind != "openai-responses" {
+		t.Fatalf("bad nested providers: zai=%+v xai=%+v", providers["zai"], providers["xai"])
+	}
+}
+
 func TestResolveAppliesEnvOverrides(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(t.TempDir(), "missing"))
 	_ = os.Unsetenv("ACP_HARNESS_PROVIDERS_FILE")
@@ -285,6 +311,41 @@ func TestUserProvidersFileOverride(t *testing.T) {
 	}
 	if custom.Kind != "openai-chat" || custom.BaseURL != "https://example.com/v1" || custom.DefaultModel != "my-model" {
 		t.Errorf("user provider not loaded: %+v", custom)
+	}
+}
+
+func TestUserConfigFileOverride(t *testing.T) {
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "agentbridge")
+	_ = os.MkdirAll(cfgPath, 0o755)
+	override := `providers:
+  router:
+    default_model: routed-model
+    extra:
+      routes:
+        - match: routed-model
+          provider: glm
+          target_model: glm-5.1
+`
+	if err := os.WriteFile(filepath.Join(cfgPath, "config.yaml"), []byte(override), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("XDG_CONFIG_HOME", dir)
+	_ = os.Unsetenv("ACP_HARNESS_PROVIDERS_FILE")
+	m, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := m.Resolve("router")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.DefaultModel != "routed-model" {
+		t.Fatalf("router default model = %q", cfg.DefaultModel)
+	}
+	routes, ok := cfg.Extra["routes"].([]any)
+	if !ok || len(routes) != 1 {
+		t.Fatalf("routes = %#v", cfg.Extra["routes"])
 	}
 }
 

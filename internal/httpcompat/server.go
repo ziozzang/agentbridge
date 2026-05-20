@@ -33,6 +33,7 @@ import (
 	_ "github.com/ziozzang/agentbridge/internal/provider/ollama"
 	_ "github.com/ziozzang/agentbridge/internal/provider/openaichat"
 	_ "github.com/ziozzang/agentbridge/internal/provider/openairesp"
+	_ "github.com/ziozzang/agentbridge/internal/provider/router"
 )
 
 // NewHandler returns an HTTP handler for OpenAI/Anthropic-style compatibility

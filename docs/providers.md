@@ -121,6 +121,70 @@ tools can also be exposed directly through MCP `POST /mcp` and `/v1/mcp`.
 | `plugin:sqlite` | local filesystem | SQLite catalog/query | `sqlite_list`, `sqlite_load`, `sqlite_unload`, `sqlite_tables`, `sqlite_schema`, `sqlite_query`, `sqlite_exec` when enabled |
 | `plugin:duckdb` | local process | Reserved placeholder | `duckdb_status` |
 
+## Model Router
+
+`router` is a LiteLLM-style provider frontend. AgentBridge does not hardcode
+router model mappings; keep them in `config.yaml`, `router.yaml`, or another
+file selected with `AGENTBRIDGE_ROUTER_FILE`. Select the router once, then
+route by the requested model name:
+
+```bash
+AGENTBRIDGE_PROVIDER=router agentbridge --http-listen 127.0.0.1:8766
+```
+
+Put routes in `$XDG_CONFIG_HOME/agentbridge/config.yaml`:
+
+```yaml
+providers:
+  router:
+    kind: router
+    default_model: ollama/gpt-oss:120b
+    extra:
+      routes:
+        - match: ollama/*
+          provider: ollama-cloud
+          target_model: "$1"
+          api_key_envs:
+            - OLLAMA_API_KEY_A
+            - OLLAMA_API_KEY_B
+        - match: grok
+          provider: xai
+          target_model: grok-4.3
+        - match: zai:*
+          provider: zai
+          target_model: "$1"
+```
+
+For the `ollama/*` route above, calls to `model=ollama/gpt-oss:120b` use
+`target_model=gpt-oss:120b` and rotate keys as
+`OLLAMA_API_KEY_A`, `OLLAMA_API_KEY_B`, `OLLAMA_API_KEY_A`, and so on. Use
+`api_keys` only for local/private files; prefer `api_key_envs` so secrets do
+not enter version control.
+
+Routes can also live in `$XDG_CONFIG_HOME/agentbridge/router.yaml`,
+`router.json`, or a file selected by `AGENTBRIDGE_ROUTER_FILE`:
+
+```bash
+AGENTBRIDGE_PROVIDER=router \
+AGENTBRIDGE_ROUTER_FILE=$XDG_CONFIG_HOME/agentbridge/router.yaml \
+agentbridge
+```
+
+```yaml
+default_model: ollama/gpt-oss:120b
+routes:
+  - match: ollama/*
+    provider: ollama-cloud
+    target_model: "$1"
+    api_key_envs: [OLLAMA_API_KEY_A, OLLAMA_API_KEY_B]
+  - match: grok
+    provider: xai
+    target_model: grok-4.3
+  - match: zai:*
+    provider: zai
+    target_model: "$1"
+```
+
 ## Examples
 
 OpenAI:
