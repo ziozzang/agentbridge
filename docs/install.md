@@ -59,6 +59,28 @@ stdio. Each accepted connection gets an independent agent instance.
 connections and defaults to half of `--pool-size`; once both active and
 queued capacity are full, new TCP connections are closed.
 
+## HTTP compatibility API
+
+If you need an HTTP API instead of ACP JSON-RPC, start a separate HTTP
+listener:
+
+```bash
+ACP_HARNESS_PROVIDER=ollama \
+OLLAMA_BASE_URL=https://ollama.com \
+OLLAMA_MODEL=gpt-oss:120b \
+./glm-acp-agent --http-listen 127.0.0.1:8766
+```
+
+The HTTP listener supports:
+
+- `POST /v1/chat/completions`
+- `POST /v1/responses`
+- `POST /v1/messages`
+
+The same paths are also accepted without the `/v1` prefix. The endpoints
+use the same configured provider as ACP mode and return OpenAI/Anthropic
+compatible response shapes.
+
 ## First-time setup
 
 ```bash

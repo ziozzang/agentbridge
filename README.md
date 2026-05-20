@@ -78,6 +78,16 @@ limits active connections. `--wait-size` limits queued connections and
 defaults to half of `--pool-size`; connections beyond that queue are
 rejected.
 
+You can also expose HTTP compatibility endpoints on a separate listener:
+
+```bash
+./glm-acp-agent --http-listen 127.0.0.1:8766
+```
+
+Supported routes are `/v1/chat/completions`, `/v1/responses`, and
+`/v1/messages` (plus the same paths without `/v1`). They use the same
+active provider configuration as ACP server mode.
+
 ## Documentation
 
 | Topic | Doc |

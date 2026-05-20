@@ -22,14 +22,17 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"net/http"
 	"os"
 	"os/signal"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/ziozzang/glm-acp/internal/acp"
 	"github.com/ziozzang/glm-acp/internal/agent"
 	"github.com/ziozzang/glm-acp/internal/credentials"
+	"github.com/ziozzang/glm-acp/internal/httpcompat"
 	"github.com/ziozzang/glm-acp/internal/logger"
 	"github.com/ziozzang/glm-acp/internal/protocol/sessionstore"
 )
@@ -46,6 +49,7 @@ Server flags:
   --listen ADDR              TCP listen address (default "127.0.0.1:8765")
   --pool-size N              max concurrent TCP ACP connections (default 4)
   --wait-size N              max queued TCP ACP connections (default pool-size/2)
+  --http-listen ADDR         optional HTTP compatibility API listen address
 
 Environment:
   Z_AI_API_KEY               (required for chat) Z.AI Coding Plan API key
@@ -68,6 +72,7 @@ func main() {
 	listenFlag := flag.String("listen", "127.0.0.1:8765", "TCP listen address for --server")
 	poolSizeFlag := flag.Int("pool-size", 4, "max concurrent TCP ACP connections for --server")
 	waitSizeFlag := flag.Int("wait-size", -1, "max queued TCP ACP connections for --server; default is pool-size/2")
+	httpListenFlag := flag.String("http-listen", "", "HTTP compatibility API listen address")
 	flag.Usage = func() { fmt.Fprint(os.Stderr, usage) }
 	flag.Parse()
 
@@ -86,10 +91,10 @@ func main() {
 		}
 		return
 	}
-	if *serverFlag {
+	if *serverFlag || *httpListenFlag != "" {
 		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 		defer stop()
-		if err := runServer(ctx, *listenFlag, *poolSizeFlag, *waitSizeFlag); err != nil {
+		if err := runServers(ctx, *serverFlag, *listenFlag, *poolSizeFlag, *waitSizeFlag, *httpListenFlag); err != nil {
 			fmt.Fprintln(os.Stderr, "server terminated:", err)
 			os.Exit(1)
 		}
@@ -125,6 +130,44 @@ func runServer(ctx context.Context, addr string, poolSize, waitSize int) error {
 	}
 	defer ln.Close()
 	return serveListener(ctx, ln, poolSize, waitSize)
+}
+
+func runServers(ctx context.Context, tcpEnabled bool, tcpAddr string, poolSize, waitSize int, httpAddr string) error {
+	if httpAddr == "" {
+		return runServer(ctx, tcpAddr, poolSize, waitSize)
+	}
+	errCh := make(chan error, 2)
+	if tcpEnabled {
+		go func() { errCh <- runServer(ctx, tcpAddr, poolSize, waitSize) }()
+	}
+	go func() { errCh <- runHTTPServer(ctx, httpAddr) }()
+	if !tcpEnabled {
+		return <-errCh
+	}
+	select {
+	case <-ctx.Done():
+		return nil
+	case err := <-errCh:
+		return err
+	}
+}
+
+func runHTTPServer(ctx context.Context, addr string) error {
+	if err := logger.Configure(); err != nil {
+		fmt.Fprintln(os.Stderr, "logger init failed:", err)
+	}
+	srv := &http.Server{Addr: addr, Handler: httpcompat.NewHandler()}
+	go func() {
+		<-ctx.Done()
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_ = srv.Shutdown(shutdownCtx)
+	}()
+	err := srv.ListenAndServe()
+	if err != nil && err != http.ErrServerClosed {
+		return err
+	}
+	return nil
 }
 
 func serveListener(ctx context.Context, ln net.Listener, poolSize, waitSize int) error {
