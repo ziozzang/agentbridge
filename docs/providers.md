@@ -239,6 +239,12 @@ AGENTBRIDGE_MODEL=claude-sonnet-4-5 \
 agentbridge
 ```
 
+Anthropic prompt caching is enabled by default for the native Anthropic
+adapter. AgentBridge marks the system prompt plus the last three non-system
+messages with `cache_control`, matching the Hermes `system_and_3` strategy.
+Use `ANTHROPIC_PROMPT_CACHE=off` to disable it, or
+`ANTHROPIC_PROMPT_CACHE_TTL=1h` for the longer ephemeral TTL.
+
 GLM/Z.AI:
 
 ```bash
@@ -289,6 +295,13 @@ available for OpenAI and Azure Responses providers. xAI/Grok also uses a
 Responses-shaped transport in Hermes, but is not marked as remote-compaction
 capable there, so AgentBridge leaves xAI on the generic summary fallback.
 
+Codex prompt caching follows the current session by default:
+`CODEX_PROMPT_CACHE_KEY` defaults to `{session_id}` and can also interpolate
+`{model}` and `{provider}`. Reasoning defaults to
+`CODEX_REASONING_EFFORT=medium` with `CODEX_REASONING_SUMMARY=auto`, and
+encrypted reasoning content is requested so multi-turn Codex sessions can
+reuse provider-private reasoning state.
+
 Codex-style native web search is enabled for the Codex provider by default in
 cached mode, matching Codex CLI's current default. Override it with:
 
@@ -337,6 +350,12 @@ xAI Grok OAuth:
 ```bash
 AGENTBRIDGE_PROVIDER=xai-oauth agentbridge
 ```
+
+xAI Responses requests also use a session-scoped `prompt_cache_key` by
+default. `XAI_REASONING_EFFORT` is sent only to Grok models known to accept
+the `reasoning.effort` field; for other Grok models AgentBridge omits the
+field to avoid xAI HTTP 400 responses while still letting the model reason
+natively.
 
 AgentBridge expects Grok OAuth credentials in `~/.grok/auth.json`. The file
 uses the Hermes-compatible provider entry shape:

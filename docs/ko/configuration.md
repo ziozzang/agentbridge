@@ -145,6 +145,30 @@ override도 지원합니다.
 - `AGENTBRIDGE_COMPACTION_KEEP_RECENT_TOKENS`
 - `AGENTBRIDGE_COMPACTION_RESERVE_TOKENS`
 
+## Provider Cache / Reasoning 옵션
+
+Hermes에서 가져온 provider별 knob는 provider `extra` 또는 내장 template의 환경
+변수로 설정할 수 있습니다.
+
+| 변수 | Provider | 용도 |
+| --- | --- | --- |
+| `ANTHROPIC_PROMPT_CACHE` | `anthropic` | 기본값 `on`; Anthropic `cache_control` breakpoint를 주입합니다. |
+| `ANTHROPIC_PROMPT_CACHE_TTL` | `anthropic` | 기본값 `5m`; `1h`로 설정하면 더 긴 ephemeral cache TTL을 씁니다. |
+| `CODEX_PROMPT_CACHE_KEY` | `codex` | 기본값 `{session_id}`; `{model}`, `{provider}` template도 지원합니다. |
+| `CODEX_REASONING_EFFORT` | `codex` | 기본값 `medium`. |
+| `CODEX_REASONING_SUMMARY` | `codex` | 기본값 `auto`. |
+| `XAI_PROMPT_CACHE_KEY` | `xai`, `xai-oauth` | 기본값 `{session_id}`. |
+| `XAI_REASONING_EFFORT` | `xai`, `xai-oauth` | `reasoning.effort`를 받는 Grok model에만 전송합니다. |
+| `KIMI_REASONING_EFFORT`, `KIMI_CN_REASONING_EFFORT` | `kimi-coding`, `kimi-coding-cn` | Chat Completions top-level `reasoning_effort`; 기본값 `medium`. |
+| `DEEPSEEK_REASONING_EFFORT` | `deepseek` | DeepSeek thinking-capable model에만 전송하며 `xhigh`는 `max`로 변환합니다. |
+| `TOKENHUB_REASONING_EFFORT`, `LM_REASONING_EFFORT` | `tencent-tokenhub`, `lmstudio` | Chat Completions top-level `reasoning_effort`. |
+
+HTTP `/v1/chat/completions`, `/v1/responses`, Anthropic 호환 `/v1/messages`,
+A2A 요청에서는 `metadata.prompt_cache_key`, `metadata.service_tier`,
+`metadata.reasoning_effort`, session id(`metadata.session_id`, `sessionId`,
+`thread_id`)를 넘겨 request별 라우팅에 사용할 수 있습니다. `/v1/responses`의
+top-level `prompt_cache_key`도 provider request로 전달됩니다.
+
 ## Embedding Model Mapping
 
 `openai_embed`는 여러 사용자-facing embedding alias를 서로 다른 OpenAI 호환

@@ -115,7 +115,8 @@ type respRequest struct {
 }
 
 type respReasoning struct {
-	Effort string `json:"effort,omitempty"`
+	Effort  string `json:"effort,omitempty"`
+	Summary string `json:"summary,omitempty"`
 }
 
 type respCompactRequest struct {
@@ -236,12 +237,12 @@ func (c *Client) StreamChat(ctx context.Context, messages []provider.Message, op
 			Tools:           c.requestTools(toolList),
 			ToolChoice:      "auto",
 			ParallelTools:   c.extraBool("parallel_tool_calls", false),
-			Reasoning:       c.reasoning(),
+			Reasoning:       c.reasoning(model, opts.ReasoningEffort, opts.ReasoningSummary),
 			Store:           c.extraBool("store", false),
 			Stream:          true,
 			Include:         c.includeFields(),
-			ServiceTier:     c.extraString("service_tier"),
-			PromptCacheKey:  c.extraString("prompt_cache_key"),
+			ServiceTier:     firstNonEmpty(opts.ServiceTier, c.extraString("service_tier")),
+			PromptCacheKey:  c.promptCacheKey(model, opts.SessionID, opts.PromptCacheKey),
 			MaxOutputTokens: c.maxOutputTokens(),
 		}
 		body, err := json.Marshal(req)
@@ -450,9 +451,9 @@ func (c *Client) CompactConversation(ctx context.Context, messages []provider.Me
 		Instructions:   instructions,
 		Tools:          c.requestTools(opts.Tools),
 		ParallelTools:  c.extraBool("parallel_tool_calls", false),
-		Reasoning:      c.reasoning(),
-		ServiceTier:    c.extraString("service_tier"),
-		PromptCacheKey: c.extraString("prompt_cache_key"),
+		Reasoning:      c.reasoning(model, opts.ReasoningEffort, opts.ReasoningSummary),
+		ServiceTier:    firstNonEmpty(opts.ServiceTier, c.extraString("service_tier")),
+		PromptCacheKey: c.promptCacheKey(model, opts.SessionID, opts.PromptCacheKey),
 	}
 	body, err := json.Marshal(req)
 	if err != nil {
@@ -520,12 +521,62 @@ func (c *Client) maxOutputTokens() int {
 	return c.cfg.MaxTokens
 }
 
-func (c *Client) reasoning() *respReasoning {
-	effort := c.extraString("reasoning_effort")
-	if effort == "" {
+func (c *Client) reasoning(model, effortOverride, summaryOverride string) *respReasoning {
+	effort := firstNonEmpty(strings.TrimSpace(effortOverride), c.extraString("reasoning_effort"))
+	summary := firstNonEmpty(strings.TrimSpace(summaryOverride), c.extraString("reasoning_summary"))
+	if effort == "" && summary == "" {
 		return nil
 	}
-	return &respReasoning{Effort: effort}
+	if c.isXAI() && effort != "" && !grokSupportsReasoningEffort(model) {
+		effort = ""
+	}
+	if effort == "" && summary == "" {
+		return nil
+	}
+	return &respReasoning{Effort: effort, Summary: summary}
+}
+
+func (c *Client) promptCacheKey(model, sessionID, override string) string {
+	tmpl := firstNonEmpty(strings.TrimSpace(override), c.extraString("prompt_cache_key"))
+	if tmpl == "" {
+		return ""
+	}
+	replacer := strings.NewReplacer(
+		"{session_id}", strings.TrimSpace(sessionID),
+		"${session_id}", strings.TrimSpace(sessionID),
+		"{model}", strings.TrimSpace(model),
+		"${model}", strings.TrimSpace(model),
+		"{provider}", c.Name(),
+		"${provider}", c.Name(),
+	)
+	key := strings.TrimSpace(replacer.Replace(tmpl))
+	if key == "" || key == "{session_id}" || key == "${session_id}" {
+		return ""
+	}
+	return key
+}
+
+func (c *Client) isXAI() bool {
+	name := strings.ToLower(c.Name())
+	base := strings.ToLower(c.cfg.BaseURL)
+	return strings.Contains(name, "xai") || strings.Contains(name, "x-ai") || strings.Contains(base, "api.x.ai")
+}
+
+func grokSupportsReasoningEffort(model string) bool {
+	name := strings.ToLower(strings.TrimSpace(model))
+	if name == "" {
+		return false
+	}
+	if strings.Contains(name, "/") {
+		parts := strings.Split(name, "/")
+		name = parts[len(parts)-1]
+	}
+	for _, prefix := range []string{"grok-3-mini", "grok-4.20-multi-agent", "grok-4.3"} {
+		if strings.HasPrefix(name, prefix) {
+			return true
+		}
+	}
+	return false
 }
 
 func (c *Client) includeFields() []string {

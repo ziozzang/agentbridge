@@ -108,6 +108,55 @@ func TestAnthropicContextOverflow(t *testing.T) {
 	}
 }
 
+func TestPromptCacheControlMarksSystemAndLastThreeMessages(t *testing.T) {
+	var body map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		w.Header().Set("Content-Type", "text/event-stream")
+		fmt.Fprint(w, `data: {"type":"message_stop"}`+"\n\n")
+	}))
+	defer srv.Close()
+	c := New(provider.Config{
+		BaseURL: srv.URL, APIKey: "k",
+		Extra: map[string]any{"prompt_cache": "on", "prompt_cache_ttl": "1h"},
+	})
+	c.HTTPClient = srv.Client()
+	chunks, errs := c.StreamChat(context.Background(), []provider.Message{
+		{Role: "system", Content: "S"},
+		{Role: "user", Content: "U1"},
+		{Role: "assistant", Content: "A1"},
+		{Role: "user", Content: "U2"},
+		{Role: "assistant", Content: "A2"},
+	}, provider.StreamOptions{Model: "claude-test"})
+	for range chunks {
+	}
+	if err := <-errs; err != nil {
+		t.Fatal(err)
+	}
+	system, _ := body["system"].([]any)
+	systemPart, _ := system[0].(map[string]any)
+	systemCache, _ := systemPart["cache_control"].(map[string]any)
+	if systemCache["type"] != "ephemeral" || systemCache["ttl"] != "1h" {
+		t.Fatalf("system cache_control = %#v", systemCache)
+	}
+	messages, _ := body["messages"].([]any)
+	marked := 0
+	for _, raw := range messages {
+		msg, _ := raw.(map[string]any)
+		content, _ := msg["content"].([]any)
+		if len(content) == 0 {
+			continue
+		}
+		part, _ := content[len(content)-1].(map[string]any)
+		if _, ok := part["cache_control"]; ok {
+			marked++
+		}
+	}
+	if marked != 3 {
+		t.Fatalf("marked message count = %d body=%#v", marked, body)
+	}
+}
+
 func TestTranslateAssistantToolCallsRoundTrip(t *testing.T) {
 	in := []provider.Message{
 		{Role: "system", Content: "S"},

@@ -107,7 +107,7 @@ func (c *Client) Config() provider.Config { return c.cfg }
 type messagesRequest struct {
 	Model     string       `json:"model"`
 	Messages  []anthroMsg  `json:"messages"`
-	System    string       `json:"system,omitempty"`
+	System    any          `json:"system,omitempty"`
 	Tools     []anthroTool `json:"tools,omitempty"`
 	MaxTokens int          `json:"max_tokens"`
 	Stream    bool         `json:"stream"`
@@ -121,13 +121,19 @@ type anthroMsg struct {
 // anthroPart covers the four content-block shapes we emit. The unused
 // fields stay zero and `omitempty` keeps the JSON tight.
 type anthroPart struct {
-	Type      string          `json:"type"`
-	Text      string          `json:"text,omitempty"`
-	ID        string          `json:"id,omitempty"`
-	Name      string          `json:"name,omitempty"`
-	Input     json.RawMessage `json:"input,omitempty"`
-	ToolUseID string          `json:"tool_use_id,omitempty"`
-	Content   string          `json:"content,omitempty"`
+	Type         string          `json:"type"`
+	Text         string          `json:"text,omitempty"`
+	ID           string          `json:"id,omitempty"`
+	Name         string          `json:"name,omitempty"`
+	Input        json.RawMessage `json:"input,omitempty"`
+	ToolUseID    string          `json:"tool_use_id,omitempty"`
+	Content      string          `json:"content,omitempty"`
+	CacheControl *cacheControl   `json:"cache_control,omitempty"`
+}
+
+type cacheControl struct {
+	Type string `json:"type"`
+	TTL  string `json:"ttl,omitempty"`
 }
 
 type anthroTool struct {
@@ -200,13 +206,14 @@ func (c *Client) StreamChat(ctx context.Context, messages []provider.Message, op
 		}
 
 		system, msgs := translateMessages(messages)
+		systemPayload, msgs := c.applyPromptCache(system, msgs)
 		logger.Debugf("%s.streamChat: model=%s msgs=%d tools=%d system=%d",
 			c.Name(), model, len(msgs), len(toolList), len(system))
 
 		req := messagesRequest{
 			Model:     model,
 			Messages:  msgs,
-			System:    system,
+			System:    systemPayload,
 			Tools:     translateTools(toolList),
 			MaxTokens: c.cfg.MaxTokens,
 			Stream:    true,
@@ -553,4 +560,51 @@ func firstNonEmpty(s ...string) string {
 		}
 	}
 	return ""
+}
+
+func (c *Client) applyPromptCache(system string, messages []anthroMsg) (any, []anthroMsg) {
+	mode := strings.ToLower(c.extraString("prompt_cache"))
+	if mode == "" {
+		mode = strings.ToLower(c.extraString("cache_control"))
+	}
+	if mode == "" || mode == "off" || mode == "false" || mode == "0" || mode == "disabled" {
+		if system == "" {
+			return nil, messages
+		}
+		return system, messages
+	}
+	marker := cacheControl{Type: "ephemeral"}
+	if c.extraString("prompt_cache_ttl") == "1h" || c.extraString("cache_control_ttl") == "1h" {
+		marker.TTL = "1h"
+	}
+	out := make([]anthroMsg, len(messages))
+	copy(out, messages)
+	breakpoints := 0
+	var systemPayload any
+	if system != "" {
+		systemPayload = []anthroPart{{Type: "text", Text: system, CacheControl: &marker}}
+		breakpoints++
+	}
+	remaining := 4 - breakpoints
+	for i := len(out) - 1; i >= 0 && remaining > 0; i-- {
+		if len(out[i].Content) == 0 {
+			continue
+		}
+		content := append([]anthroPart(nil), out[i].Content...)
+		content[len(content)-1].CacheControl = &marker
+		out[i].Content = content
+		remaining--
+	}
+	if systemPayload == nil && system != "" {
+		systemPayload = system
+	}
+	return systemPayload, out
+}
+
+func (c *Client) extraString(key string) string {
+	if c.cfg.Extra == nil {
+		return ""
+	}
+	v, _ := c.cfg.Extra[key].(string)
+	return strings.TrimSpace(v)
 }

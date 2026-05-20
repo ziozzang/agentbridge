@@ -262,6 +262,70 @@ func TestCodexStyleResponsesOptions(t *testing.T) {
 	}
 }
 
+func TestResponsesSessionCacheKeyAndReasoningSummary(t *testing.T) {
+	var gotBody map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewDecoder(r.Body).Decode(&gotBody)
+		w.Header().Set("Content-Type", "text/event-stream")
+		fmt.Fprintln(w, `data: {"type":"response.completed","response":{"status":"completed"}}`)
+		fmt.Fprintln(w)
+	}))
+	defer srv.Close()
+
+	c := New(provider.Config{
+		Name: "codex-test", BaseURL: srv.URL, APIKey: "key",
+		Extra: map[string]any{
+			"prompt_cache_key":  "sess-{session_id}-{model}",
+			"reasoning_effort":  "medium",
+			"reasoning_summary": "auto",
+		},
+	})
+	c.HTTPClient = srv.Client()
+	chunks, errs := c.StreamChat(context.Background(),
+		[]provider.Message{{Role: "user", Content: "hi"}},
+		provider.StreamOptions{Model: "gpt-5.5", SessionID: "thread-7"})
+	for range chunks {
+	}
+	if err := <-errs; err != nil {
+		t.Fatal(err)
+	}
+	if gotBody["prompt_cache_key"] != "sess-thread-7-gpt-5.5" {
+		t.Fatalf("prompt_cache_key = %#v", gotBody["prompt_cache_key"])
+	}
+	reasoning, _ := gotBody["reasoning"].(map[string]any)
+	if reasoning["effort"] != "medium" || reasoning["summary"] != "auto" {
+		t.Fatalf("reasoning = %#v", gotBody["reasoning"])
+	}
+}
+
+func TestXAIReasoningEffortOmittedForUnsupportedGrok(t *testing.T) {
+	var gotBody map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewDecoder(r.Body).Decode(&gotBody)
+		w.Header().Set("Content-Type", "text/event-stream")
+		fmt.Fprintln(w, `data: {"type":"response.completed","response":{"status":"completed"}}`)
+		fmt.Fprintln(w)
+	}))
+	defer srv.Close()
+
+	c := New(provider.Config{
+		Name: "xai", BaseURL: srv.URL, APIKey: "key",
+		Extra: map[string]any{"reasoning_effort": "medium"},
+	})
+	c.HTTPClient = srv.Client()
+	chunks, errs := c.StreamChat(context.Background(),
+		[]provider.Message{{Role: "user", Content: "hi"}},
+		provider.StreamOptions{Model: "grok-4"})
+	for range chunks {
+	}
+	if err := <-errs; err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := gotBody["reasoning"]; ok {
+		t.Fatalf("unsupported Grok should omit reasoning: %#v", gotBody["reasoning"])
+	}
+}
+
 func TestTranslateAssistantToolCalls(t *testing.T) {
 	in := []provider.Message{
 		{Role: "system", Content: "S"},

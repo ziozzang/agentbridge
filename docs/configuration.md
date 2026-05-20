@@ -147,6 +147,31 @@ overrides are also available:
 - `AGENTBRIDGE_COMPACTION_KEEP_RECENT_TOKENS`
 - `AGENTBRIDGE_COMPACTION_RESERVE_TOKENS`
 
+## Provider Cache And Reasoning Options
+
+Several Hermes-derived provider knobs are available through provider `extra`
+or the embedded template environment variables:
+
+| Variable | Provider | Purpose |
+| --- | --- | --- |
+| `ANTHROPIC_PROMPT_CACHE` | `anthropic` | `on` by default; injects Anthropic `cache_control` breakpoints. |
+| `ANTHROPIC_PROMPT_CACHE_TTL` | `anthropic` | `5m` by default; set `1h` for longer ephemeral cache TTL. |
+| `CODEX_PROMPT_CACHE_KEY` | `codex` | Defaults to `{session_id}`; supports `{model}` and `{provider}` templates. |
+| `CODEX_REASONING_EFFORT` | `codex` | Defaults to `medium`. |
+| `CODEX_REASONING_SUMMARY` | `codex` | Defaults to `auto`. |
+| `XAI_PROMPT_CACHE_KEY` | `xai`, `xai-oauth` | Defaults to `{session_id}`. |
+| `XAI_REASONING_EFFORT` | `xai`, `xai-oauth` | Sent only to Grok models that accept `reasoning.effort`. |
+| `KIMI_REASONING_EFFORT`, `KIMI_CN_REASONING_EFFORT` | `kimi-coding`, `kimi-coding-cn` | Top-level Chat Completions `reasoning_effort`; defaults to `medium`. |
+| `DEEPSEEK_REASONING_EFFORT` | `deepseek` | Sent only for DeepSeek thinking-capable models; `xhigh` maps to `max`. |
+| `TOKENHUB_REASONING_EFFORT`, `LM_REASONING_EFFORT` | `tencent-tokenhub`, `lmstudio` | Top-level Chat Completions `reasoning_effort`. |
+
+HTTP `/v1/chat/completions`, `/v1/responses`, Anthropic-compatible `/v1/messages`,
+and A2A calls can also pass `metadata.prompt_cache_key`,
+`metadata.service_tier`, `metadata.reasoning_effort`, or a session id
+(`metadata.session_id`, `sessionId`, or `thread_id`) for per-request routing.
+`/v1/responses` additionally maps its top-level `prompt_cache_key` into the
+provider request.
+
 ## Embedding Model Mapping
 
 `openai_embed` can route multiple user-facing embedding aliases to different

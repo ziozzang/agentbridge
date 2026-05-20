@@ -85,6 +85,8 @@ providers:
     context_window: 200000
     extra:
       anthropic_version: "2023-06-01"
+      prompt_cache: ${ANTHROPIC_PROMPT_CACHE:-on}
+      prompt_cache_ttl: ${ANTHROPIC_PROMPT_CACHE_TTL:-5m}
     models:
       - id: claude-opus-4-5
         name: Claude Opus 4.5
@@ -166,6 +168,8 @@ providers:
     context_window: 1000000
     extra:
       responses_path: ${XAI_RESPONSES_PATH:-/responses}
+      prompt_cache_key: ${XAI_PROMPT_CACHE_KEY:-{session_id}}
+      reasoning_effort: ${XAI_REASONING_EFFORT:-medium}
       service_tier: ${XAI_SERVICE_TIER:-}
     models:
       - id: grok-4.3
@@ -187,6 +191,8 @@ providers:
     context_window: 1000000
     extra:
       responses_path: ${XAI_RESPONSES_PATH:-/responses}
+      prompt_cache_key: ${XAI_PROMPT_CACHE_KEY:-{session_id}}
+      reasoning_effort: ${XAI_REASONING_EFFORT:-medium}
       service_tier: ${XAI_SERVICE_TIER:-}
     models:
       - id: grok-4.3
@@ -222,6 +228,8 @@ providers:
     default_model: ${KIMI_MODEL:-kimi-k2.6}
     max_tokens: 8192
     context_window: 256000
+    extra:
+      reasoning_effort: ${KIMI_REASONING_EFFORT:-medium}
     models:
       - id: kimi-k2.6
         name: Kimi K2.6
@@ -237,6 +245,8 @@ providers:
     default_model: ${KIMI_CN_MODEL:-kimi-k2.6}
     max_tokens: 8192
     context_window: 256000
+    extra:
+      reasoning_effort: ${KIMI_CN_REASONING_EFFORT:-medium}
     models:
       - id: kimi-k2.6
         name: Kimi K2.6
@@ -252,6 +262,8 @@ providers:
     default_model: ${DEEPSEEK_MODEL:-deepseek-chat}
     max_tokens: 8192
     context_window: 128000
+    extra:
+      reasoning_effort: ${DEEPSEEK_REASONING_EFFORT:-}
     models:
       - id: deepseek-chat
         name: DeepSeek Chat
@@ -462,6 +474,8 @@ providers:
     default_model: ${TOKENHUB_MODEL:-hy3-preview}
     max_tokens: 8192
     context_window: 128000
+    extra:
+      reasoning_effort: ${TOKENHUB_REASONING_EFFORT:-}
     models:
       - id: hy3-preview
         name: Hunyuan 3 Preview
@@ -488,6 +502,8 @@ providers:
     default_model: ${LM_MODEL:-local-model}
     max_tokens: 8192
     context_window: 128000
+    extra:
+      reasoning_effort: ${LM_REASONING_EFFORT:-}
 
   # --------- Model router -------------------------------------------------
   # LiteLLM-style frontend. Select AGENTBRIDGE_PROVIDER=router, then choose
@@ -526,8 +542,9 @@ providers:
       compaction: ${CODEX_COMPACTION:-responses_compact}
       compact_path: ${CODEX_COMPACT_PATH:-/responses/compact}
       instructions: ${CODEX_INSTRUCTIONS:-You are a concise coding assistant.}
-      prompt_cache_key: ${CODEX_PROMPT_CACHE_KEY:-agentbridge}
+      prompt_cache_key: ${CODEX_PROMPT_CACHE_KEY:-{session_id}}
       reasoning_effort: ${CODEX_REASONING_EFFORT:-medium}
+      reasoning_summary: ${CODEX_REASONING_SUMMARY:-auto}
       include_reasoning_encrypted: true
       omit_max_output_tokens: true
       service_tier: ${CODEX_SERVICE_TIER:-}

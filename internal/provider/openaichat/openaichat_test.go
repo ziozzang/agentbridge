@@ -216,3 +216,71 @@ func TestRequestDefaultsInjected(t *testing.T) {
 		t.Fatalf("defaults not injected: %#v", body)
 	}
 }
+
+func TestKimiReasoningEffortAndThinkingExtraBody(t *testing.T) {
+	var body map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		w.Header().Set("Content-Type", "text/event-stream")
+		fmt.Fprint(w, "data: [DONE]\n\n")
+	}))
+	defer srv.Close()
+	c := New(provider.Config{
+		Name: "kimi-coding", BaseURL: srv.URL, APIKey: "k",
+		Extra: map[string]any{"reasoning_effort": "high"},
+	})
+	c.HTTPClient = srv.Client()
+	chunks, errs := c.StreamChat(context.Background(), nil, provider.StreamOptions{Model: "kimi-k2.6"})
+	for range chunks {
+	}
+	if err := <-errs; err != nil {
+		t.Fatal(err)
+	}
+	if body["reasoning_effort"] != "high" {
+		t.Fatalf("reasoning_effort = %#v", body["reasoning_effort"])
+	}
+	extraBody, _ := body["extra_body"].(map[string]any)
+	thinking, _ := extraBody["thinking"].(map[string]any)
+	if thinking["type"] != "enabled" {
+		t.Fatalf("extra_body.thinking = %#v", extraBody["thinking"])
+	}
+}
+
+func TestDeepSeekReasoningOnlyForThinkingModels(t *testing.T) {
+	var bodies []map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		bodies = append(bodies, body)
+		w.Header().Set("Content-Type", "text/event-stream")
+		fmt.Fprint(w, "data: [DONE]\n\n")
+	}))
+	defer srv.Close()
+	c := New(provider.Config{
+		Name: "deepseek", BaseURL: srv.URL, APIKey: "k",
+		Extra: map[string]any{"reasoning_effort": "xhigh"},
+	})
+	c.HTTPClient = srv.Client()
+	chunks, errs := c.StreamChat(context.Background(), nil, provider.StreamOptions{Model: "deepseek-chat"})
+	for range chunks {
+	}
+	if err := <-errs; err != nil {
+		t.Fatal(err)
+	}
+	chunks, errs = c.StreamChat(context.Background(), nil, provider.StreamOptions{Model: "deepseek-reasoner"})
+	for range chunks {
+	}
+	if err := <-errs; err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := bodies[0]["reasoning_effort"]; ok {
+		t.Fatalf("deepseek-chat should not get reasoning_effort: %#v", bodies[0])
+	}
+	if bodies[1]["reasoning_effort"] != "max" {
+		t.Fatalf("deepseek-reasoner reasoning_effort = %#v", bodies[1]["reasoning_effort"])
+	}
+	extraBody, _ := bodies[1]["extra_body"].(map[string]any)
+	if extraBody["thinking"] == nil {
+		t.Fatalf("deepseek-reasoner missing extra_body.thinking: %#v", bodies[1])
+	}
+}

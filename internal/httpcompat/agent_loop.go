@@ -24,10 +24,14 @@ const (
 )
 
 type httpAgentOptions struct {
-	Enabled  bool
-	Model    string
-	Cwd      string
-	MaxTurns int
+	Enabled         bool
+	Model           string
+	Cwd             string
+	MaxTurns        int
+	SessionID       string
+	PromptCacheKey  string
+	ServiceTier     string
+	ReasoningEffort string
 }
 
 type noopAgentConn struct{}
@@ -45,7 +49,31 @@ func (h *handler) runProvider(ctx context.Context, model string, messages []prov
 	if agentOpts.Enabled {
 		return h.runAgentProvider(ctx, agentOpts, messages)
 	}
-	return RunProvider(ctx, model, messages)
+	chunks, errs, err := StreamProviderWithOptions(ctx, model, messages, provider.StreamOptions{
+		SessionID:       agentOpts.SessionID,
+		PromptCacheKey:  agentOpts.PromptCacheKey,
+		ServiceTier:     agentOpts.ServiceTier,
+		ReasoningEffort: agentOpts.ReasoningEffort,
+	})
+	if err != nil {
+		return "", provider.Usage{}, "", err
+	}
+	var b strings.Builder
+	var usage provider.Usage
+	var stop string
+	for ch := range chunks {
+		b.WriteString(ch.Text)
+		if ch.Usage != nil {
+			usage = *ch.Usage
+		}
+		if ch.StopReason != "" {
+			stop = ch.StopReason
+		}
+	}
+	if err := <-errs; err != nil {
+		return "", usage, stop, err
+	}
+	return b.String(), usage, stop, nil
 }
 
 func (h *handler) runAgentProvider(ctx context.Context, opts httpAgentOptions, messages []provider.Message) (string, provider.Usage, string, error) {
@@ -111,7 +139,14 @@ func (h *handler) runAgentProvider(ctx context.Context, opts httpAgentOptions, m
 				loopMessages = compacted
 			}
 		}
-		chunks, errs := p.StreamChat(ctx, loopMessages, provider.StreamOptions{Model: model, Tools: tools})
+		chunks, errs := p.StreamChat(ctx, loopMessages, provider.StreamOptions{
+			Model:           model,
+			Tools:           tools,
+			SessionID:       opts.SessionID,
+			PromptCacheKey:  opts.PromptCacheKey,
+			ServiceTier:     opts.ServiceTier,
+			ReasoningEffort: opts.ReasoningEffort,
+		})
 		var assistantText strings.Builder
 		var toolCalls []provider.ToolCall
 		streamStop := ""
@@ -365,6 +400,24 @@ func httpAgentOptionsFrom(model string, maps ...map[string]any) httpAgentOptions
 		}
 		if v := intMeta(m, "max_turns"); v > 0 {
 			opts.MaxTurns = v
+		}
+		if v := stringMeta(m, "session_id"); v != "" {
+			opts.SessionID = v
+		} else if v := stringMeta(m, "sessionId"); v != "" {
+			opts.SessionID = v
+		} else if v := stringMeta(m, "thread_id"); v != "" {
+			opts.SessionID = v
+		}
+		if v := stringMeta(m, "prompt_cache_key"); v != "" {
+			opts.PromptCacheKey = v
+		} else if v := stringMeta(m, "cache_key"); v != "" {
+			opts.PromptCacheKey = v
+		}
+		if v := stringMeta(m, "service_tier"); v != "" {
+			opts.ServiceTier = v
+		}
+		if v := stringMeta(m, "reasoning_effort"); v != "" {
+			opts.ReasoningEffort = v
 		}
 	}
 	return opts

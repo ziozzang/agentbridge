@@ -363,6 +363,9 @@ func (h *handler) chatCompletions(w http.ResponseWriter, r *http.Request) {
 	meta := newRequestMeta(r, req.commonRequest)
 	w.Header().Set("X-Request-Id", meta.RequestID)
 	agentOpts := httpAgentOptionsFrom(req.Model, req.Metadata)
+	if agentOpts.SessionID == "" {
+		agentOpts.SessionID = meta.RequestID
+	}
 	text, usage, stop, err := h.runProvider(r.Context(), req.Model, req.Messages, agentOpts)
 	if err != nil {
 		writeError(w, http.StatusBadGateway, err)
@@ -413,6 +416,12 @@ func (h *handler) responses(w http.ResponseWriter, r *http.Request) {
 	meta := newRequestMeta(r, req.commonRequest)
 	w.Header().Set("X-Request-Id", meta.RequestID)
 	agentOpts := httpAgentOptionsFrom(req.Model, req.Metadata)
+	if agentOpts.SessionID == "" {
+		agentOpts.SessionID = meta.RequestID
+	}
+	if req.PromptCacheKey != "" {
+		agentOpts.PromptCacheKey = req.PromptCacheKey
+	}
 	text, usage, stop, err := h.runProvider(r.Context(), req.Model, messages, agentOpts)
 	if err != nil {
 		writeError(w, http.StatusBadGateway, err)
@@ -513,6 +522,9 @@ func (h *handler) messages(w http.ResponseWriter, r *http.Request) {
 	meta := newRequestMeta(r, req.commonRequest)
 	w.Header().Set("X-Request-Id", meta.RequestID)
 	agentOpts := httpAgentOptionsFrom(req.Model, req.Metadata)
+	if agentOpts.SessionID == "" {
+		agentOpts.SessionID = meta.RequestID
+	}
 	text, usage, stop, err := h.runProvider(r.Context(), req.Model, req.Messages, agentOpts)
 	if err != nil {
 		writeError(w, http.StatusBadGateway, err)
@@ -596,6 +608,9 @@ func (h *handler) a2aSendMessage(ctx context.Context, params json.RawMessage) (*
 	})
 	model := a2aModel(req)
 	agentOpts := httpAgentOptionsFrom(model, req.Configuration, req.Metadata, msg.Metadata)
+	if agentOpts.SessionID == "" {
+		agentOpts.SessionID = firstNonEmpty(task.ContextID, task.TaskID)
+	}
 	text, _, _, err := h.runProvider(taskCtx, model, []provider.Message{{Role: "user", Content: a2aMessageText(msg)}}, agentOpts)
 	if err != nil {
 		h.updateA2ATask(task.TaskID, func(t *a2aTask) {
@@ -649,6 +664,9 @@ func (h *handler) a2aSendStreamingMessage(w http.ResponseWriter, r *http.Request
 
 	model := a2aModel(req)
 	agentOpts := httpAgentOptionsFrom(model, req.Configuration, req.Metadata, msg.Metadata)
+	if agentOpts.SessionID == "" {
+		agentOpts.SessionID = firstNonEmpty(task.ContextID, task.TaskID)
+	}
 	if agentOpts.Enabled {
 		text, _, _, err := h.runProvider(taskCtx, model, []provider.Message{{Role: "user", Content: a2aMessageText(msg)}}, agentOpts)
 		if err != nil {
@@ -671,7 +689,7 @@ func (h *handler) a2aSendStreamingMessage(w http.ResponseWriter, r *http.Request
 		writeA2ASSE(w, map[string]any{"statusUpdate": map[string]any{"taskId": task.TaskID, "contextId": task.ContextID, "status": newA2AStatus("TASK_STATE_COMPLETED", nil)}})
 		return
 	}
-	chunks, errs, err := StreamProvider(taskCtx, model, []provider.Message{{Role: "user", Content: a2aMessageText(msg)}})
+	chunks, errs, err := StreamProviderWithOptions(taskCtx, model, []provider.Message{{Role: "user", Content: a2aMessageText(msg)}}, provider.StreamOptions{SessionID: agentOpts.SessionID, PromptCacheKey: agentOpts.PromptCacheKey, ServiceTier: agentOpts.ServiceTier, ReasoningEffort: agentOpts.ReasoningEffort})
 	if err != nil {
 		h.finishA2AStreamWithError(w, task.TaskID, err)
 		return
@@ -864,7 +882,7 @@ func (h *handler) unregisterTaskCancel(taskID string) {
 }
 
 func RunProvider(ctx context.Context, model string, messages []provider.Message) (string, provider.Usage, string, error) {
-	chunks, errs, err := StreamProvider(ctx, model, messages)
+	chunks, errs, err := StreamProviderWithOptions(ctx, model, messages, provider.StreamOptions{})
 	if err != nil {
 		return "", provider.Usage{}, "", err
 	}
@@ -887,11 +905,16 @@ func RunProvider(ctx context.Context, model string, messages []provider.Message)
 }
 
 func StreamProvider(ctx context.Context, model string, messages []provider.Message) (<-chan provider.Chunk, <-chan error, error) {
+	return StreamProviderWithOptions(ctx, model, messages, provider.StreamOptions{})
+}
+
+func StreamProviderWithOptions(ctx context.Context, model string, messages []provider.Message, opts provider.StreamOptions) (<-chan provider.Chunk, <-chan error, error) {
 	p, err := buildProvider()
 	if err != nil {
 		return nil, nil, err
 	}
-	chunks, errs := p.StreamChat(ctx, messages, provider.StreamOptions{Model: model, Tools: nil})
+	opts.Model = firstNonEmpty(opts.Model, model)
+	chunks, errs := p.StreamChat(ctx, messages, opts)
 	return chunks, errs, nil
 }
 

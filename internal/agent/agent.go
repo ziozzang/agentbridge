@@ -663,7 +663,7 @@ func (a *Agent) Prompt(ctx context.Context, p acp.PromptParams) (acp.PromptRespo
 		// Sync the executor's mode so changes mid-turn take effect immediately.
 		exec.Mode = s.Mode
 
-		chunks, errs := a.streamChat(promptCtx, messages, glm.StreamOptions{Model: a.effectiveModel(s.Model), Tools: tools})
+		chunks, errs := a.streamChat(promptCtx, messages, glm.StreamOptions{Model: a.effectiveModel(s.Model), Tools: tools, SessionID: p.SessionID})
 
 		var assistantText, assistantThought string
 		var toolCalls []glm.ToolCall

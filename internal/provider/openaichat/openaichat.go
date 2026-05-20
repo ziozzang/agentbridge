@@ -92,13 +92,15 @@ func (c *Client) Config() provider.Config { return c.cfg }
 
 // chatRequest mirrors the OpenAI Chat Completions request shape.
 type chatRequest struct {
-	Model         string             `json:"model"`
-	Messages      []provider.Message `json:"messages"`
-	Tools         []definitions.Tool `json:"tools,omitempty"`
-	ToolChoice    string             `json:"tool_choice,omitempty"`
-	Stream        bool               `json:"stream"`
-	StreamOptions *streamOptions     `json:"stream_options,omitempty"`
-	MaxTokens     int                `json:"max_tokens,omitempty"`
+	Model           string             `json:"model"`
+	Messages        []provider.Message `json:"messages"`
+	Tools           []definitions.Tool `json:"tools,omitempty"`
+	ToolChoice      string             `json:"tool_choice,omitempty"`
+	Stream          bool               `json:"stream"`
+	StreamOptions   *streamOptions     `json:"stream_options,omitempty"`
+	MaxTokens       int                `json:"max_tokens,omitempty"`
+	ReasoningEffort string             `json:"reasoning_effort,omitempty"`
+	ExtraBody       map[string]any     `json:"extra_body,omitempty"`
 	// Thinking is a GLM-specific extension; included on every request when
 	// the provider is configured with cfg.Thinking != "".
 	Thinking *thinkingObj `json:"thinking,omitempty"`
@@ -171,13 +173,15 @@ func (c *Client) StreamChat(ctx context.Context, messages []provider.Message, op
 			c.Name(), model, c.cfg.BaseURL, len(messages), len(toolList))
 
 		req := chatRequest{
-			Model:         model,
-			Messages:      messages,
-			Tools:         toolList,
-			ToolChoice:    "auto",
-			Stream:        true,
-			StreamOptions: &streamOptions{IncludeUsage: true},
-			MaxTokens:     c.cfg.MaxTokens,
+			Model:           model,
+			Messages:        messages,
+			Tools:           toolList,
+			ToolChoice:      "auto",
+			Stream:          true,
+			StreamOptions:   &streamOptions{IncludeUsage: true},
+			MaxTokens:       c.cfg.MaxTokens,
+			ReasoningEffort: c.reasoningEffort(model, opts.ReasoningEffort),
+			ExtraBody:       c.extraBody(model),
 		}
 		if c.cfg.Thinking != "" {
 			req.Thinking = &thinkingObj{Type: c.cfg.Thinking}
@@ -335,6 +339,55 @@ func asMap(v any) map[string]any {
 		return m
 	}
 	return nil
+}
+
+func (c *Client) reasoningEffort(model, override string) string {
+	effort := firstNonEmpty(strings.TrimSpace(override), c.extraString("reasoning_effort"))
+	if effort == "" {
+		return ""
+	}
+	name := strings.ToLower(c.Name())
+	if strings.Contains(name, "deepseek") && !deepseekSupportsThinking(model) {
+		return ""
+	}
+	if strings.Contains(name, "deepseek") && (effort == "xhigh" || effort == "max") {
+		return "max"
+	}
+	return effort
+}
+
+func (c *Client) extraBody(model string) map[string]any {
+	out := map[string]any{}
+	name := strings.ToLower(c.Name())
+	if strings.Contains(name, "kimi") {
+		out["thinking"] = map[string]any{"type": "enabled"}
+	}
+	if strings.Contains(name, "deepseek") && deepseekSupportsThinking(model) {
+		out["thinking"] = map[string]any{"type": "enabled"}
+	}
+	for k, v := range asMap(c.cfg.Extra["extra_body"]) {
+		out[k] = v
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+func (c *Client) extraString(key string) string {
+	if c.cfg.Extra == nil {
+		return ""
+	}
+	v, _ := c.cfg.Extra[key].(string)
+	return strings.TrimSpace(v)
+}
+
+func deepseekSupportsThinking(model string) bool {
+	m := strings.ToLower(strings.TrimSpace(model))
+	if m == "" {
+		return false
+	}
+	return (strings.HasPrefix(m, "deepseek-v") && !strings.HasPrefix(m, "deepseek-v3")) || m == "deepseek-reasoner"
 }
 
 // APIError is the parsed envelope of a non-2xx response.

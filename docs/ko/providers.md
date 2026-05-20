@@ -229,6 +229,12 @@ OPENAI_COMPACTION=disabled AGENTBRIDGE_PROVIDER=openai-responses agentbridge
 OPENAI_COMPACT_PATH=/v1/responses/compact AGENTBRIDGE_PROVIDER=openai-responses agentbridge
 ```
 
+Anthropic native adapter는 기본적으로 prompt caching을 켭니다. AgentBridge는
+Hermes의 `system_and_3` 전략과 같이 system prompt와 마지막 non-system
+message 3개에 `cache_control`을 표시합니다. 끄려면
+`ANTHROPIC_PROMPT_CACHE=off`, 1시간 TTL을 쓰려면
+`ANTHROPIC_PROMPT_CACHE_TTL=1h`를 설정하세요.
+
 GLM/Z.AI:
 
 ```bash
@@ -279,6 +285,13 @@ Responses provider에서만 지원하는 것으로 판정합니다. xAI/Grok도 
 Responses 형태의 transport를 쓰지만 remote-compaction capable로 표시되지는
 않으므로, AgentBridge에서도 xAI는 generic summary fallback을 유지합니다.
 
+Codex prompt caching은 기본적으로 현재 session을 따릅니다.
+`CODEX_PROMPT_CACHE_KEY`의 기본값은 `{session_id}`이며 `{model}`,
+`{provider}`도 함께 보간할 수 있습니다. Reasoning은 기본적으로
+`CODEX_REASONING_EFFORT=medium`, `CODEX_REASONING_SUMMARY=auto`를 사용하고,
+multi-turn Codex session에서 provider-private reasoning state를 재사용할 수
+있도록 encrypted reasoning content를 요청합니다.
+
 Codex provider는 Codex CLI의 현재 기본값과 맞춰 native web search를 cached
 mode로 켭니다. 다음 환경 변수로 조정할 수 있습니다.
 
@@ -327,6 +340,11 @@ xAI Grok OAuth:
 ```bash
 AGENTBRIDGE_PROVIDER=xai-oauth agentbridge
 ```
+
+xAI Responses 요청도 기본적으로 session-scoped `prompt_cache_key`를 사용합니다.
+`XAI_REASONING_EFFORT`는 `reasoning.effort`를 받는 것으로 확인된 Grok model에만
+전송합니다. 나머지 Grok model에는 이 field를 생략해서 xAI HTTP 400을 피하고,
+model의 native reasoning은 그대로 사용합니다.
 
 AgentBridge의 Grok OAuth 기본 저장소는 `~/.grok/auth.json`입니다. 파일은
 Hermes와 호환되는 provider entry shape을 사용합니다.
