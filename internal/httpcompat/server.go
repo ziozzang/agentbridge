@@ -58,6 +58,7 @@ func NewHandler() http.Handler {
 	} else if err != nil {
 		logger.Warnf("httpcompat: failed to load MCP config: %v", err)
 	}
+	mux.HandleFunc("/", h.root)
 	mux.HandleFunc("/health", h.health)
 	mux.HandleFunc("/metrics", h.metrics)
 	mux.HandleFunc("/metric", h.metrics)
@@ -88,6 +89,18 @@ func NewHandler() http.Handler {
 	mux.HandleFunc("/v1/models", h.models)
 	mux.HandleFunc("/models", h.models)
 	return h.instrument(mux)
+}
+
+func (h *handler) root(w http.ResponseWriter, r *http.Request) {
+	if r.URL.Path != "/" {
+		http.NotFound(w, r)
+		return
+	}
+	if r.Method != http.MethodGet && r.Method != http.MethodHead {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	http.Redirect(w, r, "/swagger", http.StatusFound)
 }
 
 type handler struct {

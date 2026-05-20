@@ -160,6 +160,7 @@ type ModelInfo struct {
 	ModelID     string `json:"modelId"`
 	Name        string `json:"name"`
 	Description string `json:"description,omitempty"`
+	Provider    string `json:"provider,omitempty"`
 }
 
 // SessionModeInfo describes one mode the agent supports.

@@ -1,6 +1,7 @@
 package codexoauth
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -8,6 +9,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -23,6 +25,68 @@ func writeToken(t *testing.T, path string, tok Token) {
 	}
 	if err := os.WriteFile(path, b, 0o600); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestDeviceLoginSavesToken(t *testing.T) {
+	var sawClientID bool
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/accounts/deviceauth/usercode":
+			var req map[string]string
+			_ = json.NewDecoder(r.Body).Decode(&req)
+			if req["client_id"] == DefaultClientID {
+				sawClientID = true
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"user_code":      "ABCD-EFGH",
+				"device_auth_id": "device-1",
+				"interval":       1,
+			})
+		case "/api/accounts/deviceauth/token":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"authorization_code": "auth-code",
+				"code_verifier":      "verifier",
+			})
+		case "/oauth/token":
+			if err := r.ParseForm(); err != nil {
+				t.Fatal(err)
+			}
+			if r.FormValue("grant_type") != "authorization_code" || r.FormValue("code") != "auth-code" {
+				t.Fatalf("form = %v", r.Form)
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"access_token":  "access",
+				"refresh_token": "refresh",
+				"expires_in":    3600,
+			})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+
+	path := filepath.Join(t.TempDir(), "codex-token.json")
+	t.Setenv("AGENTBRIDGE_CODEX_ISSUER", srv.URL)
+	t.Setenv("AGENTBRIDGE_CODEX_TOKEN_URL", srv.URL+"/oauth/token")
+	r := New(path)
+	var out bytes.Buffer
+	tok, err := r.DeviceLogin(context.Background(), &out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tok.AccessToken != "access" || tok.RefreshToken != "refresh" || !sawClientID {
+		t.Fatalf("tok=%+v sawClientID=%v", tok, sawClientID)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(data, []byte("access")) {
+		t.Fatalf("token file = %s", data)
+	}
+	if !strings.Contains(out.String(), "ABCD-EFGH") {
+		t.Fatalf("output missing user code: %s", out.String())
 	}
 }
 

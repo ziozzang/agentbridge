@@ -870,7 +870,7 @@ func (a *Agent) modelState(current string) *acp.SessionModelState {
 	}
 	out := make([]acp.ModelInfo, len(models))
 	for i, m := range models {
-		out[i] = acp.ModelInfo{ModelID: m.ModelID, Name: m.Name, Description: m.Description}
+		out[i] = acp.ModelInfo{ModelID: m.ModelID, Name: m.Name, Description: m.Description, Provider: m.Provider}
 	}
 	for _, p := range a.Profiles {
 		name := p.Name

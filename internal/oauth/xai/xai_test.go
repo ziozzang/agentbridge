@@ -1,6 +1,7 @@
 package xaioauth
 
 import (
+	"bytes"
 	"context"
 	"encoding/base64"
 	"encoding/json"
@@ -21,6 +22,76 @@ func TestParseHermesStyleAuthStore(t *testing.T) {
 	}
 	if tok.AccessToken != "access" || tok.RefreshToken != "refresh" || tok.TokenEndpoint != "https://auth.x.ai/oauth2/token" {
 		t.Fatalf("token = %+v", tok)
+	}
+}
+
+func TestParseManualCallback(t *testing.T) {
+	cb, err := parseManualCallback("http://127.0.0.1:56121/callback?code=abc&state=xyz")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cb.Code != "abc" || cb.State != "xyz" {
+		t.Fatalf("callback = %+v", cb)
+	}
+	cb, err = parseManualCallback("code=def&state=uvw")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cb.Code != "def" || cb.State != "uvw" {
+		t.Fatalf("callback = %+v", cb)
+	}
+	cb, err = parseManualCallback("raw-code")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cb.Code != "raw-code" {
+		t.Fatalf("callback = %+v", cb)
+	}
+}
+
+func TestManualLoginAcceptsRawCode(t *testing.T) {
+	var sawCodeVerifier bool
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/.well-known/openid-configuration":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"authorization_endpoint": "https://auth.x.ai/oauth2/authorize",
+				"token_endpoint":         "https://auth.x.ai/oauth2/token",
+			})
+		case "/oauth2/token":
+			if err := r.ParseForm(); err != nil {
+				t.Fatal(err)
+			}
+			if r.FormValue("code") != "raw-code" {
+				t.Fatalf("form = %v", r.Form)
+			}
+			if r.FormValue("code_verifier") != "" && r.FormValue("code_challenge") != "" {
+				sawCodeVerifier = true
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"access_token":  "access",
+				"refresh_token": "refresh",
+				"expires_in":    3600,
+			})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+
+	path := filepath.Join(t.TempDir(), "auth.json")
+	r := New(path)
+	r.httpClient = rewriteHostClient(srv)
+	var out bytes.Buffer
+	tok, err := r.ManualLogin(context.Background(), strings.NewReader("raw-code\n"), &out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tok.AccessToken != "access" || tok.RefreshToken != "refresh" || !sawCodeVerifier {
+		t.Fatalf("tok=%+v sawCodeVerifier=%v", tok, sawCodeVerifier)
+	}
+	if !strings.Contains(out.String(), "xAI code/callback") {
+		t.Fatalf("output = %s", out.String())
 	}
 }
 

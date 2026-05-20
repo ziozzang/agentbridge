@@ -18,11 +18,15 @@ func (h *handler) models(w http.ResponseWriter, r *http.Request) {
 	data := make([]map[string]any, 0, len(models))
 	created := time.Now().Unix()
 	for _, m := range models {
+		owner := m.Provider
+		if owner == "" {
+			owner = "agentbridge"
+		}
 		data = append(data, map[string]any{
 			"id":          m.ModelID,
 			"object":      "model",
 			"created":     created,
-			"owned_by":    "agentbridge",
+			"owned_by":    owner,
 			"description": m.Description,
 		})
 	}

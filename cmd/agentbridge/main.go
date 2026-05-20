@@ -32,6 +32,8 @@ import (
 	"github.com/ziozzang/agentbridge/internal/grpccompat"
 	"github.com/ziozzang/agentbridge/internal/httpcompat"
 	"github.com/ziozzang/agentbridge/internal/logger"
+	codexoauth "github.com/ziozzang/agentbridge/internal/oauth/codex"
+	xaioauth "github.com/ziozzang/agentbridge/internal/oauth/xai"
 	"github.com/ziozzang/agentbridge/internal/protocol/sessionstore"
 	"github.com/ziozzang/agentbridge/internal/runtimeconfig"
 )
@@ -44,6 +46,8 @@ Usage:
   agentbridge --http-listen 127.0.0.1:8766
   agentbridge --grpc-listen 127.0.0.1:8767
   agentbridge --setup      # interactively store a GLM/Z.AI API key
+  agentbridge --setup-codex-oauth
+  agentbridge --setup-xai-oauth [--manual-paste]
   agentbridge --help       # show this help
 
 Server flags:
@@ -69,6 +73,9 @@ func main() {
 	helpFlag := flag.Bool("help", false, "show help")
 	hFlag := flag.Bool("h", false, "show help")
 	setupFlag := flag.Bool("setup", false, "interactively store an API key")
+	setupCodexOAuthFlag := flag.Bool("setup-codex-oauth", false, "sign in to OpenAI Codex OAuth")
+	setupXAIOAuthFlag := flag.Bool("setup-xai-oauth", false, "sign in to xAI Grok OAuth")
+	manualPasteFlag := flag.Bool("manual-paste", false, "paste OAuth callback/code manually instead of using a loopback callback")
 	versionFlag := flag.Bool("version", false, "print agent version and exit")
 	runtimeCfg, err := runtimeconfig.Load()
 	if err != nil {
@@ -98,6 +105,20 @@ func main() {
 	if *setupFlag {
 		if err := runSetup(os.Stdin, os.Stdout); err != nil {
 			fmt.Fprintln(os.Stderr, "setup failed:", err)
+			os.Exit(1)
+		}
+		return
+	}
+	if *setupCodexOAuthFlag {
+		if err := runCodexOAuthSetup(os.Stdout); err != nil {
+			fmt.Fprintln(os.Stderr, "codex oauth setup failed:", err)
+			os.Exit(1)
+		}
+		return
+	}
+	if *setupXAIOAuthFlag {
+		if err := runXAIOAuthSetup(os.Stdin, os.Stdout, *manualPasteFlag); err != nil {
+			fmt.Fprintln(os.Stderr, "xai oauth setup failed:", err)
 			os.Exit(1)
 		}
 		return
@@ -296,5 +317,44 @@ func runSetup(in io.Reader, out io.Writer) error {
 		return err
 	}
 	fmt.Fprintln(out, "Saved.")
+	return nil
+}
+
+func runCodexOAuthSetup(out io.Writer) error {
+	if err := logger.Configure(); err != nil {
+		fmt.Fprintln(os.Stderr, "logger init failed:", err)
+	}
+	tok, err := codexoauth.New(codexoauth.DefaultTokenPath()).DeviceLogin(context.Background(), out)
+	if err != nil {
+		return err
+	}
+	if tok.AccessToken == "" {
+		return fmt.Errorf("codex oauth setup did not produce an access token")
+	}
+	fmt.Fprintln(out, "Saved Codex OAuth credentials.")
+	return nil
+}
+
+func runXAIOAuthSetup(in io.Reader, out io.Writer, manualPaste bool) error {
+	if err := logger.Configure(); err != nil {
+		fmt.Fprintln(os.Stderr, "logger init failed:", err)
+	}
+	resolver := xaioauth.New("")
+	var (
+		tok *xaioauth.Token
+		err error
+	)
+	if manualPaste {
+		tok, err = resolver.ManualLogin(context.Background(), in, out)
+	} else {
+		tok, err = resolver.LoopbackLogin(context.Background(), out)
+	}
+	if err != nil {
+		return err
+	}
+	if tok.AccessToken == "" {
+		return fmt.Errorf("xai oauth setup did not produce an access token")
+	}
+	fmt.Fprintln(out, "Saved xAI OAuth credentials.")
 	return nil
 }

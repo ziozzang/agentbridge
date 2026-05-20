@@ -41,10 +41,12 @@ import (
 // CLI. It can be overridden via AGENTBRIDGE_CODEX_TOKEN_URL.
 const DefaultTokenURL = "https://auth.openai.com/oauth/token"
 
-// DefaultClientID is a generic Codex-like public client ID, used only if
-// the token file does not record one. Override with
+// DefaultClientID is the public Codex OAuth client ID used by Codex/Hermes
+// device-code login, used only if the token file does not record one. Override with
 // AGENTBRIDGE_CODEX_CLIENT_ID.
-const DefaultClientID = "app_codex_default"
+const DefaultClientID = "app_EMoamEEZ73f0CkXaXp7hrann"
+
+const defaultIssuer = "https://auth.openai.com"
 
 // Token is the cached Codex OAuth token.
 type Token struct {
@@ -161,6 +163,201 @@ func (r *Resolver) ResolveToken(ctx context.Context) (*Token, error) {
 	r.mu.Unlock()
 	_ = r.persist(refreshed)
 	return refreshed, nil
+}
+
+// DeviceLogin runs OpenAI Codex's browser-assisted device-code flow and saves
+// the resulting OAuth tokens to the resolver path.
+func (r *Resolver) DeviceLogin(ctx context.Context, out io.Writer) (*Token, error) {
+	clientID := envFirst(r.env("CLIENT_ID"), r.legacyEnv("CLIENT_ID"))
+	if clientID == "" {
+		clientID = DefaultClientID
+	}
+	issuer := envFirst(r.env("ISSUER"), r.legacyEnv("ISSUER"))
+	if issuer == "" {
+		issuer = defaultIssuer
+	}
+	start, err := r.requestDeviceCode(ctx, issuer, clientID)
+	if err != nil {
+		return nil, err
+	}
+	fmt.Fprintln(out, "To continue, follow these steps:")
+	fmt.Fprintln(out)
+	fmt.Fprintln(out, "  1. Open this URL in your browser:")
+	fmt.Fprintf(out, "     %s/codex/device\n\n", issuer)
+	fmt.Fprintln(out, "  2. Enter this code:")
+	fmt.Fprintf(out, "     %s\n\n", start.UserCode)
+	fmt.Fprintln(out, "Waiting for sign-in... (press Ctrl+C to cancel)")
+	auth, err := r.pollDeviceAuth(ctx, issuer, start)
+	if err != nil {
+		return nil, err
+	}
+	tok, err := r.exchangeDeviceAuth(ctx, issuer, clientID, auth)
+	if err != nil {
+		return nil, err
+	}
+	tok.ClientID = clientID
+	if err := r.persist(tok); err != nil {
+		return nil, err
+	}
+	r.mu.Lock()
+	r.tok = tok
+	r.mu.Unlock()
+	return tok, nil
+}
+
+type deviceCodeStart struct {
+	UserCode     string
+	DeviceAuthID string
+	Interval     int
+}
+
+type deviceAuthCode struct {
+	AuthorizationCode string `json:"authorization_code"`
+	CodeVerifier      string `json:"code_verifier"`
+}
+
+func (r *Resolver) requestDeviceCode(ctx context.Context, issuer, clientID string) (*deviceCodeStart, error) {
+	body, _ := json.Marshal(map[string]string{"client_id": clientID})
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, strings.TrimRight(issuer, "/")+"/api/accounts/deviceauth/usercode", strings.NewReader(string(body)))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json")
+	resp, err := r.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("%s oauth: device code request: %w", r.label, err)
+	}
+	defer resp.Body.Close()
+	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if resp.StatusCode/100 != 2 {
+		return nil, fmt.Errorf("%s oauth: device code failed: HTTP %d: %s", r.label, resp.StatusCode, strings.TrimSpace(string(raw)))
+	}
+	var payload struct {
+		UserCode     string `json:"user_code"`
+		DeviceAuthID string `json:"device_auth_id"`
+		Interval     any    `json:"interval"`
+	}
+	if err := json.Unmarshal(raw, &payload); err != nil {
+		return nil, fmt.Errorf("%s oauth: parse device code response: %w", r.label, err)
+	}
+	out := deviceCodeStart{
+		UserCode:     payload.UserCode,
+		DeviceAuthID: payload.DeviceAuthID,
+		Interval:     parseInterval(payload.Interval),
+	}
+	if out.UserCode == "" || out.DeviceAuthID == "" {
+		return nil, fmt.Errorf("%s oauth: device code response missing user_code or device_auth_id", r.label)
+	}
+	if out.Interval <= 0 {
+		out.Interval = 5
+	}
+	return &out, nil
+}
+
+func parseInterval(v any) int {
+	switch x := v.(type) {
+	case float64:
+		return int(x)
+	case string:
+		var n int
+		if _, err := fmt.Sscanf(x, "%d", &n); err == nil {
+			return n
+		}
+	}
+	return 0
+}
+
+func (r *Resolver) pollDeviceAuth(ctx context.Context, issuer string, start *deviceCodeStart) (*deviceAuthCode, error) {
+	deadline := time.Now().Add(15 * time.Minute)
+	for time.Now().Before(deadline) {
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-time.After(time.Duration(start.Interval) * time.Second):
+		}
+		body, _ := json.Marshal(map[string]string{
+			"device_auth_id": start.DeviceAuthID,
+			"user_code":      start.UserCode,
+		})
+		req, err := http.NewRequestWithContext(ctx, http.MethodPost, strings.TrimRight(issuer, "/")+"/api/accounts/deviceauth/token", strings.NewReader(string(body)))
+		if err != nil {
+			return nil, err
+		}
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Accept", "application/json")
+		resp, err := r.httpClient.Do(req)
+		if err != nil {
+			return nil, fmt.Errorf("%s oauth: device auth poll: %w", r.label, err)
+		}
+		raw, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+		_ = resp.Body.Close()
+		if resp.StatusCode == http.StatusOK {
+			var out deviceAuthCode
+			if err := json.Unmarshal(raw, &out); err != nil {
+				return nil, fmt.Errorf("%s oauth: parse device auth response: %w", r.label, err)
+			}
+			if out.AuthorizationCode == "" || out.CodeVerifier == "" {
+				return nil, fmt.Errorf("%s oauth: device auth response missing authorization_code or code_verifier", r.label)
+			}
+			return &out, nil
+		}
+		if resp.StatusCode == http.StatusForbidden || resp.StatusCode == http.StatusNotFound {
+			continue
+		}
+		return nil, fmt.Errorf("%s oauth: device auth poll failed: HTTP %d: %s", r.label, resp.StatusCode, strings.TrimSpace(string(raw)))
+	}
+	return nil, fmt.Errorf("%s oauth: login timed out after 15 minutes", r.label)
+}
+
+func (r *Resolver) exchangeDeviceAuth(ctx context.Context, issuer, clientID string, auth *deviceAuthCode) (*Token, error) {
+	tokenURL := envFirst(r.env("TOKEN_URL"), r.legacyEnv("TOKEN_URL"))
+	if tokenURL == "" {
+		tokenURL = DefaultTokenURL
+	}
+	form := url.Values{}
+	form.Set("grant_type", "authorization_code")
+	form.Set("code", auth.AuthorizationCode)
+	form.Set("redirect_uri", strings.TrimRight(issuer, "/")+"/deviceauth/callback")
+	form.Set("client_id", clientID)
+	form.Set("code_verifier", auth.CodeVerifier)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, tokenURL, strings.NewReader(form.Encode()))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("Accept", "application/json")
+	resp, err := r.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("%s oauth: token exchange: %w", r.label, err)
+	}
+	defer resp.Body.Close()
+	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if resp.StatusCode/100 != 2 {
+		return nil, fmt.Errorf("%s oauth: token exchange failed: HTTP %d: %s", r.label, resp.StatusCode, strings.TrimSpace(string(raw)))
+	}
+	var payload struct {
+		AccessToken  string `json:"access_token"`
+		RefreshToken string `json:"refresh_token"`
+		ExpiresIn    int    `json:"expires_in"`
+	}
+	if err := json.Unmarshal(raw, &payload); err != nil {
+		return nil, fmt.Errorf("%s oauth: parse token exchange response: %w", r.label, err)
+	}
+	if payload.AccessToken == "" {
+		return nil, fmt.Errorf("%s oauth: token exchange response missing access_token", r.label)
+	}
+	expiry := time.Now().UTC().Add(time.Hour)
+	if payload.ExpiresIn > 0 {
+		expiry = time.Now().UTC().Add(time.Duration(payload.ExpiresIn) * time.Second)
+	}
+	return &Token{
+		AccessToken:  payload.AccessToken,
+		RefreshToken: payload.RefreshToken,
+		ExpiresAt:    expiry,
+		ClientID:     clientID,
+		TokenURL:     tokenURL,
+	}, nil
 }
 
 func (r *Resolver) loadCached() (*Token, error) {

@@ -17,6 +17,8 @@ import (
 
 	"gopkg.in/yaml.v3"
 
+	codexoauth "github.com/ziozzang/agentbridge/internal/oauth/codex"
+	xaioauth "github.com/ziozzang/agentbridge/internal/oauth/xai"
 	"github.com/ziozzang/agentbridge/internal/provider"
 )
 
@@ -91,14 +93,42 @@ func (c *Client) Name() string { return firstNonEmpty(c.cfg.Name, Kind) }
 func (c *Client) Kind() string { return Kind }
 
 func (c *Client) AvailableModels() []provider.ModelInfo {
-	if len(c.cfg.Models) > 0 {
-		out := make([]provider.ModelInfo, len(c.cfg.Models))
-		copy(out, c.cfg.Models)
-		return out
-	}
-	out := make([]provider.ModelInfo, 0, len(c.routes))
 	seen := map[string]struct{}{}
+	out := make([]provider.ModelInfo, 0, len(c.cfg.Models)+len(c.routes))
+	if len(c.cfg.Models) > 0 {
+		for _, m := range c.cfg.Models {
+			if m.ModelID == "" {
+				continue
+			}
+			if m.Provider == "" {
+				m.Provider = Kind
+			}
+			seen[m.ModelID] = struct{}{}
+			out = append(out, m)
+		}
+	}
 	for _, r := range c.routes {
+		if cfg, ok := c.providers[r.Provider]; ok {
+			for _, m := range cfg.Models {
+				if m.ModelID == "" {
+					continue
+				}
+				if _, ok := seen[m.ModelID]; ok {
+					continue
+				}
+				if m.Provider == "" {
+					m.Provider = cfg.Name
+				}
+				if m.Description == "" && cfg.Name != "" {
+					m.Description = "provider: " + cfg.Name
+				}
+				seen[m.ModelID] = struct{}{}
+				out = append(out, m)
+			}
+		}
+		if strings.Contains(r.primaryPattern(), "*") {
+			continue
+		}
 		id := firstNonEmpty(r.Match, r.Model, r.TargetModel)
 		if id == "" || strings.Contains(id, "*") {
 			continue
@@ -107,7 +137,7 @@ func (c *Client) AvailableModels() []provider.ModelInfo {
 			continue
 		}
 		seen[id] = struct{}{}
-		out = append(out, provider.ModelInfo{ModelID: id, Name: id})
+		out = append(out, provider.ModelInfo{ModelID: id, Name: id, Provider: firstNonEmpty(r.Provider, Kind)})
 	}
 	return out
 }
@@ -280,6 +310,10 @@ func (c *Client) streamChain(ctx context.Context, chain []resolvedRoute, request
 					}
 					break
 				}
+				if err := resolveOAuthConfig(&cfg); err != nil {
+					errs <- err
+					return
+				}
 				p, err := provider.Build(cfg)
 				if err != nil {
 					errs <- err
@@ -327,6 +361,39 @@ func (c *Client) streamChain(ctx context.Context, chain []resolvedRoute, request
 		errs <- lastErr
 	}()
 	return out, errs
+}
+
+func resolveOAuthConfig(cfg *provider.Config) error {
+	if cfg == nil || !strings.HasPrefix(cfg.APIKey, "oauth:") {
+		return nil
+	}
+	flavour := strings.TrimPrefix(cfg.APIKey, "oauth:")
+	switch flavour {
+	case "codex", "openai":
+		tok, err := codexoauth.NewForFlavour(flavour, "").ResolveToken(context.Background())
+		if err != nil {
+			return err
+		}
+		cfg.APIKey = tok.AccessToken
+		if tok.AccountID != "" {
+			if cfg.Headers == nil {
+				cfg.Headers = map[string]string{}
+			}
+			if cfg.Headers["ChatGPT-Account-ID"] == "" {
+				cfg.Headers["ChatGPT-Account-ID"] = tok.AccountID
+			}
+		}
+		return nil
+	case "xai", "xai-oauth", "grok-oauth":
+		tok, err := xaioauth.New("").ResolveToken(context.Background())
+		if err != nil {
+			return err
+		}
+		cfg.APIKey = tok.AccessToken
+		return nil
+	default:
+		return fmt.Errorf("oauth resolver for %q is not registered", flavour)
+	}
 }
 
 func routeShouldFallback(err error) bool {
@@ -411,6 +478,7 @@ func globMatch(pattern, value string) bool {
 
 func loadRoutes(cfg provider.Config) (routeSet, string, error) {
 	var routes []route
+	hadInlineRoutes := false
 	aliases := map[string]string{}
 	if raw, ok := cfg.Extra["aliases"]; ok {
 		b, err := json.Marshal(raw)
@@ -422,6 +490,7 @@ func loadRoutes(cfg provider.Config) (routeSet, string, error) {
 		}
 	}
 	if raw, ok := cfg.Extra["routes"]; ok {
+		hadInlineRoutes = true
 		b, err := json.Marshal(raw)
 		if err != nil {
 			return routeSet{}, "", err
@@ -431,7 +500,7 @@ func loadRoutes(cfg provider.Config) (routeSet, string, error) {
 		}
 	}
 	path := firstNonEmpty(strExtra(cfg.Extra, "routes_file"), os.Getenv("AGENTBRIDGE_ROUTER_FILE"))
-	if path == "" {
+	if path == "" && !hadInlineRoutes {
 		path = defaultRouteFile()
 	}
 	defaultModel := ""

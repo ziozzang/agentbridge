@@ -25,6 +25,7 @@ type ModelInfo struct {
 	ModelID     string `json:"modelId"`
 	Name        string `json:"name"`
 	Description string `json:"description,omitempty"`
+	Provider    string `json:"provider,omitempty"`
 }
 
 // ToolCall is an assembled function call streamed from the model.
