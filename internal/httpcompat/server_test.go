@@ -140,12 +140,21 @@ func TestA2AAgentCard(t *testing.T) {
 	if card["preferredTransport"] != "JSONRPC" || !strings.HasSuffix(card["url"].(string), "/a2a/rpc") {
 		t.Fatalf("bad agent card: %+v", card)
 	}
+
+	resp, err = http.Get(srv.URL + "/v1/a2a/agent-card.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("v1 status=%d", resp.StatusCode)
+	}
 }
 
 func TestA2ASendGetListAndAlias(t *testing.T) {
 	withMockHTTPProvider(t, func(srv *httptest.Server) {
 		sendBody := `{"jsonrpc":"2.0","id":"1","method":"SendMessage","params":{"message":{"role":"user","parts":[{"text":"hi"}],"messageId":"msg-1"},"model":"test-model"}}`
-		resp, err := http.Post(srv.URL+"/a2a/rpc", "application/json", strings.NewReader(sendBody))
+		resp, err := http.Post(srv.URL+"/v1/a2a/rpc", "application/json", strings.NewReader(sendBody))
 		if err != nil {
 			t.Fatal(err)
 		}
