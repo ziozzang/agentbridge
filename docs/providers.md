@@ -198,6 +198,9 @@ limit style errors before any streamed output is emitted, marks that key
 limited for the current process, and retries the next configured key. This is
 best-effort because providers differ in how they report reset times.
 
+See [Configuration](configuration.md#router-route-schema) for the full route
+schema and precedence rules.
+
 ## Examples
 
 OpenAI:

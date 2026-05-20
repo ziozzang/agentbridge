@@ -100,7 +100,9 @@ request/response는 `google.protobuf.Struct`를 사용하므로 프로젝트 전
 | `AGENTBRIDGE_MODEL` | 기본 모델 override. |
 | `AGENTBRIDGE_API_KEY` | 활성 provider API key. |
 | `AGENTBRIDGE_BASE_URL` | base URL override. |
+| `AGENTBRIDGE_CONFIG_FILE` | 전체 config YAML override. |
 | `AGENTBRIDGE_PROVIDERS_FILE` | provider YAML override. |
+| `AGENTBRIDGE_ROUTER_FILE` | Model-router route YAML/JSON override. |
 | `AGENTBRIDGE_PLUGINS` | 활성화할 plugin 목록. 예: `sqlite`. |
 | `AGENTBRIDGE_LOG_LEVEL` | `trace`, `debug`, `info`, `warn`, `error`, `off`. |
 | `AGENTBRIDGE_LOG_FILE` | 선택적 log file 경로. |

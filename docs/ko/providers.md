@@ -197,6 +197,9 @@ api_key_envs: OLLAMA_API_KEY_A, OLLAMA_API_KEY_B
 프로세스에서 limited로 표시한 뒤 다음 key로 재시도합니다. Reset 시간 표현은
 provider마다 달라서 현재는 best-effort 감지입니다.
 
+전체 route schema와 우선순위는 [설정](configuration.md#router-route-schema)을
+참고하세요.
+
 ## 예시
 
 OpenAI:

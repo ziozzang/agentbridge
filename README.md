@@ -102,7 +102,9 @@ Preferred environment variables use the `AGENTBRIDGE_*` prefix:
 | `AGENTBRIDGE_MODEL` | Default model override. |
 | `AGENTBRIDGE_API_KEY` | API key for the active provider. |
 | `AGENTBRIDGE_BASE_URL` | Base URL override. |
+| `AGENTBRIDGE_CONFIG_FILE` | Full config YAML override. |
 | `AGENTBRIDGE_PROVIDERS_FILE` | Provider YAML override. |
+| `AGENTBRIDGE_ROUTER_FILE` | Model-router route YAML/JSON override. |
 | `AGENTBRIDGE_PLUGINS` | Comma-separated plugins, e.g. `sqlite`. |
 | `AGENTBRIDGE_LOG_LEVEL` | `trace`, `debug`, `info`, `warn`, `error`, or `off`. |
 | `AGENTBRIDGE_LOG_FILE` | Optional log file path. |

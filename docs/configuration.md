@@ -1,18 +1,24 @@
 # Configuration
 
-AgentBridge is configured primarily through environment variables and an
-optional provider YAML file.
+AgentBridge is configured through environment variables plus optional YAML/JSON
+files under `$XDG_CONFIG_HOME/agentbridge`.
 
 ## Environment Priority
 
 1. Per-provider variables, for example `AGENTBRIDGE_OPENAI_API_KEY`.
 2. Top-level variables, for example `AGENTBRIDGE_API_KEY`.
-3. User provider YAML:
+3. Explicit config file: `AGENTBRIDGE_CONFIG_FILE`.
+4. Explicit provider YAML: `AGENTBRIDGE_PROVIDERS_FILE`.
+5. User config YAML:
+   `$XDG_CONFIG_HOME/agentbridge/config.yaml` or
+   `~/.config/agentbridge/config.yaml`.
+6. User provider YAML:
    `$XDG_CONFIG_HOME/agentbridge/providers.yaml` or
    `~/.config/agentbridge/providers.yaml`.
-4. Legacy user provider YAML:
+7. Legacy user config/provider YAML:
+   `$XDG_CONFIG_HOME/acp-harness/config.yaml`,
    `$XDG_CONFIG_HOME/acp-harness/providers.yaml`.
-5. Embedded templates in `internal/config/providers.yaml`.
+8. Embedded templates in `internal/config/providers.yaml`.
 
 Legacy `ACP_HARNESS_*` variables remain supported as aliases.
 
@@ -24,8 +30,10 @@ Legacy `ACP_HARNESS_*` variables remain supported as aliases.
 | `AGENTBRIDGE_MODEL` | Override the active provider default model. |
 | `AGENTBRIDGE_API_KEY` | API key for the active provider. |
 | `AGENTBRIDGE_BASE_URL` | Base URL override. |
+| `AGENTBRIDGE_CONFIG_FILE` | Absolute path to full config YAML. |
 | `AGENTBRIDGE_PROVIDERS_FILE` | Absolute path to provider YAML. |
 | `AGENTBRIDGE_PLUGINS` | Comma-separated plugins, e.g. `sqlite,duckdb`. |
+| `AGENTBRIDGE_ROUTER_FILE` | Router route file, JSON or YAML. |
 
 ## Per-Provider Variables
 
@@ -67,6 +75,34 @@ Legacy `ACP_HARNESS_LOG_*` and `ACP_GLM_DEBUG` are still accepted.
 Default: `$XDG_STATE_HOME/agentbridge/sessions` or
 `~/.local/state/agentbridge/sessions`.
 
+## Config YAML
+
+`config.yaml` has the same `providers:` schema as `providers.yaml`, but is
+the preferred place for broader AgentBridge configuration such as router
+routes.
+
+Default locations:
+
+- `$XDG_CONFIG_HOME/agentbridge/config.yaml`
+- `~/.config/agentbridge/config.yaml`
+
+Explicit override:
+
+```bash
+AGENTBRIDGE_CONFIG_FILE=/path/to/config.yaml agentbridge
+```
+
+Example:
+
+```yaml
+providers:
+  router:
+    kind: router
+    default_model: ollama/gpt-oss:120b
+    extra:
+      routes_file: ${XDG_CONFIG_HOME}/agentbridge/router.yaml
+```
+
 ## Provider YAML
 
 ```yaml
@@ -83,6 +119,61 @@ Then run:
 ```bash
 AGENTBRIDGE_PROVIDER=myprov agentbridge
 ```
+
+## Router Route Schema
+
+The `router` provider routes by requested model name and delegates to another
+configured provider. AgentBridge intentionally does not hardcode model routes.
+Put routes in `providers.router.extra.routes`, in
+`providers.router.extra.routes_file`, or in `AGENTBRIDGE_ROUTER_FILE`.
+
+Route file locations checked automatically:
+
+- `$XDG_CONFIG_HOME/agentbridge/router.yaml`
+- `$XDG_CONFIG_HOME/agentbridge/router.json`
+
+Route file shape:
+
+```yaml
+default_model: ollama/gpt-oss:120b
+routes:
+  - match: ollama/*
+    provider: ollama-cloud
+    target_model: "$1"
+    api_key_envs: OLLAMA_API_KEY_A, OLLAMA_API_KEY_B
+    retry_keys: true
+```
+
+Route fields:
+
+| Field | Purpose |
+| --- | --- |
+| `match` | Requested model pattern. Supports `*` wildcard. |
+| `model` | Alias for `match`, useful in compact JSON. |
+| `provider` | Configured provider name to delegate to. |
+| `target_model` | Upstream model. `$model` keeps the original request; `$1` uses the wildcard capture. |
+| `api_key_envs` | Environment variable names for one or more keys. Accepts list or delimited string. |
+| `api_keys` | Literal keys. Accepts list or delimited string; prefer `api_key_envs`. |
+| `retry_keys` | If true, retry the next key after pre-stream 429/quota/weekly/5h limit errors. |
+| `default` | Fallback route when no pattern matches. |
+| `max_tokens` | Per-route max token override. |
+| `context_window` | Per-route context window override. |
+
+`api_key_envs` and `api_keys` accept all of these forms:
+
+```yaml
+api_key_envs: [OLLAMA_API_KEY_A, OLLAMA_API_KEY_B]
+api_key_envs: OLLAMA_API_KEY_A, OLLAMA_API_KEY_B
+api_key_envs: |
+  OLLAMA_API_KEY_A
+  OLLAMA_API_KEY_B
+```
+
+Limit detection is best-effort. The router detects HTTP 429 and common text
+signals such as `rate limit`, `quota`, `weekly limit`, and `5h` before any
+streamed output is emitted. It marks the key as limited for the current
+process and skips it on later round-robin picks. Reset time parsing is not
+provider-stable yet.
 
 ## Legacy Aliases
 
