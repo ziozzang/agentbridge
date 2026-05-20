@@ -23,7 +23,39 @@ func TestLoadEmbeddedDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
-	expect := []string{"anthropic", "claude-code", "codex", "glm", "litellm", "ollama", "openai", "openai-responses", "openrouter", "xai", "xai-oauth"}
+	expect := []string{
+		"ai-gateway",
+		"alibaba",
+		"alibaba-coding-plan",
+		"anthropic",
+		"arcee",
+		"claude-code",
+		"codex",
+		"deepseek",
+		"glm",
+		"gmi",
+		"huggingface",
+		"kilocode",
+		"kimi-coding",
+		"kimi-coding-cn",
+		"litellm",
+		"lmstudio",
+		"novita",
+		"nvidia",
+		"ollama",
+		"ollama-cloud",
+		"openai",
+		"openai-responses",
+		"opencode-go",
+		"opencode-zen",
+		"openrouter",
+		"stepfun",
+		"tencent-tokenhub",
+		"xai",
+		"xai-oauth",
+		"xiaomi",
+		"zai",
+	}
 	got := m.Names()
 	if strings.Join(got, ",") != strings.Join(expect, ",") {
 		t.Errorf("providers: %v", got)
@@ -133,6 +165,46 @@ func TestLoadEmbeddedCodexWebSearchDefaults(t *testing.T) {
 	}
 	if _, ok := tools["web_search"].(map[string]any); !ok {
 		t.Fatalf("tools.web_search = %#v", tools["web_search"])
+	}
+}
+
+func TestHermesDerivedProviderDefaults(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(t.TempDir(), "missing"))
+	_ = os.Unsetenv("ACP_HARNESS_PROVIDERS_FILE")
+	t.Setenv("AGENTBRIDGE_API_KEY", "")
+	t.Setenv("ACP_HARNESS_API_KEY", "")
+
+	m, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	cases := map[string]struct {
+		baseURL string
+		model   string
+	}{
+		"zai":                 {"https://api.z.ai/api/paas/v4", "glm-5.1"},
+		"kimi-coding":         {"https://api.kimi.com/coding/v1", "kimi-k2.6"},
+		"deepseek":            {"https://api.deepseek.com/v1", "deepseek-chat"},
+		"alibaba":             {"https://dashscope-intl.aliyuncs.com/compatible-mode/v1", "qwen3.6-plus"},
+		"alibaba-coding-plan": {"https://coding-intl.dashscope.aliyuncs.com/v1", "qwen3.6-plus"},
+		"opencode-go":         {"https://opencode.ai/zen/go/v1", "kimi-k2.6"},
+		"huggingface":         {"https://router.huggingface.co/v1", "moonshotai/Kimi-K2.6"},
+		"ollama-cloud":        {"https://ollama.com/v1", "gpt-oss:120b"},
+	}
+	for name, want := range cases {
+		cfg, err := m.Resolve(name)
+		if err != nil {
+			t.Fatalf("Resolve(%s): %v", name, err)
+		}
+		if cfg.Kind != "openai-chat" {
+			t.Errorf("%s kind = %q", name, cfg.Kind)
+		}
+		if cfg.BaseURL != want.baseURL {
+			t.Errorf("%s base url = %q", name, cfg.BaseURL)
+		}
+		if cfg.DefaultModel != want.model {
+			t.Errorf("%s default model = %q", name, cfg.DefaultModel)
+		}
 	}
 }
 

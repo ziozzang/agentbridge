@@ -18,6 +18,73 @@ AgentBridge는 모든 프로토콜 표면을 공통 provider interface로 라우
 | `codex` | `openai-responses` | Codex/OpenAI OAuth 기반 ChatGPT Codex backend. |
 | `xai` | `openai-responses` | `XAI_API_KEY`를 쓰는 xAI Grok Responses API. |
 | `xai-oauth` | `openai-responses` | `~/.grok/auth.json`의 xAI Grok OAuth bearer 사용. |
+| `zai` | `openai-chat` | Hermes 호환 Z.AI/GLM direct API template. |
+| `kimi-coding` | `openai-chat` | Kimi Coding Plan OpenAI 호환 endpoint. |
+| `kimi-coding-cn` | `openai-chat` | Kimi/Moonshot China OpenAI 호환 endpoint. |
+| `deepseek` | `openai-chat` | DeepSeek direct API. |
+| `stepfun` | `openai-chat` | StepFun Step Plan. |
+| `alibaba` | `openai-chat` | Alibaba DashScope compatible-mode API. |
+| `alibaba-coding-plan` | `openai-chat` | Alibaba Coding Plan endpoint. |
+| `nvidia` | `openai-chat` | NVIDIA NIM OpenAI 호환 endpoint. |
+| `ai-gateway` | `openai-chat` | Vercel AI Gateway. |
+| `opencode-zen` | `openai-chat` | OpenCode Zen gateway. |
+| `opencode-go` | `openai-chat` | OpenCode Go gateway의 OpenAI 호환 모델. |
+| `kilocode` | `openai-chat` | Kilo Code gateway. |
+| `huggingface` | `openai-chat` | Hugging Face Inference Providers router. |
+| `novita` | `openai-chat` | Novita OpenAI 호환 router. |
+| `arcee` | `openai-chat` | Arcee AI direct API. |
+| `gmi` | `openai-chat` | GMI Cloud OpenAI 호환 endpoint. |
+| `xiaomi` | `openai-chat` | Xiaomi MiMo API. |
+| `tencent-tokenhub` | `openai-chat` | Tencent TokenHub API. |
+| `ollama-cloud` | `openai-chat` | Ollama Cloud OpenAI 호환 API. |
+| `lmstudio` | `openai-chat` | 로컬 LM Studio OpenAI 호환 server. |
+
+## Hermes 기반 template
+
+AgentBridge에는 Hermes Agent provider registry를 기준으로, 현재
+AgentBridge transport와 바로 맞는 provider template을 포함합니다. 이 항목들은
+설정만 추가된 통합입니다. `openai-chat`, `openai-responses`, 기존 native
+provider를 재사용하며 Hermes credential을 저장하지 않습니다.
+
+예시:
+
+```bash
+AGENTBRIDGE_PROVIDER=kimi-coding \
+KIMI_API_KEY=... \
+KIMI_MODEL=kimi-k2.6 \
+agentbridge
+```
+
+```bash
+AGENTBRIDGE_PROVIDER=deepseek \
+DEEPSEEK_API_KEY=... \
+DEEPSEEK_MODEL=deepseek-chat \
+agentbridge
+```
+
+```bash
+AGENTBRIDGE_PROVIDER=opencode-go \
+OPENCODE_GO_API_KEY=... \
+OPENCODE_GO_MODEL=kimi-k2.6 \
+agentbridge
+```
+
+가능하면 provider별 `*_BASE_URL`, `*_API_KEY`, `*_MODEL` 변수를 사용하세요.
+YAML 해석 후에도 `AGENTBRIDGE_<PROVIDER>_API_KEY` override는 계속 동작합니다.
+
+아래 Hermes 항목은 추가 transport/auth 구현이 필요해서 아직 기본 template으로
+활성화하지 않았습니다.
+
+| Hermes provider | 남은 이유 |
+| --- | --- |
+| `nous` | Device-code OAuth와 scoped inference token minting 필요. |
+| `qwen-oauth` | Qwen OAuth token refresh/store 통합 필요. |
+| `google-gemini-cli` | 단순 HTTP base URL이 아니라 Cloud Code Assist OAuth transport. |
+| `copilot-acp` | 외부 ACP process transport 필요. |
+| `github-copilot` | Copilot token/catalog 처리 필요. |
+| `bedrock` | AWS SigV4와 Bedrock Converse transport 필요. |
+| `minimax`, `minimax-cn`, `minimax-oauth` | Anthropic 호환 path와 OAuth가 현재 Anthropic direct adapter보다 추가 처리를 요구. |
+| `azure-foundry` | 배포별 endpoint와 API mode가 달라 사용자 설정이 필요. |
 
 ## 예시
 
