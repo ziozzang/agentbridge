@@ -32,6 +32,7 @@ Legacy `ACP_HARNESS_*` variables remain supported as aliases.
 | `AGENTBRIDGE_BASE_URL` | Base URL override. |
 | `AGENTBRIDGE_CONFIG_FILE` | Absolute path to full config YAML. |
 | `AGENTBRIDGE_PROVIDERS_FILE` | Absolute path to provider YAML. |
+| `AGENTBRIDGE_AGENTS_FILE` | Agent profile YAML/JSON file. |
 | `AGENTBRIDGE_PLUGINS` | Comma-separated plugins, e.g. `sqlite,duckdb`. |
 | `AGENTBRIDGE_DISABLED_PLUGINS` | Comma-separated active plugin names to suppress. |
 | `AGENTBRIDGE_MCP_FILE` | External MCP server config file, JSON or YAML. |
@@ -98,6 +99,14 @@ AGENTBRIDGE_CONFIG_FILE=/path/to/config.yaml agentbridge
 Example:
 
 ```yaml
+server:
+  enabled: true
+  listen: 127.0.0.1:8765
+  pool_size: 6
+  wait_size: 3
+  http_listen: 127.0.0.1:8766
+  grpc_listen: 127.0.0.1:8767
+
 providers:
   router:
     kind: router
@@ -105,6 +114,32 @@ providers:
     extra:
       routes_file: ${XDG_CONFIG_HOME}/agentbridge/router.yaml
 ```
+
+CLI flags still take precedence over `server:` values.
+
+## Agent Profiles
+
+Agent profiles are virtual models: selecting the profile name in ACP uses a
+target upstream model, injects an extra system prompt, and optionally filters
+the available tools. Set `AGENTBRIDGE_AGENTS_FILE`, or place `agents.yaml` /
+`agents.json` under `$XDG_CONFIG_HOME/agentbridge`.
+
+```yaml
+agents:
+  - name: foo
+    description: Foo coding agent
+    target_model: glm-5.1
+    prompt_file: prompts/foo.md
+    tools:
+      - read_file
+      - list_files
+      - mcp__search__*
+      - plugin__jina__jina_search
+```
+
+`system_prompt` may be used inline instead of, or in addition to,
+`prompt_file`. Relative `prompt_file` paths resolve from the profile file's
+directory.
 
 ## External MCP Servers
 
@@ -119,6 +154,15 @@ mcp_servers:
     url: http://127.0.0.1:8090/mcp
     allow_tools: [foo, search*]
     deny_tools: [search_debug]
+    inject_tools:
+      - name: forced_search
+        source_name: search
+        description: Search through the upstream MCP server.
+        inputSchema:
+          type: object
+          properties:
+            query:
+              type: string
     headers:
       Authorization: Bearer ${MCP_TOKEN}
     enabled: true
@@ -143,6 +187,9 @@ turn a server off. HTTP MCP tools are exported as `mcp__<server>__<tool>`.
 Use `allow_tools` / `deny_tools` to filter which upstream commands are
 exposed; both fields accept lists or comma/newline-separated strings and
 support wildcards.
+Use `inject_tools` to force additional ACP/MCP tool definitions even when the
+upstream server does not advertise them in `tools/list`. Injected tools are
+exposed as `mcp__<server>__<name>` and call `source_name` upstream.
 
 ## Provider YAML
 

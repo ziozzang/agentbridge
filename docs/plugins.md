@@ -216,6 +216,15 @@ mcp_servers:
     url: http://127.0.0.1:8090/mcp
     allow_tools: [foo, search*]
     deny_tools: [search_debug]
+    inject_tools:
+      - name: forced_search
+        source_name: search
+        description: Search through the upstream MCP server.
+        inputSchema:
+          type: object
+          properties:
+            query:
+              type: string
     headers:
       Authorization: Bearer ${MCP_TOKEN}
     enabled: true
@@ -244,6 +253,11 @@ Use `allow_tools` to expose only selected upstream tool names. Use
 `deny_tools` to hide specific tools after the allow list is applied. Both
 fields accept a list or a comma/newline-separated string, and support simple
 wildcards such as `search*`.
+
+Use `inject_tools` to force additional tool definitions into ACP/MCP/OpenAPI
+even when the upstream server did not return them from `tools/list`. The
+injected tool is exposed as `mcp__<server>__<name>` and calls `source_name` on
+the upstream MCP server.
 
 Configured external MCP tools are exposed as `mcp__<server>__<tool>` and are
 available both to ACP sessions and to HTTP MCP clients.

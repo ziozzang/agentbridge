@@ -65,6 +65,7 @@ Routes:
 - `POST /v1/a2a/rpc`
 - `GET /.well-known/agent-card.json`
 - `POST /v1/mcp`
+- `POST /v1/tools/{tool-name}`
 - `POST /v1/agui/run`
 - `GET /openapi.json`
 - `GET /swagger`
@@ -72,6 +73,19 @@ Routes:
 - `GET /health`
 
 Most routes are also accepted without `/v1`.
+
+Server flags can also be placed in `$XDG_CONFIG_HOME/agentbridge/config.yaml`.
+CLI flags take precedence:
+
+```yaml
+server:
+  enabled: true
+  listen: 127.0.0.1:8765
+  pool_size: 6
+  wait_size: 3
+  http_listen: 127.0.0.1:8766
+  grpc_listen: 127.0.0.1:8767
+```
 
 ## gRPC Compatibility Server
 

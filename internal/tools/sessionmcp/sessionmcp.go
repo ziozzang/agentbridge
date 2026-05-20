@@ -56,6 +56,7 @@ type serverState struct {
 	headers   map[string]string
 	allow     []string
 	deny      []string
+	inject    []acp.McpInjectedTool
 	sessionID string
 	http      *http.Client
 	nextID    atomic.Int64
@@ -98,6 +99,7 @@ func NewWithHTTP(specs []acp.McpServer, httpClient *http.Client) (*Client, error
 			headers: spec.Headers,
 			allow:   spec.AllowTools,
 			deny:    spec.DenyTools,
+			inject:  spec.InjectTools,
 			http:    httpClient,
 		}
 		if typ == "stdio" {
@@ -116,6 +118,7 @@ func NewWithHTTP(specs []acp.McpServer, httpClient *http.Client) (*Client, error
 		}
 		c.servers = append(c.servers, srv)
 		c.registerTools(srv, tools)
+		c.registerInjectedTools(srv)
 	}
 	return c, nil
 }
@@ -140,6 +143,46 @@ func (c *Client) registerTools(srv *serverState, upstreamTools []mcpTool) {
 		c.bindings[exposedName] = &toolBinding{
 			exposedName: exposedName,
 			sourceName:  tool.Name,
+			server:      srv,
+			definition: definitions.Tool{
+				Type: "function",
+				Function: definitions.ToolFunction{
+					Name:        exposedName,
+					Description: desc,
+					Parameters:  params,
+				},
+			},
+		}
+	}
+}
+
+func (c *Client) registerInjectedTools(srv *serverState) {
+	usedNames := make(map[string]struct{})
+	for _, t := range c.bindings {
+		usedNames[t.exposedName] = struct{}{}
+	}
+	for _, tool := range srv.inject {
+		sourceName := tool.SourceName
+		if sourceName == "" {
+			sourceName = tool.Name
+		}
+		if !toolAllowed(sourceName, srv.allow, srv.deny) {
+			logger.Debugf("sessionmcp: filtered injected tool %q from server %q", sourceName, srv.name)
+			continue
+		}
+		exposedName := chooseToolName(tool.Name, srv.name, usedNames)
+		usedNames[exposedName] = struct{}{}
+		desc := tool.Description
+		if desc == "" {
+			desc = fmt.Sprintf("Call %s on the %s MCP server.", sourceName, srv.name)
+		}
+		params := tool.InputSchema
+		if len(params) == 0 {
+			params = json.RawMessage(`{"type":"object","properties":{}}`)
+		}
+		c.bindings[exposedName] = &toolBinding{
+			exposedName: exposedName,
+			sourceName:  sourceName,
 			server:      srv,
 			definition: definitions.Tool{
 				Type: "function",

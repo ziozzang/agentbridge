@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/ziozzang/agentbridge/internal/acp"
+	"github.com/ziozzang/agentbridge/internal/agentprofiles"
 	"github.com/ziozzang/agentbridge/internal/config"
 	"github.com/ziozzang/agentbridge/internal/credentials"
 	"github.com/ziozzang/agentbridge/internal/logger"
@@ -87,6 +88,7 @@ type Agent struct {
 	MCP      executor.MCPCaller
 	Vision   executor.Vision
 	MaxTurns int
+	Profiles []agentprofiles.Profile
 
 	// clientCapabilities captured at `initialize` time. Used to gate the
 	// agent's advertised tool surface and downstream tool behaviour.
@@ -135,8 +137,18 @@ func New(store *sessionstore.Store) *Agent {
 	return &Agent{
 		Store:    store,
 		MaxTurns: DefaultMaxTurns,
+		Profiles: loadProfiles(),
 		sessions: map[string]*sessionState{},
 	}
+}
+
+func loadProfiles() []agentprofiles.Profile {
+	profiles, err := agentprofiles.Load()
+	if err != nil {
+		logger.Warnf("agent profiles: %v", err)
+		return nil
+	}
+	return profiles
 }
 
 // SetConn wires the JSON-RPC connection.
@@ -606,6 +618,7 @@ func (a *Agent) Prompt(ctx context.Context, p acp.PromptParams) (acp.PromptRespo
 	if len(tools) == 0 {
 		tools = a.availableTools()
 	}
+	tools = a.profileTools(s.Model, tools)
 	toolNames := make([]string, len(tools))
 	for i, t := range tools {
 		toolNames[i] = t.Function.Name
@@ -613,6 +626,7 @@ func (a *Agent) Prompt(ctx context.Context, p acp.PromptParams) (acp.PromptRespo
 	system := systemprompt.Build(systemprompt.Input{
 		Cwd: s.Cwd, Tools: toolNames,
 		AgentsMD: systemprompt.LoadProjectContext(s.Cwd),
+		Profile:  a.profilePrompt(s.Model),
 	})
 	messages := append([]glm.Message{{Role: "system", Content: system}}, s.Messages...)
 
@@ -630,7 +644,7 @@ func (a *Agent) Prompt(ctx context.Context, p acp.PromptParams) (acp.PromptRespo
 			break
 		}
 		// Proactive compaction: if history exceeds ~90% of the model's window.
-		window := a.contextWindow(s.Model)
+		window := a.contextWindow(a.effectiveModel(s.Model))
 		if glm.EstimateTokens(messages) > (window*9)/10 {
 			messages = glm.Compact(messages, (window*8)/10, 10)
 		}
@@ -638,7 +652,7 @@ func (a *Agent) Prompt(ctx context.Context, p acp.PromptParams) (acp.PromptRespo
 		// Sync the executor's mode so changes mid-turn take effect immediately.
 		exec.Mode = s.Mode
 
-		chunks, errs := a.streamChat(promptCtx, messages, glm.StreamOptions{Model: s.Model, Tools: tools})
+		chunks, errs := a.streamChat(promptCtx, messages, glm.StreamOptions{Model: a.effectiveModel(s.Model), Tools: tools})
 
 		var assistantText, assistantThought string
 		var toolCalls []glm.ToolCall
@@ -678,7 +692,7 @@ func (a *Agent) Prompt(ctx context.Context, p acp.PromptParams) (acp.PromptRespo
 			if isOverflow && overflowRetries < 1 {
 				// Emergency compaction: aggressive (~70%) then retry once.
 				logger.Debugf("prompt: context overflow detected; emergency compaction")
-				window := a.contextWindow(s.Model)
+				window := a.contextWindow(a.effectiveModel(s.Model))
 				messages = glm.Compact(messages, (window*7)/10, 10)
 				overflowRetries++
 				iter--
@@ -858,6 +872,14 @@ func (a *Agent) modelState(current string) *acp.SessionModelState {
 	for i, m := range models {
 		out[i] = acp.ModelInfo{ModelID: m.ModelID, Name: m.Name, Description: m.Description}
 	}
+	for _, p := range a.Profiles {
+		name := p.Name
+		desc := p.Description
+		if desc == "" {
+			desc = "Agent profile"
+		}
+		out = append(out, acp.ModelInfo{ModelID: name, Name: name, Description: desc})
+	}
 	return &acp.SessionModelState{AvailableModels: out, CurrentModelID: current}
 }
 
@@ -903,6 +925,59 @@ func (a *Agent) availableTools() []definitions.Tool {
 		out = append(out, a.Plugins.Tools()...)
 	}
 	return out
+}
+
+func (a *Agent) profileByName(name string) *agentprofiles.Profile {
+	for i := range a.Profiles {
+		if a.Profiles[i].Name == name {
+			return &a.Profiles[i]
+		}
+	}
+	return nil
+}
+
+func (a *Agent) effectiveModel(model string) string {
+	if p := a.profileByName(model); p != nil && p.TargetModel != "" {
+		return p.TargetModel
+	}
+	return model
+}
+
+func (a *Agent) profilePrompt(model string) string {
+	if p := a.profileByName(model); p != nil {
+		return p.Prompt()
+	}
+	return ""
+}
+
+func (a *Agent) profileTools(model string, tools []definitions.Tool) []definitions.Tool {
+	p := a.profileByName(model)
+	if p == nil || len(p.Tools) == 0 {
+		return tools
+	}
+	out := make([]definitions.Tool, 0, len(tools))
+	for _, t := range tools {
+		if matchesAny(t.Function.Name, p.Tools) {
+			out = append(out, t)
+		}
+	}
+	return out
+}
+
+func matchesAny(name string, patterns []string) bool {
+	for _, p := range patterns {
+		p = strings.TrimSpace(p)
+		if p == "" {
+			continue
+		}
+		if p == name {
+			return true
+		}
+		if strings.HasSuffix(p, "*") && strings.HasPrefix(name, strings.TrimSuffix(p, "*")) {
+			return true
+		}
+	}
+	return false
 }
 
 func (a *Agent) visionClient() imagepre.VisionClient {

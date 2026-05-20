@@ -33,6 +33,7 @@ import (
 	"github.com/ziozzang/agentbridge/internal/httpcompat"
 	"github.com/ziozzang/agentbridge/internal/logger"
 	"github.com/ziozzang/agentbridge/internal/protocol/sessionstore"
+	"github.com/ziozzang/agentbridge/internal/runtimeconfig"
 )
 
 const usage = `agentbridge — protocol bridge and compatibility gateway for AI agents.
@@ -69,12 +70,20 @@ func main() {
 	hFlag := flag.Bool("h", false, "show help")
 	setupFlag := flag.Bool("setup", false, "interactively store an API key")
 	versionFlag := flag.Bool("version", false, "print agent version and exit")
-	serverFlag := flag.Bool("server", false, "run a TCP ACP server")
-	listenFlag := flag.String("listen", "127.0.0.1:8765", "TCP listen address for --server")
-	poolSizeFlag := flag.Int("pool-size", 4, "max concurrent TCP ACP connections for --server")
-	waitSizeFlag := flag.Int("wait-size", -1, "max queued TCP ACP connections for --server; default is pool-size/2")
-	httpListenFlag := flag.String("http-listen", "", "HTTP compatibility API listen address")
-	grpcListenFlag := flag.String("grpc-listen", "", "gRPC compatibility API listen address")
+	runtimeCfg, err := runtimeconfig.Load()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "config warning:", err)
+	}
+	waitDefault := -1
+	if runtimeCfg.Server.WaitSize != nil {
+		waitDefault = *runtimeCfg.Server.WaitSize
+	}
+	serverFlag := flag.Bool("server", runtimeCfg.Server.Enabled, "run a TCP ACP server")
+	listenFlag := flag.String("listen", runtimeCfg.Server.Listen, "TCP listen address for --server")
+	poolSizeFlag := flag.Int("pool-size", runtimeCfg.Server.PoolSize, "max concurrent TCP ACP connections for --server")
+	waitSizeFlag := flag.Int("wait-size", waitDefault, "max queued TCP ACP connections for --server; default is pool-size/2")
+	httpListenFlag := flag.String("http-listen", runtimeCfg.Server.HTTPListen, "HTTP compatibility API listen address")
+	grpcListenFlag := flag.String("grpc-listen", runtimeCfg.Server.GRPCListen, "gRPC compatibility API listen address")
 	flag.Usage = func() { fmt.Fprint(os.Stderr, usage) }
 	flag.Parse()
 

@@ -208,6 +208,39 @@ func TestSessionMcpToolFilters(t *testing.T) {
 	}
 }
 
+func TestSessionMcpInjectedTools(t *testing.T) {
+	f := &fakeMCPServer{tools: []map[string]any{}}
+	srv := httptest.NewServer(http.HandlerFunc(f.handler))
+	defer srv.Close()
+
+	specs := []acp.McpServer{{
+		Type: "http", Name: "test", URL: srv.URL,
+		InjectTools: []acp.McpInjectedTool{{
+			Name:        "forced",
+			SourceName:  "hidden",
+			Description: "Forced hidden tool",
+			InputSchema: json.RawMessage(`{"type":"object","properties":{"x":{"type":"string"}}}`),
+		}},
+	}}
+	client, err := NewWithHTTP(specs, srv.Client())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer client.Dispose()
+
+	tools := client.ToolDefinitions()
+	if len(tools) != 1 || tools[0].Function.Name != "mcp__test__forced" {
+		t.Fatalf("tools=%v", tools)
+	}
+	result, err := client.CallTool(context.Background(), "mcp__test__forced", map[string]any{"x": "1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(result, "called hidden") {
+		t.Fatalf("result=%q", result)
+	}
+}
+
 func TestSessionMcpStdio(t *testing.T) {
 	specs := []acp.McpServer{{
 		Type:    "stdio",

@@ -30,6 +30,7 @@ YAML/JSON 파일로 설정합니다.
 | `AGENTBRIDGE_BASE_URL` | base URL override. |
 | `AGENTBRIDGE_CONFIG_FILE` | 전체 config YAML 경로. |
 | `AGENTBRIDGE_PROVIDERS_FILE` | provider YAML 파일 경로. |
+| `AGENTBRIDGE_AGENTS_FILE` | Agent profile YAML/JSON 파일. |
 | `AGENTBRIDGE_PLUGINS` | plugin 목록. 예: `sqlite,duckdb`. |
 | `AGENTBRIDGE_DISABLED_PLUGINS` | 활성화 목록에 있어도 끌 plugin 이름 목록. |
 | `AGENTBRIDGE_MCP_FILE` | 외부 MCP server JSON/YAML 설정 파일. |
@@ -96,6 +97,14 @@ AGENTBRIDGE_CONFIG_FILE=/path/to/config.yaml agentbridge
 예시:
 
 ```yaml
+server:
+  enabled: true
+  listen: 127.0.0.1:8765
+  pool_size: 6
+  wait_size: 3
+  http_listen: 127.0.0.1:8766
+  grpc_listen: 127.0.0.1:8767
+
 providers:
   router:
     kind: router
@@ -103,6 +112,31 @@ providers:
     extra:
       routes_file: ${XDG_CONFIG_HOME}/agentbridge/router.yaml
 ```
+
+CLI flag는 여전히 `server:` 값보다 우선합니다.
+
+## Agent Profiles
+
+Agent profile은 virtual model입니다. ACP에서 profile 이름을 선택하면 지정한
+upstream model을 사용하고, 추가 system prompt를 주입하며, 필요한 경우 tool
+목록을 제한합니다. `AGENTBRIDGE_AGENTS_FILE`을 지정하거나
+`$XDG_CONFIG_HOME/agentbridge` 아래 `agents.yaml` / `agents.json`을 둡니다.
+
+```yaml
+agents:
+  - name: foo
+    description: Foo coding agent
+    target_model: glm-5.1
+    prompt_file: prompts/foo.md
+    tools:
+      - read_file
+      - list_files
+      - mcp__search__*
+      - plugin__jina__jina_search
+```
+
+`system_prompt`는 inline으로 사용할 수 있고, `prompt_file`과 함께 사용할 수도
+있습니다. 상대 `prompt_file` 경로는 profile 파일 위치를 기준으로 해석됩니다.
 
 ## 외부 MCP Servers
 
@@ -117,6 +151,15 @@ mcp_servers:
     url: http://127.0.0.1:8090/mcp
     allow_tools: [foo, search*]
     deny_tools: [search_debug]
+    inject_tools:
+      - name: forced_search
+        source_name: search
+        description: Search through the upstream MCP server.
+        inputSchema:
+          type: object
+          properties:
+            query:
+              type: string
     headers:
       Authorization: Bearer ${MCP_TOKEN}
     enabled: true
@@ -141,6 +184,9 @@ mcp_servers:
 `mcp__<server>__<tool>` 이름으로 노출됩니다.
 노출할 upstream command를 제한하려면 `allow_tools` / `deny_tools`를 사용합니다.
 두 필드는 list 또는 쉼표/개행 구분 문자열을 받으며 wildcard를 지원합니다.
+Upstream이 `tools/list`에서 광고하지 않는 tool definition을 강제로 넣으려면
+`inject_tools`를 사용합니다. Injected tool은 `mcp__<server>__<name>`으로 노출되고
+upstream의 `source_name`을 호출합니다.
 
 ## Provider YAML
 

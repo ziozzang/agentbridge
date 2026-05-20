@@ -204,6 +204,15 @@ mcp_servers:
     url: http://127.0.0.1:8090/mcp
     allow_tools: [foo, search*]
     deny_tools: [search_debug]
+    inject_tools:
+      - name: forced_search
+        source_name: search
+        description: Search through the upstream MCP server.
+        inputSchema:
+          type: object
+          properties:
+            query:
+              type: string
     headers:
       Authorization: Bearer ${MCP_TOKEN}
     enabled: true
@@ -230,6 +239,11 @@ mcp_servers:
 `allow_tools`를 쓰면 특정 upstream tool 이름만 노출할 수 있습니다.
 `deny_tools`는 allow list 적용 후 특정 tool을 숨깁니다. 두 필드는 list 또는
 쉼표/개행 구분 문자열을 받으며, `search*` 같은 단순 wildcard를 지원합니다.
+
+`inject_tools`를 쓰면 upstream server가 `tools/list`에서 반환하지 않은 tool
+definition도 ACP/MCP/OpenAPI에 강제로 넣을 수 있습니다. Injected tool은
+`mcp__<server>__<name>`으로 노출되고 upstream MCP server의 `source_name`을
+호출합니다.
 
 외부 MCP tool은 `mcp__<server>__<tool>` 이름으로 노출되며, ACP session과 HTTP
 MCP client 양쪽에서 사용할 수 있습니다.

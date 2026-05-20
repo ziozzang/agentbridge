@@ -28,8 +28,16 @@ type server struct {
 	Headers  map[string]string `json:"headers" yaml:"headers"`
 	Allow    stringList        `json:"allow_tools" yaml:"allow_tools"`
 	Deny     stringList        `json:"deny_tools" yaml:"deny_tools"`
+	Inject   []injectedTool    `json:"inject_tools" yaml:"inject_tools"`
 	Disabled bool              `json:"disabled" yaml:"disabled"`
 	Enabled  *bool             `json:"enabled" yaml:"enabled"`
+}
+
+type injectedTool struct {
+	Name        string         `json:"name" yaml:"name"`
+	SourceName  string         `json:"source_name" yaml:"source_name"`
+	Description string         `json:"description" yaml:"description"`
+	InputSchema map[string]any `json:"inputSchema" yaml:"inputSchema"`
 }
 
 type flexibleServers []server
@@ -173,17 +181,34 @@ func Load() ([]acp.McpServer, error) {
 		for k, v := range srv.Env {
 			env[k] = os.ExpandEnv(v)
 		}
+		injected := make([]acp.McpInjectedTool, 0, len(srv.Inject))
+		for _, tool := range srv.Inject {
+			if strings.TrimSpace(tool.Name) == "" {
+				continue
+			}
+			schema, _ := json.Marshal(tool.InputSchema)
+			if len(schema) == 0 || string(schema) == "null" {
+				schema = []byte(`{"type":"object","properties":{}}`)
+			}
+			injected = append(injected, acp.McpInjectedTool{
+				Name:        strings.TrimSpace(os.ExpandEnv(tool.Name)),
+				SourceName:  strings.TrimSpace(os.ExpandEnv(tool.SourceName)),
+				Description: os.ExpandEnv(tool.Description),
+				InputSchema: schema,
+			})
+		}
 		out = append(out, acp.McpServer{
-			Type:       strings.ToLower(srv.Type),
-			Name:       srv.Name,
-			URL:        os.ExpandEnv(srv.URL),
-			Command:    os.ExpandEnv(srv.Command),
-			Args:       expandList(srv.Args),
-			Env:        env,
-			Cwd:        os.ExpandEnv(srv.Cwd),
-			Headers:    headers,
-			AllowTools: acp.StringList(expandList(srv.Allow)),
-			DenyTools:  acp.StringList(expandList(srv.Deny)),
+			Type:        strings.ToLower(srv.Type),
+			Name:        srv.Name,
+			URL:         os.ExpandEnv(srv.URL),
+			Command:     os.ExpandEnv(srv.Command),
+			Args:        expandList(srv.Args),
+			Env:         env,
+			Cwd:         os.ExpandEnv(srv.Cwd),
+			Headers:     headers,
+			AllowTools:  acp.StringList(expandList(srv.Allow)),
+			DenyTools:   acp.StringList(expandList(srv.Deny)),
+			InjectTools: injected,
 		})
 	}
 	return out, nil

@@ -19,6 +19,15 @@ mcp_servers:
     allow_tools: foo, bar*
     deny_tools:
       - bar_debug
+    inject_tools:
+      - name: forced
+        source_name: hidden
+        description: Forced tool
+        inputSchema:
+          type: object
+          properties:
+            q:
+              type: string
     headers:
       Authorization: Bearer ${MCP_TOKEN}
   - name: off
@@ -51,6 +60,9 @@ mcp_servers:
 	}
 	if len(got[0].DenyTools) != 1 || got[0].DenyTools[0] != "bar_debug" {
 		t.Fatalf("deny=%#v", got[0].DenyTools)
+	}
+	if len(got[0].InjectTools) != 1 || got[0].InjectTools[0].Name != "forced" || got[0].InjectTools[0].SourceName != "hidden" {
+		t.Fatalf("inject=%#v", got[0].InjectTools)
 	}
 }
 

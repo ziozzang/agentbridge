@@ -63,6 +63,7 @@ agentbridge --http-listen 127.0.0.1:8766
 - `POST /v1/a2a/rpc`
 - `GET /.well-known/agent-card.json`
 - `POST /v1/mcp`
+- `POST /v1/tools/{tool-name}`
 - `POST /v1/agui/run`
 - `GET /openapi.json`
 - `GET /swagger`
@@ -70,6 +71,19 @@ agentbridge --http-listen 127.0.0.1:8766
 - `GET /health`
 
 대부분의 route는 `/v1` 없이도 동작합니다.
+
+서버 flag는 `$XDG_CONFIG_HOME/agentbridge/config.yaml`에도 둘 수 있습니다.
+CLI flag가 config보다 우선합니다.
+
+```yaml
+server:
+  enabled: true
+  listen: 127.0.0.1:8765
+  pool_size: 6
+  wait_size: 3
+  http_listen: 127.0.0.1:8766
+  grpc_listen: 127.0.0.1:8767
+```
 
 ## gRPC 호환 서버
 

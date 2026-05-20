@@ -73,6 +73,7 @@ type Input struct {
 	Cwd      string
 	Tools    []string
 	AgentsMD string
+	Profile  string
 	// ShellOverride lets tests override the shell line.
 	ShellOverride string
 	// PlatformOverride lets tests override the platform line.
@@ -96,6 +97,9 @@ func Build(in Input) string {
 	}
 	if md := strings.TrimSpace(in.AgentsMD); md != "" {
 		sections = append(sections, renderProjectContext(md))
+	}
+	if profile := strings.TrimSpace(in.Profile); profile != "" {
+		sections = append(sections, renderProfile(profile))
 	}
 	return strings.Join(sections, "\n\n")
 }
@@ -140,6 +144,17 @@ func renderProjectContext(md string) string {
 		safe,
 		"```",
 		"</project_context>",
+	}, "\n")
+}
+
+func renderProfile(md string) string {
+	zwsp := "\u200B"
+	safe := strings.ReplaceAll(md, "```", "``"+zwsp+"`")
+	safe = strings.ReplaceAll(safe, "</agent_profile>", "<"+zwsp+"/agent_profile>")
+	return strings.Join([]string{
+		"<agent_profile>",
+		safe,
+		"</agent_profile>",
 	}, "\n")
 }
 

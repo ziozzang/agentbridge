@@ -94,16 +94,26 @@ type MCPServerSpec = json.RawMessage
 
 // McpServer describes a single MCP server configuration.
 type McpServer struct {
-	Type       string            `json:"type"` // "http" | "sse" | "stdio"
-	Name       string            `json:"name"`
-	URL        string            `json:"url,omitempty"`
-	Command    string            `json:"command,omitempty"`
-	Args       []string          `json:"args,omitempty"`
-	Env        map[string]string `json:"env,omitempty"`
-	Cwd        string            `json:"cwd,omitempty"`
-	Headers    map[string]string `json:"headers,omitempty"`
-	AllowTools StringList        `json:"allow_tools,omitempty"`
-	DenyTools  StringList        `json:"deny_tools,omitempty"`
+	Type        string            `json:"type"` // "http" | "sse" | "stdio"
+	Name        string            `json:"name"`
+	URL         string            `json:"url,omitempty"`
+	Command     string            `json:"command,omitempty"`
+	Args        []string          `json:"args,omitempty"`
+	Env         map[string]string `json:"env,omitempty"`
+	Cwd         string            `json:"cwd,omitempty"`
+	Headers     map[string]string `json:"headers,omitempty"`
+	AllowTools  StringList        `json:"allow_tools,omitempty"`
+	DenyTools   StringList        `json:"deny_tools,omitempty"`
+	InjectTools []McpInjectedTool `json:"inject_tools,omitempty"`
+}
+
+// McpInjectedTool is a manual MCP tool definition injected into the ACP tool
+// surface even if the upstream server did not advertise it in tools/list.
+type McpInjectedTool struct {
+	Name        string          `json:"name"`
+	SourceName  string          `json:"source_name,omitempty"`
+	Description string          `json:"description,omitempty"`
+	InputSchema json.RawMessage `json:"inputSchema,omitempty"`
 }
 
 // StringList accepts either a JSON string or array of strings.
