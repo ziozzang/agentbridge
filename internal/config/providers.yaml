@@ -181,6 +181,16 @@ providers:
       include_reasoning_encrypted: true
       omit_max_output_tokens: true
       service_tier: ${CODEX_SERVICE_TIER:-}
+      web_search: ${CODEX_WEB_SEARCH:-cached}
+      tools:
+        web_search:
+          context_size: ${CODEX_WEB_SEARCH_CONTEXT_SIZE:-}
+          allowed_domains: ${CODEX_WEB_SEARCH_ALLOWED_DOMAINS:-}
+          location:
+            country: ${CODEX_WEB_SEARCH_COUNTRY:-}
+            region: ${CODEX_WEB_SEARCH_REGION:-}
+            city: ${CODEX_WEB_SEARCH_CITY:-}
+            timezone: ${CODEX_WEB_SEARCH_TIMEZONE:-}
     models:
       - id: gpt-5.5
         name: GPT-5.5

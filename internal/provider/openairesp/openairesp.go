@@ -136,10 +136,15 @@ type respPart struct {
 }
 
 type respTool struct {
-	Type        string          `json:"type"`
-	Name        string          `json:"name"`
-	Description string          `json:"description,omitempty"`
-	Parameters  json.RawMessage `json:"parameters"`
+	Type               string          `json:"type"`
+	Name               string          `json:"name,omitempty"`
+	Description        string          `json:"description,omitempty"`
+	Parameters         json.RawMessage `json:"parameters,omitempty"`
+	ExternalWebAccess  *bool           `json:"external_web_access,omitempty"`
+	Filters            map[string]any  `json:"filters,omitempty"`
+	UserLocation       map[string]any  `json:"user_location,omitempty"`
+	SearchContextSize  string          `json:"search_context_size,omitempty"`
+	SearchContentTypes []string        `json:"search_content_types,omitempty"`
 }
 
 // ----- Stream shape -------------------------------------------------------
@@ -212,7 +217,7 @@ func (c *Client) StreamChat(ctx context.Context, messages []provider.Message, op
 			Model:           model,
 			Input:           input,
 			Instructions:    instructions,
-			Tools:           translateTools(toolList),
+			Tools:           c.requestTools(toolList),
 			ToolChoice:      "auto",
 			ParallelTools:   c.extraBool("parallel_tool_calls", false),
 			Reasoning:       c.reasoning(),
@@ -438,12 +443,84 @@ func (c *Client) includeFields() []string {
 	return include
 }
 
+func (c *Client) requestTools(in []definitions.Tool) []respTool {
+	if t, ok := c.webSearchTool(); ok {
+		out := translateTools(filterFunctionTool(in, "web_search"))
+		out = append([]respTool{t}, out...)
+		return out
+	}
+	return translateTools(in)
+}
+
+func (c *Client) webSearchTool() (respTool, bool) {
+	mode := strings.ToLower(c.extraString("web_search"))
+	switch mode {
+	case "", "disabled", "off", "false", "0", "none":
+		return respTool{}, false
+	case "live", "true", "1", "on":
+		live := true
+		return c.webSearchToolWithAccess(live), true
+	case "cached":
+		live := false
+		return c.webSearchToolWithAccess(live), true
+	default:
+		logger.Warnf("%s: ignoring invalid web_search mode %q", c.Name(), mode)
+		return respTool{}, false
+	}
+}
+
+func (c *Client) webSearchToolWithAccess(live bool) respTool {
+	nested := c.extraWebSearchConfig()
+	t := respTool{Type: "web_search", ExternalWebAccess: &live}
+	if contextSize := firstNonEmpty(c.extraString("web_search_context_size"), mapString(nested, "context_size")); contextSize != "" {
+		t.SearchContextSize = strings.ToLower(contextSize)
+	}
+	if domains := c.extraStringSlice("web_search_allowed_domains"); len(domains) > 0 {
+		t.Filters = map[string]any{"allowed_domains": domains}
+	} else if domains := mapStringSlice(nested, "allowed_domains"); len(domains) > 0 {
+		t.Filters = map[string]any{"allowed_domains": domains}
+	}
+	if loc := c.extraMap("web_search_location"); len(loc) > 0 {
+		t.UserLocation = normalizeWebSearchLocation(loc)
+	} else if loc := mapValue(nested, "location"); len(loc) > 0 {
+		t.UserLocation = normalizeWebSearchLocation(loc)
+	}
+	if types := c.extraStringSlice("web_search_content_types"); len(types) > 0 {
+		t.SearchContentTypes = types
+	} else if types := mapStringSlice(nested, "search_content_types"); len(types) > 0 {
+		t.SearchContentTypes = types
+	}
+	return t
+}
+
+func (c *Client) extraWebSearchConfig() map[string]any {
+	tools := c.extraMap("tools")
+	if len(tools) == 0 {
+		return nil
+	}
+	return mapValue(tools, "web_search")
+}
+
 func (c *Client) extraString(key string) string {
 	if c.cfg.Extra == nil {
 		return ""
 	}
 	v, _ := c.cfg.Extra[key].(string)
 	return strings.TrimSpace(v)
+}
+
+func (c *Client) extraStringSlice(key string) []string {
+	if c.cfg.Extra == nil {
+		return nil
+	}
+	return anyStringSlice(c.cfg.Extra[key])
+}
+
+func (c *Client) extraMap(key string) map[string]any {
+	if c.cfg.Extra == nil {
+		return nil
+	}
+	return anyMap(c.cfg.Extra[key])
 }
 
 func (c *Client) extraBool(key string, def bool) bool {
@@ -465,6 +542,97 @@ func (c *Client) extraBool(key string, def bool) bool {
 	default:
 		return def
 	}
+}
+
+func anyStringSlice(v any) []string {
+	switch x := v.(type) {
+	case []string:
+		out := make([]string, 0, len(x))
+		for _, s := range x {
+			if s = strings.TrimSpace(s); s != "" {
+				out = append(out, s)
+			}
+		}
+		return out
+	case []any:
+		out := make([]string, 0, len(x))
+		for _, e := range x {
+			if s, ok := e.(string); ok {
+				if s = strings.TrimSpace(s); s != "" {
+					out = append(out, s)
+				}
+			}
+		}
+		return out
+	case string:
+		var out []string
+		for _, part := range strings.Split(x, ",") {
+			if s := strings.TrimSpace(part); s != "" {
+				out = append(out, s)
+			}
+		}
+		return out
+	default:
+		return nil
+	}
+}
+
+func anyMap(v any) map[string]any {
+	switch x := v.(type) {
+	case map[string]any:
+		return x
+	case map[any]any:
+		out := map[string]any{}
+		for k, v := range x {
+			if s, ok := k.(string); ok {
+				out[s] = v
+			}
+		}
+		return out
+	default:
+		return nil
+	}
+}
+
+func mapString(m map[string]any, key string) string {
+	if len(m) == 0 {
+		return ""
+	}
+	s, _ := m[key].(string)
+	return strings.TrimSpace(s)
+}
+
+func mapStringSlice(m map[string]any, key string) []string {
+	if len(m) == 0 {
+		return nil
+	}
+	return anyStringSlice(m[key])
+}
+
+func mapValue(m map[string]any, key string) map[string]any {
+	if len(m) == 0 {
+		return nil
+	}
+	return anyMap(m[key])
+}
+
+func normalizeWebSearchLocation(in map[string]any) map[string]any {
+	out := map[string]any{"type": "approximate"}
+	hasLocation := false
+	for _, key := range []string{"country", "region", "city", "timezone"} {
+		if s := mapString(in, key); s != "" {
+			out[key] = s
+			hasLocation = true
+		}
+	}
+	if s := mapString(in, "type"); s != "" {
+		out["type"] = s
+		hasLocation = true
+	}
+	if !hasLocation {
+		return nil
+	}
+	return out
 }
 
 // translateMessages converts harness-neutral messages into the Responses
@@ -525,6 +693,17 @@ func translateTools(in []definitions.Tool) []respTool {
 			Description: t.Function.Description,
 			Parameters:  schema,
 		})
+	}
+	return out
+}
+
+func filterFunctionTool(in []definitions.Tool, name string) []definitions.Tool {
+	out := make([]definitions.Tool, 0, len(in))
+	for _, t := range in {
+		if t.Function.Name == name {
+			continue
+		}
+		out = append(out, t)
 	}
 	return out
 }

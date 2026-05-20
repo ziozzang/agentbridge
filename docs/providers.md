@@ -74,6 +74,40 @@ AGENTBRIDGE_PROVIDER=codex agentbridge
 The Codex provider reads Codex CLI auth from `~/.codex/auth.json` or
 `AGENTBRIDGE_CODEX_*` token overrides.
 
+Codex-style native web search is enabled for the Codex provider by default in
+cached mode, matching Codex CLI's current default. Override it with:
+
+```bash
+CODEX_WEB_SEARCH=live \
+CODEX_WEB_SEARCH_CONTEXT_SIZE=high \
+CODEX_WEB_SEARCH_COUNTRY=KR \
+CODEX_WEB_SEARCH_CITY=Seoul \
+CODEX_WEB_SEARCH_TIMEZONE=Asia/Seoul \
+AGENTBRIDGE_PROVIDER=codex agentbridge
+```
+
+Supported `CODEX_WEB_SEARCH` values are `live`, `cached`, and `disabled`.
+`CODEX_WEB_SEARCH_ALLOWED_DOMAINS` accepts a comma-separated allowlist.
+
+For custom OpenAI Responses providers, the same wire shape is available under
+provider `extra`:
+
+```yaml
+providers:
+  my-responses:
+    kind: openai-responses
+    extra:
+      web_search: live
+      tools:
+        web_search:
+          context_size: high
+          allowed_domains: openai.com,github.com
+          location:
+            country: KR
+            city: Seoul
+            timezone: Asia/Seoul
+```
+
 ## Provider YAML
 
 Built-in templates live in `internal/config/providers.yaml`. You can add or

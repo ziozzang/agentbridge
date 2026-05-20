@@ -64,3 +64,37 @@ AGENTBRIDGE_PROVIDER=codex agentbridge
 
 Codex provider는 `~/.codex/auth.json` 또는 `AGENTBRIDGE_CODEX_*` token
 override를 사용합니다.
+
+Codex provider는 Codex CLI의 현재 기본값과 맞춰 native web search를 cached
+mode로 켭니다. 다음 환경 변수로 조정할 수 있습니다.
+
+```bash
+CODEX_WEB_SEARCH=live \
+CODEX_WEB_SEARCH_CONTEXT_SIZE=high \
+CODEX_WEB_SEARCH_COUNTRY=KR \
+CODEX_WEB_SEARCH_CITY=Seoul \
+CODEX_WEB_SEARCH_TIMEZONE=Asia/Seoul \
+AGENTBRIDGE_PROVIDER=codex agentbridge
+```
+
+`CODEX_WEB_SEARCH` 값은 `live`, `cached`, `disabled`를 지원합니다.
+`CODEX_WEB_SEARCH_ALLOWED_DOMAINS`는 쉼표로 구분된 allowlist입니다.
+
+사용자 정의 OpenAI Responses provider에서도 같은 wire shape을 `extra`에
+설정할 수 있습니다.
+
+```yaml
+providers:
+  my-responses:
+    kind: openai-responses
+    extra:
+      web_search: live
+      tools:
+        web_search:
+          context_size: high
+          allowed_domains: openai.com,github.com
+          location:
+            country: KR
+            city: Seoul
+            timezone: Asia/Seoul
+```

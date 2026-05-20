@@ -22,6 +22,8 @@ import (
 	codexoauth "github.com/ziozzang/agentbridge/internal/oauth/codex"
 	"github.com/ziozzang/agentbridge/internal/plugins"
 	_ "github.com/ziozzang/agentbridge/internal/plugins/duckdb" // register duckdb stub
+	_ "github.com/ziozzang/agentbridge/internal/plugins/jina"   // register Jina tools
+	_ "github.com/ziozzang/agentbridge/internal/plugins/ollamasearch"
 	_ "github.com/ziozzang/agentbridge/internal/plugins/sqlite" // register sqlite plugin
 	"github.com/ziozzang/agentbridge/internal/protocol/imagepre"
 	"github.com/ziozzang/agentbridge/internal/protocol/sessionstore"

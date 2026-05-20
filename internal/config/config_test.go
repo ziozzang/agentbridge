@@ -111,6 +111,31 @@ func TestLoadEmbeddedOllamaAPIKey(t *testing.T) {
 	}
 }
 
+func TestLoadEmbeddedCodexWebSearchDefaults(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(t.TempDir(), "missing"))
+	_ = os.Unsetenv("ACP_HARNESS_PROVIDERS_FILE")
+	t.Setenv("CODEX_WEB_SEARCH", "")
+
+	m, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := m.Resolve("codex")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Extra["web_search"] != "cached" {
+		t.Fatalf("web_search = %#v", cfg.Extra["web_search"])
+	}
+	tools, ok := cfg.Extra["tools"].(map[string]any)
+	if !ok {
+		t.Fatalf("tools = %#v", cfg.Extra["tools"])
+	}
+	if _, ok := tools["web_search"].(map[string]any); !ok {
+		t.Fatalf("tools.web_search = %#v", tools["web_search"])
+	}
+}
+
 func TestResolveAppliesEnvOverrides(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(t.TempDir(), "missing"))
 	_ = os.Unsetenv("ACP_HARNESS_PROVIDERS_FILE")

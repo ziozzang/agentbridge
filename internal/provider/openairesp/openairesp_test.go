@@ -132,6 +132,20 @@ func TestCodexStyleResponsesOptions(t *testing.T) {
 			"include_reasoning_encrypted": true,
 			"omit_max_output_tokens":      true,
 			"service_tier":                "priority",
+			"web_search":                  "live",
+			"tools": map[string]any{
+				"web_search": map[string]any{
+					"context_size":    "high",
+					"allowed_domains": []any{"example.com"},
+					"location": map[string]any{
+						"country":  "US",
+						"region":   "California",
+						"city":     "San Francisco",
+						"timezone": "America/Los_Angeles",
+					},
+					"search_content_types": []any{"text", "image"},
+				},
+			},
 		},
 	})
 	c.HTTPClient = srv.Client()
@@ -162,6 +176,35 @@ func TestCodexStyleResponsesOptions(t *testing.T) {
 	include, _ := gotBody["include"].([]any)
 	if len(include) != 1 || include[0] != "reasoning.encrypted_content" {
 		t.Fatalf("include = %#v", gotBody["include"])
+	}
+	tools, _ := gotBody["tools"].([]any)
+	if len(tools) == 0 {
+		t.Fatalf("tools missing: %#v", gotBody["tools"])
+	}
+	webSearch, _ := tools[0].(map[string]any)
+	if webSearch["type"] != "web_search" || webSearch["external_web_access"] != true {
+		t.Fatalf("web search tool = %#v", webSearch)
+	}
+	if webSearch["search_context_size"] != "high" {
+		t.Fatalf("web search context size = %#v", webSearch["search_context_size"])
+	}
+	filters, _ := webSearch["filters"].(map[string]any)
+	if domains, _ := filters["allowed_domains"].([]any); len(domains) != 1 || domains[0] != "example.com" {
+		t.Fatalf("web search filters = %#v", filters)
+	}
+	location, _ := webSearch["user_location"].(map[string]any)
+	if location["type"] != "approximate" || location["city"] != "San Francisco" {
+		t.Fatalf("web search location = %#v", location)
+	}
+	contentTypes, _ := webSearch["search_content_types"].([]any)
+	if len(contentTypes) != 2 || contentTypes[0] != "text" || contentTypes[1] != "image" {
+		t.Fatalf("web search content types = %#v", contentTypes)
+	}
+	for _, rawTool := range tools[1:] {
+		tool, _ := rawTool.(map[string]any)
+		if tool["type"] == "function" && tool["name"] == "web_search" {
+			t.Fatalf("native web_search should replace function web_search: %#v", tool)
+		}
 	}
 }
 
