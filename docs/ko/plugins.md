@@ -209,6 +209,19 @@ mcp_servers:
     enabled: true
 ```
 
+CLI / stdio MCP server도 지원합니다.
+
+```yaml
+mcp_servers:
+  - name: filesystem
+    type: stdio
+    command: npx
+    args: [-y, "@modelcontextprotocol/server-filesystem", /workspace]
+    env:
+      NODE_OPTIONS: --no-warnings
+    allow_tools: [read_file, list_directory]
+```
+
 기존 MCP 설정 호환을 위해 `mcpServers`도 허용하며, list와 이름-keyed object
 형식을 모두 받을 수 있습니다. 파일에서 제거하지 않고 끄려면
 `disabled: true`, `enabled: false`, 또는
@@ -220,6 +233,10 @@ mcp_servers:
 
 외부 MCP tool은 `mcp__<server>__<tool>` 이름으로 노출되며, ACP session과 HTTP
 MCP client 양쪽에서 사용할 수 있습니다.
+
+ACP client가 session 생성 시 넘기는 `mcpServers`에도 `type: "stdio"`와 같은
+`command`, `args`, `env`, `cwd`, `allow_tools`, `deny_tools` 필드를 사용할 수
+있습니다.
 
 ## Prometheus Metrics
 

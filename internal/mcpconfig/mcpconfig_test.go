@@ -55,12 +55,21 @@ mcp_servers:
 }
 
 func TestLoadMCPServersMap(t *testing.T) {
+	t.Setenv("SHELL", "/bin/sh")
+	t.Setenv("MCP_TOKEN", "secret-token")
 	path := filepath.Join(t.TempDir(), "mcp.json")
 	if err := os.WriteFile(path, []byte(`{
   "mcpServers": {
     "docs": {
       "type": "http",
       "url": "http://127.0.0.1:8091/mcp"
+    },
+    "cli": {
+      "type": "stdio",
+      "command": "${SHELL}",
+      "args": "-lc, true",
+      "env": {"TOKEN": "${MCP_TOKEN}"},
+      "allow_tools": ["foo"]
     }
   }
 }`), 0o644); err != nil {
@@ -72,7 +81,7 @@ func TestLoadMCPServersMap(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(got) != 1 || got[0].Name != "docs" {
+	if len(got) != 2 || got[0].Name == "" || got[1].Name == "" {
 		t.Fatalf("servers=%#v", got)
 	}
 }

@@ -122,6 +122,19 @@ mcp_servers:
     enabled: true
 ```
 
+CLI / stdio 예시:
+
+```yaml
+mcp_servers:
+  - name: filesystem
+    type: stdio
+    command: npx
+    args: [-y, "@modelcontextprotocol/server-filesystem", /workspace]
+    env:
+      NODE_OPTIONS: --no-warnings
+    cwd: /workspace
+```
+
 `mcpServers`도 허용하며, list와 이름-keyed object 형식을 모두 받을 수
 있습니다. 끄려면 `disabled: true`, `enabled: false`, 또는
 `AGENTBRIDGE_DISABLED_MCPS=search`를 사용합니다. HTTP MCP tool은

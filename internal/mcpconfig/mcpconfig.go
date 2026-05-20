@@ -21,6 +21,10 @@ type server struct {
 	Type     string            `json:"type" yaml:"type"`
 	Name     string            `json:"name" yaml:"name"`
 	URL      string            `json:"url" yaml:"url"`
+	Command  string            `json:"command" yaml:"command"`
+	Args     stringList        `json:"args" yaml:"args"`
+	Env      map[string]string `json:"env" yaml:"env"`
+	Cwd      string            `json:"cwd" yaml:"cwd"`
 	Headers  map[string]string `json:"headers" yaml:"headers"`
 	Allow    stringList        `json:"allow_tools" yaml:"allow_tools"`
 	Deny     stringList        `json:"deny_tools" yaml:"deny_tools"`
@@ -152,17 +156,31 @@ func Load() ([]acp.McpServer, error) {
 		if srv.Type == "" {
 			srv.Type = "http"
 		}
-		if srv.Name == "" || srv.URL == "" {
+		if srv.Name == "" {
+			continue
+		}
+		if strings.ToLower(srv.Type) == "stdio" && srv.Command == "" {
+			continue
+		}
+		if strings.ToLower(srv.Type) != "stdio" && srv.URL == "" {
 			continue
 		}
 		headers := map[string]string{}
 		for k, v := range srv.Headers {
 			headers[k] = os.ExpandEnv(v)
 		}
+		env := map[string]string{}
+		for k, v := range srv.Env {
+			env[k] = os.ExpandEnv(v)
+		}
 		out = append(out, acp.McpServer{
 			Type:       strings.ToLower(srv.Type),
 			Name:       srv.Name,
 			URL:        os.ExpandEnv(srv.URL),
+			Command:    os.ExpandEnv(srv.Command),
+			Args:       expandList(srv.Args),
+			Env:        env,
+			Cwd:        os.ExpandEnv(srv.Cwd),
 			Headers:    headers,
 			AllowTools: acp.StringList(expandList(srv.Allow)),
 			DenyTools:  acp.StringList(expandList(srv.Deny)),

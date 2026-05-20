@@ -1,10 +1,12 @@
 package sessionmcp
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"sync"
 	"testing"
@@ -206,9 +208,74 @@ func TestSessionMcpToolFilters(t *testing.T) {
 	}
 }
 
+func TestSessionMcpStdio(t *testing.T) {
+	specs := []acp.McpServer{{
+		Type:    "stdio",
+		Name:    "cli",
+		Command: os.Args[0],
+		Args:    []string{"-test.run=TestStdioMCPServerHelper"},
+		Env:     map[string]string{"AGENTBRIDGE_TEST_MCP_STDIO": "1"},
+	}}
+	client, err := NewWithHTTP(specs, http.DefaultClient)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer client.Dispose()
+
+	tools := client.ToolDefinitions()
+	if len(tools) != 1 || tools[0].Function.Name != "mcp__cli__echo" {
+		t.Fatalf("tools=%v", tools)
+	}
+	result, err := client.CallTool(context.Background(), "mcp__cli__echo", map[string]any{"text": "hello"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result != "stdio echo hello" {
+		t.Fatalf("result=%q", result)
+	}
+}
+
+func TestStdioMCPServerHelper(t *testing.T) {
+	if os.Getenv("AGENTBRIDGE_TEST_MCP_STDIO") != "1" {
+		return
+	}
+	scanner := bufio.NewScanner(os.Stdin)
+	for scanner.Scan() {
+		var req map[string]any
+		if err := json.Unmarshal(scanner.Bytes(), &req); err != nil {
+			continue
+		}
+		method, _ := req["method"].(string)
+		if method == "notifications/initialized" {
+			continue
+		}
+		id := req["id"]
+		result := map[string]any{}
+		switch method {
+		case "initialize":
+			result = map[string]any{"protocolVersion": protocolVersion}
+		case "tools/list":
+			result = map[string]any{"tools": []map[string]any{{
+				"name": "echo", "description": "Echo text", "inputSchema": map[string]any{"type": "object"},
+			}}}
+		case "tools/call":
+			params, _ := req["params"].(map[string]any)
+			args, _ := params["arguments"].(map[string]any)
+			text, _ := args["text"].(string)
+			result = map[string]any{"content": []map[string]any{{"type": "text", "text": "stdio echo " + text}}}
+		default:
+			_ = json.NewEncoder(os.Stdout).Encode(map[string]any{
+				"jsonrpc": "2.0", "id": id, "error": map[string]any{"code": -32601, "message": "not found"},
+			})
+			continue
+		}
+		_ = json.NewEncoder(os.Stdout).Encode(map[string]any{"jsonrpc": "2.0", "id": id, "result": result})
+	}
+	os.Exit(0)
+}
+
 func TestSessionMcpSkipNonHttp(t *testing.T) {
 	specs := []acp.McpServer{
-		{Type: "stdio", Name: "stdio-server"},
 		{Type: "sse", Name: "sse-server"},
 	}
 	client, err := NewWithHTTP(specs, http.DefaultClient)
@@ -219,7 +286,7 @@ func TestSessionMcpSkipNonHttp(t *testing.T) {
 
 	tools := client.ToolDefinitions()
 	if len(tools) != 0 {
-		t.Errorf("expected 0 tools (all non-http skipped), got %d", len(tools))
+		t.Errorf("expected 0 tools (unsupported transports skipped), got %d", len(tools))
 	}
 }
 

@@ -62,7 +62,8 @@ type SessionCapabilities struct {
 
 // MCPCapabilities advertises which MCP transports the agent can connect to.
 type MCPCapabilities struct {
-	HTTP bool `json:"http,omitempty"`
+	HTTP  bool `json:"http,omitempty"`
+	Stdio bool `json:"stdio,omitempty"`
 }
 
 // AgentCapabilities is the full capability advertisement.
@@ -96,6 +97,10 @@ type McpServer struct {
 	Type       string            `json:"type"` // "http" | "sse" | "stdio"
 	Name       string            `json:"name"`
 	URL        string            `json:"url,omitempty"`
+	Command    string            `json:"command,omitempty"`
+	Args       []string          `json:"args,omitempty"`
+	Env        map[string]string `json:"env,omitempty"`
+	Cwd        string            `json:"cwd,omitempty"`
 	Headers    map[string]string `json:"headers,omitempty"`
 	AllowTools StringList        `json:"allow_tools,omitempty"`
 	DenyTools  StringList        `json:"deny_tools,omitempty"`

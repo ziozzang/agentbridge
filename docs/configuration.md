@@ -124,6 +124,19 @@ mcp_servers:
     enabled: true
 ```
 
+CLI / stdio example:
+
+```yaml
+mcp_servers:
+  - name: filesystem
+    type: stdio
+    command: npx
+    args: [-y, "@modelcontextprotocol/server-filesystem", /workspace]
+    env:
+      NODE_OPTIONS: --no-warnings
+    cwd: /workspace
+```
+
 `mcpServers` is also accepted as either a list or a name-keyed object. Set
 `disabled: true`, `enabled: false`, or `AGENTBRIDGE_DISABLED_MCPS=search` to
 turn a server off. HTTP MCP tools are exported as `mcp__<server>__<tool>`.

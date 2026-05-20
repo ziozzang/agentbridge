@@ -5,6 +5,7 @@
 package sessionmcp
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -12,6 +13,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
+	"os/exec"
 	"path"
 	"regexp"
 	"strings"
@@ -44,17 +47,26 @@ type toolBinding struct {
 
 type serverState struct {
 	name      string
+	typ       string
 	url       string
+	command   string
+	args      []string
+	env       map[string]string
+	cwd       string
 	headers   map[string]string
 	allow     []string
 	deny      []string
 	sessionID string
 	http      *http.Client
 	nextID    atomic.Int64
+	cmd       *exec.Cmd
+	stdin     io.WriteCloser
+	stdout    *bufio.Reader
+	stdioMu   sync.Mutex
 }
 
 // New constructs a Client from the given MCP server configs.
-// Only HTTP servers are processed; stdio/sse servers are logged and skipped.
+// HTTP and stdio servers are processed; SSE servers are logged and skipped.
 func New(specs []acp.McpServer) (*Client, error) {
 	return NewWithHTTP(specs, http.DefaultClient)
 }
@@ -67,23 +79,39 @@ func NewWithHTTP(specs []acp.McpServer, httpClient *http.Client) (*Client, error
 	}
 	ctx := context.Background()
 	for _, spec := range specs {
-		if spec.Type != "http" {
-			logger.Debugf("sessionmcp: skipping non-http server %q (type=%s)", spec.Name, spec.Type)
+		typ := strings.ToLower(spec.Type)
+		if typ == "" {
+			typ = "http"
+		}
+		if typ != "http" && typ != "stdio" {
+			logger.Debugf("sessionmcp: skipping unsupported server %q (type=%s)", spec.Name, spec.Type)
 			continue
 		}
 		srv := &serverState{
+			typ:     typ,
 			name:    spec.Name,
 			url:     spec.URL,
+			command: spec.Command,
+			args:    spec.Args,
+			env:     spec.Env,
+			cwd:     spec.Cwd,
 			headers: spec.Headers,
 			allow:   spec.AllowTools,
 			deny:    spec.DenyTools,
 			http:    httpClient,
 		}
+		if typ == "stdio" {
+			if err := srv.startStdio(); err != nil {
+				return nil, fmt.Errorf("sessionmcp: start stdio %s: %w", spec.Name, err)
+			}
+		}
 		if err := srv.initialize(ctx); err != nil {
+			srv.Dispose()
 			return nil, fmt.Errorf("sessionmcp: initialize %s: %w", spec.Name, err)
 		}
 		tools, err := srv.listTools(ctx)
 		if err != nil {
+			srv.Dispose()
 			return nil, fmt.Errorf("sessionmcp: list tools %s: %w", spec.Name, err)
 		}
 		c.servers = append(c.servers, srv)
@@ -186,8 +214,19 @@ func (c *Client) CallTool(ctx context.Context, fullName string, args map[string]
 
 // Dispose closes idle connections (no-op with http.DefaultClient).
 func (c *Client) Dispose() {
-	// In Go with http.DefaultClient, there's no explicit cleanup needed.
-	// If we used a custom Transport, we'd close idle connections here.
+	for _, srv := range c.servers {
+		srv.Dispose()
+	}
+}
+
+func (s *serverState) Dispose() {
+	if s.stdin != nil {
+		_ = s.stdin.Close()
+	}
+	if s.cmd != nil && s.cmd.Process != nil {
+		_ = s.cmd.Process.Kill()
+		_, _ = s.cmd.Process.Wait()
+	}
 }
 
 // ---------------------------------------------------------------------------
@@ -261,6 +300,9 @@ func (s *serverState) callTool(ctx context.Context, toolName string, args map[st
 }
 
 func (s *serverState) sendNotification(ctx context.Context, body jsonObject) error {
+	if s.typ == "stdio" {
+		return s.writeStdio(ctx, body)
+	}
 	raw, _ := json.Marshal(body)
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, s.url, bytes.NewReader(raw))
 	if err != nil {
@@ -297,6 +339,10 @@ func (e *rpcError) Error() string {
 }
 
 func (s *serverState) fetchJSONRPC(ctx context.Context, method string, body jsonObject, mcpName string) (*rpcResponse, string, error) {
+	if s.typ == "stdio" {
+		resp, err := s.fetchStdio(ctx, body)
+		return resp, "", err
+	}
 	raw, err := json.Marshal(body)
 	if err != nil {
 		return nil, "", err
@@ -326,6 +372,94 @@ func (s *serverState) fetchJSONRPC(ctx context.Context, method string, body json
 		return nil, "", fmt.Errorf("MCP %s %s failed: %s", s.name, method, parsed.Error.Error())
 	}
 	return parsed, resp.Header.Get("MCP-Session-Id"), nil
+}
+
+func (s *serverState) startStdio() error {
+	if s.command == "" {
+		return errors.New("stdio MCP command is required")
+	}
+	cmd := exec.Command(s.command, s.args...)
+	if s.cwd != "" {
+		cmd.Dir = s.cwd
+	}
+	if len(s.env) > 0 {
+		env := os.Environ()
+		for k, v := range s.env {
+			env = append(env, k+"="+v)
+		}
+		cmd.Env = env
+	}
+	stdin, err := cmd.StdinPipe()
+	if err != nil {
+		return err
+	}
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return err
+	}
+	stderr, err := cmd.StderrPipe()
+	if err != nil {
+		return err
+	}
+	if err := cmd.Start(); err != nil {
+		return err
+	}
+	go io.Copy(io.Discard, stderr)
+	s.cmd = cmd
+	s.stdin = stdin
+	s.stdout = bufio.NewReader(stdout)
+	return nil
+}
+
+func (s *serverState) fetchStdio(ctx context.Context, body jsonObject) (*rpcResponse, error) {
+	s.stdioMu.Lock()
+	defer s.stdioMu.Unlock()
+	if err := s.writeStdioLocked(ctx, body); err != nil {
+		return nil, err
+	}
+	for {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		line, err := s.stdout.ReadBytes('\n')
+		if err != nil {
+			return nil, err
+		}
+		line = bytes.TrimSpace(line)
+		if len(line) == 0 {
+			continue
+		}
+		var resp rpcResponse
+		if err := json.Unmarshal(line, &resp); err != nil {
+			continue
+		}
+		if resp.ID == nil && resp.Result == nil && resp.Error == nil {
+			continue
+		}
+		if resp.Error != nil {
+			return nil, resp.Error
+		}
+		return &resp, nil
+	}
+}
+
+func (s *serverState) writeStdio(ctx context.Context, body jsonObject) error {
+	s.stdioMu.Lock()
+	defer s.stdioMu.Unlock()
+	return s.writeStdioLocked(ctx, body)
+}
+
+func (s *serverState) writeStdioLocked(ctx context.Context, body jsonObject) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	raw, err := json.Marshal(body)
+	if err != nil {
+		return err
+	}
+	raw = append(raw, '\n')
+	_, err = s.stdin.Write(raw)
+	return err
 }
 
 func (s *serverState) applyHeaders(req *http.Request, method, mcpName string) {

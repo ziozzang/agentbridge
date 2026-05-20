@@ -221,6 +221,19 @@ mcp_servers:
     enabled: true
 ```
 
+CLI / stdio MCP servers are also supported:
+
+```yaml
+mcp_servers:
+  - name: filesystem
+    type: stdio
+    command: npx
+    args: [-y, "@modelcontextprotocol/server-filesystem", /workspace]
+    env:
+      NODE_OPTIONS: --no-warnings
+    allow_tools: [read_file, list_directory]
+```
+
 `mcpServers` is also accepted as either a list or a name-keyed object for
 compatibility with existing MCP config files. Set `disabled: true`,
 `enabled: false`, or list names in
@@ -234,6 +247,10 @@ wildcards such as `search*`.
 
 Configured external MCP tools are exposed as `mcp__<server>__<tool>` and are
 available both to ACP sessions and to HTTP MCP clients.
+
+For ACP clients that pass `mcpServers` at session creation, `type: "stdio"`
+accepts the same `command`, `args`, `env`, `cwd`, `allow_tools`, and
+`deny_tools` fields.
 
 ## Prometheus Metrics
 

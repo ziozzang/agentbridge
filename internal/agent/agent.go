@@ -158,7 +158,7 @@ func (a *Agent) Initialize(_ context.Context, p acp.InitializeParams) (acp.Initi
 		AgentInfo:       acp.AgentInfo{Name: AgentName, Version: Version},
 		AgentCapabilities: acp.AgentCapabilities{
 			LoadSession:     true,
-			MCPCapabilities: acp.MCPCapabilities{HTTP: true},
+			MCPCapabilities: acp.MCPCapabilities{HTTP: true, Stdio: true},
 			PromptCapabilities: acp.PromptCapabilities{
 				EmbeddedContext: true,
 				Image:           imageAllowed,
