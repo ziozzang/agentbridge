@@ -43,6 +43,7 @@ type Client struct {
 	mu         sync.Mutex
 	rr         map[int]int
 	limitedKey map[string]limitInfo
+	permits    map[string]chan struct{}
 }
 
 type route struct {
@@ -60,6 +61,7 @@ type route struct {
 	MaxTokens       int            `json:"max_tokens" yaml:"max_tokens"`
 	ContextWindow   int            `json:"context_window" yaml:"context_window"`
 	RetryKeys       bool           `json:"retry_keys" yaml:"retry_keys"`
+	MaxConcurrent   int            `json:"max_concurrent_per_key" yaml:"max_concurrent_per_key"`
 }
 
 type routeFile struct {
@@ -89,7 +91,7 @@ func New(cfg provider.Config) (*Client, error) {
 	if cfg.DefaultModel == "" && len(loaded.routes) > 0 {
 		cfg.DefaultModel = firstNonEmpty(loaded.routes[0].Match, loaded.routes[0].Model, loaded.routes[0].TargetModel)
 	}
-	return &Client{cfg: cfg, routes: loaded.routes, aliases: loaded.aliases, providers: providers, rr: map[int]int{}, limitedKey: map[string]limitInfo{}}, nil
+	return &Client{cfg: cfg, routes: loaded.routes, aliases: loaded.aliases, providers: providers, rr: map[int]int{}, limitedKey: map[string]limitInfo{}, permits: map[string]chan struct{}{}}, nil
 }
 
 func (c *Client) Name() string { return firstNonEmpty(c.cfg.Name, Kind) }
@@ -358,6 +360,29 @@ func (c *Client) pickKey(routeIndex int, r route) (string, string) {
 	return keys[next], keySignature(routeIndex, next, keys[next])
 }
 
+func (c *Client) acquirePermit(ctx context.Context, routeIndex int, r route, keySig string) (func(), error) {
+	limit := r.MaxConcurrent
+	if limit <= 0 {
+		return func() {}, nil
+	}
+	if keySig == "" {
+		keySig = keySignature(routeIndex, 0, r.Provider)
+	}
+	c.mu.Lock()
+	ch := c.permits[keySig]
+	if ch == nil || cap(ch) != limit {
+		ch = make(chan struct{}, limit)
+		c.permits[keySig] = ch
+	}
+	c.mu.Unlock()
+	select {
+	case ch <- struct{}{}:
+		return func() { <-ch }, nil
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+}
+
 func (c *Client) streamChain(ctx context.Context, chain []resolvedRoute, requested string, messages []provider.Message, opts provider.StreamOptions) (<-chan provider.Chunk, <-chan error) {
 	out := make(chan provider.Chunk)
 	errs := make(chan error, 1)
@@ -383,8 +408,14 @@ func (c *Client) streamChain(ctx context.Context, chain []resolvedRoute, request
 					errs <- err
 					return
 				}
+				release, err := c.acquirePermit(ctx, candidate.index, r, keySig)
+				if err != nil {
+					errs <- err
+					return
+				}
 				p, err := provider.Build(cfg)
 				if err != nil {
+					release()
 					errs <- err
 					return
 				}
@@ -396,6 +427,7 @@ func (c *Client) streamChain(ctx context.Context, chain []resolvedRoute, request
 					buffered = append(buffered, ch)
 				}
 				err = <-upstreamErrs
+				release()
 				if err == nil {
 					for _, ch := range buffered {
 						out <- ch

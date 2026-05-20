@@ -6,7 +6,9 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/ziozzang/agentbridge/internal/provider"
 	_ "github.com/ziozzang/agentbridge/internal/provider/openaichat"
@@ -117,6 +119,70 @@ func TestRouterRetriesNextKeyOnRateLimitBeforeStreaming(t *testing.T) {
 	}
 	if fmt.Sprint(saw) != "[Bearer k1 Bearer k2]" {
 		t.Fatalf("saw = %v", saw)
+	}
+}
+
+func TestRouterLimitsConcurrentRequestsPerKey(t *testing.T) {
+	var inFlight int32
+	var maxSeen int32
+	release := make(chan struct{})
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		n := atomic.AddInt32(&inFlight, 1)
+		for {
+			old := atomic.LoadInt32(&maxSeen)
+			if n <= old || atomic.CompareAndSwapInt32(&maxSeen, old, n) {
+				break
+			}
+		}
+		<-release
+		atomic.AddInt32(&inFlight, -1)
+		w.Header().Set("Content-Type", "text/event-stream")
+		fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{\"content\":\"ok\"},\"finish_reason\":\"stop\"}]}\n\n")
+		fmt.Fprint(w, "data: [DONE]\n\n")
+	}))
+	defer srv.Close()
+
+	c, err := New(provider.Config{
+		Name: "router", Kind: Kind, DefaultModel: "m",
+		Extra: map[string]any{
+			"_providers": map[string]provider.Config{
+				"p": {Name: "p", Kind: "openai-chat", BaseURL: srv.URL, DefaultModel: "m"},
+			},
+			"routes": []any{map[string]any{
+				"match":                  "m",
+				"provider":               "p",
+				"api_keys":               []any{"k1"},
+				"max_concurrent_per_key": 1,
+			}},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	errsDone := make(chan error, 2)
+	for i := 0; i < 2; i++ {
+		go func() {
+			chunks, errs := c.StreamChat(context.Background(), []provider.Message{{Role: "user", Content: "hi"}}, provider.StreamOptions{Model: "m"})
+			for range chunks {
+			}
+			errsDone <- <-errs
+		}()
+	}
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) && atomic.LoadInt32(&inFlight) == 0 {
+		time.Sleep(time.Millisecond)
+	}
+	if got := atomic.LoadInt32(&inFlight); got != 1 {
+		t.Fatalf("inFlight before release = %d, want 1", got)
+	}
+	close(release)
+	for i := 0; i < 2; i++ {
+		if err := <-errsDone; err != nil {
+			t.Fatal(err)
+		}
+	}
+	if got := atomic.LoadInt32(&maxSeen); got != 1 {
+		t.Fatalf("max concurrency = %d, want 1", got)
 	}
 }
 
