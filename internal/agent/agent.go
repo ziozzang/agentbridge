@@ -788,12 +788,9 @@ func (a *Agent) ensureClient() error {
 			cfg.APIKey = k
 		}
 	}
-	// Resolve any oauth:* tokens (currently codex). The function returns
-	// the original value when no resolver matches, so non-oauth configs
-	// stay untouched.
-	if resolved, rerr := resolveOAuthKey(cfg.APIKey); rerr == nil {
-		cfg.APIKey = resolved
-	} else {
+	// Resolve any oauth:* tokens and attach non-secret auth metadata such as
+	// ChatGPT account id when the token cache carries it.
+	if rerr := resolveOAuthConfig(&cfg); rerr != nil {
 		return rerr
 	}
 	if cfg.APIKey == "" && cfg.Kind != "ollama" {
@@ -815,24 +812,33 @@ func (a *Agent) ensureClient() error {
 	return nil
 }
 
-// resolveOAuthKey returns the API key after resolving any `oauth:*`
-// markers. Supports `oauth:codex` and `oauth:openai`, both backed by
-// OpenAI's OAuth refresh-token flow.
-var resolveOAuthKey = func(key string) (string, error) {
-	if !strings.HasPrefix(key, "oauth:") {
-		return key, nil
+// resolveOAuthConfig resolves any `oauth:*` marker on cfg.APIKey. Supports
+// `oauth:codex` and `oauth:openai`, both backed by OpenAI's OAuth refresh-token
+// flow. For ChatGPT-backed Codex tokens it also forwards ChatGPT-Account-ID.
+var resolveOAuthConfig = func(cfg *provider.Config) error {
+	if cfg == nil || !strings.HasPrefix(cfg.APIKey, "oauth:") {
+		return nil
 	}
-	flavour := strings.TrimPrefix(key, "oauth:")
+	flavour := strings.TrimPrefix(cfg.APIKey, "oauth:")
 	switch flavour {
 	case "codex", "openai":
 		r := codexoauth.NewForFlavour(flavour, "")
-		tok, err := r.Resolve(context.Background())
+		tok, err := r.ResolveToken(context.Background())
 		if err != nil {
-			return "", err
+			return err
 		}
-		return tok, nil
+		cfg.APIKey = tok.AccessToken
+		if tok.AccountID != "" {
+			if cfg.Headers == nil {
+				cfg.Headers = map[string]string{}
+			}
+			if cfg.Headers["ChatGPT-Account-ID"] == "" {
+				cfg.Headers["ChatGPT-Account-ID"] = tok.AccountID
+			}
+		}
+		return nil
 	default:
-		return "", fmt.Errorf("oauth resolver for %q is not registered", flavour)
+		return fmt.Errorf("oauth resolver for %q is not registered", flavour)
 	}
 }
 

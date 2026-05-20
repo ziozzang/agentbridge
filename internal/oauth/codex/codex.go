@@ -52,6 +52,7 @@ type Token struct {
 	ExpiresAt    time.Time `json:"expires_at"`
 	ClientID     string    `json:"client_id,omitempty"`
 	TokenURL     string    `json:"token_url,omitempty"`
+	AccountID    string    `json:"account_id,omitempty"`
 }
 
 // Resolver caches the parsed token and performs refresh-on-demand.
@@ -119,33 +120,46 @@ func defaultTokenPath(envName, fileName string) string {
 // Resolve returns a valid access token, refreshing if needed. The
 // returned string can be used directly as a Bearer token.
 func (r *Resolver) Resolve(ctx context.Context) (string, error) {
-	// Highest-priority override: explicit access token from env.
-	if v := os.Getenv(r.env("ACCESS_TOKEN")); v != "" {
-		return v, nil
-	}
-	tok, err := r.loadCached()
+	tok, err := r.ResolveToken(ctx)
 	if err != nil {
 		return "", err
 	}
+	return tok.AccessToken, nil
+}
+
+// ResolveToken returns a valid access token plus non-secret metadata such as
+// ChatGPT account id, refreshing the token when needed.
+func (r *Resolver) ResolveToken(ctx context.Context) (*Token, error) {
+	// Highest-priority override: explicit access token from env.
+	if v := os.Getenv(r.env("ACCESS_TOKEN")); v != "" {
+		return &Token{AccessToken: v, AccountID: os.Getenv(r.env("ACCOUNT_ID"))}, nil
+	}
+	tok, err := r.loadCached()
+	if err != nil {
+		return nil, err
+	}
+	if v := os.Getenv(r.env("ACCOUNT_ID")); v != "" {
+		tok.AccountID = v
+	}
 	if !tok.expiringSoon() {
-		return tok.AccessToken, nil
+		return tok, nil
 	}
 	if tok.RefreshToken == "" {
 		if v := os.Getenv(r.env("REFRESH_TOKEN")); v != "" {
 			tok.RefreshToken = v
 		} else {
-			return "", fmt.Errorf("%s oauth: access token expired and no refresh token available", r.label)
+			return nil, fmt.Errorf("%s oauth: access token expired and no refresh token available", r.label)
 		}
 	}
 	refreshed, err := r.refresh(ctx, tok)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 	r.mu.Lock()
 	r.tok = refreshed
 	r.mu.Unlock()
 	_ = r.persist(refreshed)
-	return refreshed.AccessToken, nil
+	return refreshed, nil
 }
 
 func (r *Resolver) loadCached() (*Token, error) {
@@ -184,6 +198,7 @@ func (r *Resolver) loadCached() (*Token, error) {
 		}
 		t.AccessToken = nested.Tokens.AccessToken
 		t.RefreshToken = nested.Tokens.RefreshToken
+		t.AccountID = nested.Tokens.AccountID
 	}
 	r.tok = &t
 	return r.tok, nil
@@ -260,6 +275,7 @@ func (r *Resolver) refresh(ctx context.Context, t *Token) (*Token, error) {
 		ExpiresAt:    expiry,
 		ClientID:     clientID,
 		TokenURL:     tokenURL,
+		AccountID:    t.AccountID,
 	}
 	if out.RefreshToken == "" {
 		out.RefreshToken = t.RefreshToken

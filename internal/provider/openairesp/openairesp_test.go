@@ -2,6 +2,7 @@ package openairesp
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -96,6 +97,71 @@ func TestResponsesContextOverflow(t *testing.T) {
 	err := <-errs
 	if !provider.IsContextOverflow(err) {
 		t.Fatalf("expected ContextOverflowError, got %T %v", err, err)
+	}
+}
+
+func TestCodexStyleResponsesOptions(t *testing.T) {
+	var gotPath string
+	var gotBody map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		if got := r.Header.Get("ChatGPT-Account-ID"); got != "account-123" {
+			t.Errorf("account header = %q", got)
+		}
+		if err := json.NewDecoder(r.Body).Decode(&gotBody); err != nil {
+			t.Fatal(err)
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		fmt.Fprintln(w, `data: {"type":"response.output_text.delta","delta":"OK"}`)
+		fmt.Fprintln(w)
+		fmt.Fprintln(w, `data: {"type":"response.completed","response":{"status":"completed"}}`)
+		fmt.Fprintln(w)
+	}))
+	defer srv.Close()
+
+	c := New(provider.Config{
+		Name:    "codex-test",
+		BaseURL: srv.URL,
+		APIKey:  "key",
+		Headers: map[string]string{"ChatGPT-Account-ID": "account-123"},
+		Extra: map[string]any{
+			"responses_path":              "/responses",
+			"instructions":                "Be concise.",
+			"prompt_cache_key":            "thread-123",
+			"reasoning_effort":            "medium",
+			"include_reasoning_encrypted": true,
+			"omit_max_output_tokens":      true,
+			"service_tier":                "priority",
+		},
+	})
+	c.HTTPClient = srv.Client()
+	chunks, errs := c.StreamChat(context.Background(),
+		[]provider.Message{{Role: "user", Content: "hi"}},
+		provider.StreamOptions{Model: "gpt-5.5"})
+	for range chunks {
+	}
+	if err := <-errs; err != nil {
+		t.Fatal(err)
+	}
+	if gotPath != "/responses" {
+		t.Fatalf("path = %q", gotPath)
+	}
+	if gotBody["instructions"] != "Be concise." || gotBody["prompt_cache_key"] != "thread-123" {
+		t.Fatalf("body missing codex fields: %#v", gotBody)
+	}
+	if gotBody["service_tier"] != "priority" {
+		t.Fatalf("service_tier = %#v", gotBody["service_tier"])
+	}
+	if _, ok := gotBody["max_output_tokens"]; ok {
+		t.Fatalf("max_output_tokens should be omitted: %#v", gotBody["max_output_tokens"])
+	}
+	reasoning, _ := gotBody["reasoning"].(map[string]any)
+	if reasoning["effort"] != "medium" {
+		t.Fatalf("reasoning = %#v", gotBody["reasoning"])
+	}
+	include, _ := gotBody["include"].([]any)
+	if len(include) != 1 || include[0] != "reasoning.encrypted_content" {
+		t.Fatalf("include = %#v", gotBody["include"])
 	}
 }
 

@@ -127,7 +127,8 @@ func TestResolveReadsCodexAuthJSONShape(t *testing.T) {
 	  "auth_mode": "chatgpt",
 	  "tokens": {
 	    "access_token": "nested-at",
-	    "refresh_token": "nested-rt"
+	    "refresh_token": "nested-rt",
+	    "account_id": "account-123"
 	  },
 	  "last_refresh": "` + time.Now().UTC().Format(time.RFC3339) + `"
 	}`
@@ -141,6 +142,13 @@ func TestResolveReadsCodexAuthJSONShape(t *testing.T) {
 	}
 	if got != "nested-at" {
 		t.Errorf("got %q", got)
+	}
+	tok, err := r.ResolveToken(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tok.AccountID != "account-123" {
+		t.Errorf("account id = %q", tok.AccountID)
 	}
 }
 

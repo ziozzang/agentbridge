@@ -138,20 +138,31 @@ providers:
     max_tokens: 4096
     context_window: 200000
 
-  # --------- Codex (OpenAI Responses behind OAuth) ----------------------
-  # Resolve the API key via the Codex OAuth refresh-token flow (see
-  # `internal/oauth/codex`). Configure ACP_HARNESS_CODEX_REFRESH_TOKEN or
-  # a token file at ~/.config/acp-harness/codex-token.json.
+  # --------- Codex (ChatGPT Codex backend behind OAuth) ------------------
+  # Resolve the bearer token and ChatGPT account id from Codex CLI auth
+  # (`~/.codex/auth.json`) or ACP_HARNESS_CODEX_* overrides.
   codex:
     kind: openai-responses
-    base_url: ${CODEX_BASE_URL:-https://api.openai.com}
+    base_url: ${CODEX_BASE_URL:-https://chatgpt.com/backend-api/codex}
     api_key: oauth:codex
-    default_model: ${CODEX_MODEL:-gpt-5-codex}
+    default_model: ${CODEX_MODEL:-gpt-5.5}
     max_tokens: 4096
     context_window: 400000
+    headers:
+      version: ${CODEX_CLIENT_VERSION:-glm-acp}
+    extra:
+      responses_path: ${CODEX_RESPONSES_PATH:-/responses}
+      instructions: ${CODEX_INSTRUCTIONS:-You are a concise coding assistant.}
+      prompt_cache_key: ${CODEX_PROMPT_CACHE_KEY:-glm-acp}
+      reasoning_effort: ${CODEX_REASONING_EFFORT:-medium}
+      include_reasoning_encrypted: true
+      omit_max_output_tokens: true
+      service_tier: ${CODEX_SERVICE_TIER:-}
     models:
-      - id: gpt-5-codex
-        name: GPT-5 Codex
-        description: OpenAI Codex preview (Responses + OAuth)
-      - id: gpt-5
-        name: GPT-5
+      - id: gpt-5.5
+        name: GPT-5.5
+        description: Current Codex ChatGPT model
+      - id: gpt-5.4
+        name: GPT-5.4
+      - id: gpt-5.3-codex
+        name: GPT-5.3 Codex

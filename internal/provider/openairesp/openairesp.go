@@ -3,14 +3,15 @@
 //
 // Endpoint:   POST <BaseURL>/v1/responses
 // Streaming:  text/event-stream with `event:` + `data:` pairs. Relevant
-//             event types we honour:
-//               - response.output_text.delta              (assistant text)
-//               - response.reasoning_summary_text.delta   (thinking)
-//               - response.function_call_arguments.delta  (tool arg stream)
-//               - response.output_item.added              (tool item start)
-//               - response.output_item.done               (tool item complete)
-//               - response.completed                      (final usage + status)
-//               - response.failed / response.error        (error envelopes)
+//
+//	event types we honour:
+//	  - response.output_text.delta              (assistant text)
+//	  - response.reasoning_summary_text.delta   (thinking)
+//	  - response.function_call_arguments.delta  (tool arg stream)
+//	  - response.output_item.added              (tool item start)
+//	  - response.output_item.done               (tool item complete)
+//	  - response.completed                      (final usage + status)
+//	  - response.failed / response.error        (error envelopes)
 //
 // The harness's neutral message format is translated into the Responses
 // API's `input` array shape. Function-calling tools are translated as
@@ -102,8 +103,19 @@ type respRequest struct {
 	Input           []respInputItem `json:"input"`
 	Instructions    string          `json:"instructions,omitempty"`
 	Tools           []respTool      `json:"tools,omitempty"`
+	ToolChoice      string          `json:"tool_choice,omitempty"`
+	ParallelTools   bool            `json:"parallel_tool_calls"`
+	Reasoning       *respReasoning  `json:"reasoning,omitempty"`
+	Store           bool            `json:"store"`
 	Stream          bool            `json:"stream"`
+	Include         []string        `json:"include,omitempty"`
+	ServiceTier     string          `json:"service_tier,omitempty"`
+	PromptCacheKey  string          `json:"prompt_cache_key,omitempty"`
 	MaxOutputTokens int             `json:"max_output_tokens,omitempty"`
+}
+
+type respReasoning struct {
+	Effort string `json:"effort,omitempty"`
 }
 
 // respInputItem covers the four "input" shapes we emit. The unused fields
@@ -145,10 +157,10 @@ type respEvent struct {
 }
 
 type respUsage struct {
-	InputTokens         int `json:"input_tokens"`
-	OutputTokens        int `json:"output_tokens"`
-	TotalTokens         int `json:"total_tokens"`
-	InputTokensDetails  *struct {
+	InputTokens        int `json:"input_tokens"`
+	OutputTokens       int `json:"output_tokens"`
+	TotalTokens        int `json:"total_tokens"`
+	InputTokensDetails *struct {
 		CachedTokens int `json:"cached_tokens"`
 	} `json:"input_tokens_details"`
 	OutputTokensDetails *struct {
@@ -189,6 +201,9 @@ func (c *Client) StreamChat(ctx context.Context, messages []provider.Message, op
 		}
 
 		instructions, input := translateMessages(messages)
+		if instructions == "" {
+			instructions = c.extraString("instructions")
+		}
 
 		logger.Debugf("%s.streamChat: model=%s input_items=%d tools=%d",
 			c.Name(), model, len(input), len(toolList))
@@ -198,15 +213,22 @@ func (c *Client) StreamChat(ctx context.Context, messages []provider.Message, op
 			Input:           input,
 			Instructions:    instructions,
 			Tools:           translateTools(toolList),
+			ToolChoice:      "auto",
+			ParallelTools:   c.extraBool("parallel_tool_calls", false),
+			Reasoning:       c.reasoning(),
+			Store:           c.extraBool("store", false),
 			Stream:          true,
-			MaxOutputTokens: c.cfg.MaxTokens,
+			Include:         c.includeFields(),
+			ServiceTier:     c.extraString("service_tier"),
+			PromptCacheKey:  c.extraString("prompt_cache_key"),
+			MaxOutputTokens: c.maxOutputTokens(),
 		}
 		body, err := json.Marshal(req)
 		if err != nil {
 			errs <- err
 			return
 		}
-		url := strings.TrimRight(c.cfg.BaseURL, "/") + "/v1/responses"
+		url := strings.TrimRight(c.cfg.BaseURL, "/") + c.responsesPath()
 		httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
 		if err != nil {
 			errs <- err
@@ -380,6 +402,69 @@ func (c *Client) StreamChat(ctx context.Context, messages []provider.Message, op
 	}()
 
 	return chunks, errs
+}
+
+func (c *Client) responsesPath() string {
+	path := c.extraString("responses_path")
+	if path == "" {
+		return "/v1/responses"
+	}
+	if !strings.HasPrefix(path, "/") {
+		path = "/" + path
+	}
+	return path
+}
+
+func (c *Client) maxOutputTokens() int {
+	if c.extraBool("omit_max_output_tokens", false) {
+		return 0
+	}
+	return c.cfg.MaxTokens
+}
+
+func (c *Client) reasoning() *respReasoning {
+	effort := c.extraString("reasoning_effort")
+	if effort == "" {
+		return nil
+	}
+	return &respReasoning{Effort: effort}
+}
+
+func (c *Client) includeFields() []string {
+	var include []string
+	if c.extraBool("include_reasoning_encrypted", false) {
+		include = append(include, "reasoning.encrypted_content")
+	}
+	return include
+}
+
+func (c *Client) extraString(key string) string {
+	if c.cfg.Extra == nil {
+		return ""
+	}
+	v, _ := c.cfg.Extra[key].(string)
+	return strings.TrimSpace(v)
+}
+
+func (c *Client) extraBool(key string, def bool) bool {
+	if c.cfg.Extra == nil {
+		return def
+	}
+	switch v := c.cfg.Extra[key].(type) {
+	case bool:
+		return v
+	case string:
+		switch strings.ToLower(strings.TrimSpace(v)) {
+		case "1", "true", "yes", "on":
+			return true
+		case "0", "false", "no", "off":
+			return false
+		default:
+			return def
+		}
+	default:
+		return def
+	}
 }
 
 // translateMessages converts harness-neutral messages into the Responses
