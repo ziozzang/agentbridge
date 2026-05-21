@@ -61,14 +61,19 @@ agentbridge --server --listen 127.0.0.1:8765
 acp-agent --addr 127.0.0.1:8765 --model glm-5.1
 ```
 
-The interactive UI streams answer tokens directly, keeps a compact status bar
-with model/mode/session/context state, and renders user messages, assistant
-streams, thinking, tools, status, and approvals as separate terminal history
-cells. Permission prompts use a Codex-style overlay with numbered choices.
-During a running prompt, `Ctrl-C` first sends `session/cancel`; pressing it when
-no prompt is active exits the client. Additional prompts entered while one is
-running are queued and can be inspected with `/queue`. Shell execution remains
-a client-owned tool.
+The default interactive UI is a Bubble Tea application. It keeps the event loop
+inside the TUI runtime: ACP updates are converted into UI events, the viewport
+owns transcript scrolling, the bottom composer owns input, and a fixed status
+surface shows model/mode/session/context/quota state. User messages, assistant
+streams, thinking, tools, status, and approvals are rendered as separate
+history cells. Permission prompts use a Codex-style overlay with numbered and
+cursor-selectable choices. During a running prompt, `Ctrl-C` first sends
+`session/cancel`; pressing it when no prompt is active exits the client.
+Additional prompts entered while one is running are queued and can be inspected
+with `/queue`. Shell execution remains a client-owned tool.
+
+Use `--plain` to run the legacy line-oriented UI. This is mainly useful for
+minimal terminals and debugging.
 
 One-shot prompt:
 
@@ -89,6 +94,7 @@ Useful flags:
 - `--read-only`: shorthand for `--mode default --permission reject`.
 - `--show-thinking`: print ACP `agent_thought_chunk` updates to stderr. Hidden
   by default.
+- `--plain`: disable the Bubble Tea UI and use the legacy line-oriented UI.
 
 Interactive commands:
 

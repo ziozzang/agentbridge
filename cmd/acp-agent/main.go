@@ -45,6 +45,7 @@ Flags:
   --show-thinking      print ACP agent_thought_chunk updates to stderr
   --hide-tools         hide ACP tool_call/tool_call_update status messages
   --raw-updates        print raw non-text session/update payloads to stderr
+  --plain              use the legacy line-oriented terminal UI
   --version            print version and exit
 
 Interactive commands:
@@ -89,6 +90,7 @@ func main() {
 	showThinking := flag.Bool("show-thinking", false, "print agent_thought_chunk updates")
 	hideTools := flag.Bool("hide-tools", false, "hide tool_call/tool_call_update status messages")
 	rawUpdates := flag.Bool("raw-updates", false, "print raw non-text session/update payloads")
+	plain := flag.Bool("plain", false, "use the legacy line-oriented terminal UI")
 	version := flag.Bool("version", false, "print version and exit")
 	help := flag.Bool("help", false, "show help")
 	flag.Usage = func() { fmt.Fprint(os.Stderr, usage) }
@@ -119,6 +121,7 @@ func main() {
 	if text == "" && flag.NArg() > 0 {
 		text = strings.Join(flag.Args(), " ")
 	}
+	interactiveTUI := text == "" && !*plain && isTerminalWriter(os.Stderr)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -130,25 +133,28 @@ func main() {
 		ShowThinking: *showThinking,
 		ShowTools:    !*hideTools,
 		RawUpdates:   *rawUpdates,
+		LegacyUI:     !interactiveTUI,
 	})
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "connect failed:", err)
 		os.Exit(1)
 	}
 	defer cli.Close()
-	go func() {
-		for {
-			<-sigCh
-			if cli.Interrupt(ctx) {
-				fmt.Fprintln(os.Stderr, "\ninterrupt: cancelled current session prompt")
-				continue
+	if !interactiveTUI {
+		go func() {
+			for {
+				<-sigCh
+				if cli.Interrupt(ctx) {
+					fmt.Fprintln(os.Stderr, "\ninterrupt: cancelled current session prompt")
+					continue
+				}
+				cancel()
+				fmt.Fprintln(os.Stderr, "\ninterrupted")
+				_ = cli.Close()
+				os.Exit(130)
 			}
-			cancel()
-			fmt.Fprintln(os.Stderr, "\ninterrupted")
-			_ = cli.Close()
-			os.Exit(130)
-		}
-	}()
+		}()
+	}
 
 	if err := cli.Initialize(ctx); err != nil {
 		fmt.Fprintln(os.Stderr, "initialize failed:", err)
@@ -161,25 +167,38 @@ func main() {
 	}
 	sessionID := session.SessionID
 	cli.setSessionState(*addr, *cwd, session)
-	fmt.Fprintf(os.Stderr, "session %s cwd=%s\n", sessionID, *cwd)
+	if !interactiveTUI {
+		fmt.Fprintf(os.Stderr, "session %s cwd=%s\n", sessionID, *cwd)
+	}
 	if *model != "" {
 		if err := cli.SetModel(ctx, sessionID, *model); err != nil {
 			fmt.Fprintln(os.Stderr, "set model failed:", err)
 			os.Exit(1)
 		}
-		fmt.Fprintf(os.Stderr, "model %s\n", *model)
+		if !interactiveTUI {
+			fmt.Fprintf(os.Stderr, "model %s\n", *model)
+		}
 	}
 	if *mode != "" {
 		if err := cli.SetMode(ctx, sessionID, *mode); err != nil {
 			fmt.Fprintln(os.Stderr, "set mode failed:", err)
 			os.Exit(1)
 		}
-		fmt.Fprintf(os.Stderr, "mode %s\n", *mode)
+		if !interactiveTUI {
+			fmt.Fprintf(os.Stderr, "mode %s\n", *mode)
+		}
 	}
 
 	if text != "" {
 		if err := cli.Prompt(ctx, sessionID, text); err != nil {
 			fmt.Fprintln(os.Stderr, "prompt failed:", err)
+			os.Exit(1)
+		}
+		return
+	}
+	if interactiveTUI {
+		if err := runBubbleTUI(ctx, cli); err != nil {
+			fmt.Fprintln(os.Stderr, "tui failed:", err)
 			os.Exit(1)
 		}
 		return
@@ -210,6 +229,7 @@ type clientOptions struct {
 	ShowThinking bool
 	ShowTools    bool
 	RawUpdates   bool
+	LegacyUI     bool
 }
 
 type clientState struct {
@@ -264,6 +284,8 @@ type client struct {
 	promptQueue   []string
 	activeTools   map[string]string
 	activeAgents  map[string]string
+	thinkingPlain bool
+	events        chan uiEvent
 
 	writeMu sync.Mutex
 	nextID  atomic.Int64
@@ -280,14 +302,20 @@ func dialClient(ctx context.Context, addr string, stdin io.Reader, stdout, stder
 	if err != nil {
 		return nil, err
 	}
+	var ui *cliUI
+	var stream *streamBuffer
+	if opts.LegacyUI {
+		ui = newCLIUI(stderr)
+		stream = newStreamBuffer(stdout)
+	}
 	c := &client{
 		conn:          conn,
 		dec:           json.NewDecoder(bufio.NewReader(conn)),
 		stdin:         bufio.NewReader(stdin),
 		stdout:        stdout,
 		stderr:        stderr,
-		ui:            newCLIUI(stderr),
-		stream:        newStreamBuffer(stdout),
+		ui:            ui,
+		stream:        stream,
 		opts:          opts,
 		allowCommands: map[string]bool{},
 		activeTools:   map[string]string{},
@@ -364,6 +392,7 @@ func (c *client) SetModel(ctx context.Context, sessionID, model string) error {
 	c.mu.Lock()
 	c.state.Model = model
 	c.mu.Unlock()
+	c.emitState()
 	return nil
 }
 
@@ -375,6 +404,7 @@ func (c *client) SetMode(ctx context.Context, sessionID, mode string) error {
 	c.mu.Lock()
 	c.state.Mode = mode
 	c.mu.Unlock()
+	c.emitState()
 	return nil
 }
 
@@ -408,6 +438,7 @@ func (c *client) ResumeSession(ctx context.Context, sessionID string, replay boo
 		c.state.Mode = out.Modes.CurrentModeID
 	}
 	c.mu.Unlock()
+	c.emitState()
 	return nil
 }
 
@@ -431,14 +462,18 @@ func (c *client) Prompt(ctx context.Context, sessionID, text string) error {
 	c.mu.Lock()
 	c.state.Busy = true
 	c.mu.Unlock()
+	c.emitState()
 	defer func() {
+		c.finishThinkingOutput()
 		c.mu.Lock()
 		c.state.Busy = false
 		c.mu.Unlock()
+		c.emitState()
 		if c.ui != nil {
 			c.ui.refresh(c)
 		}
 	}()
+	c.emit(uiUserEvent{Text: text})
 	if c.ui != nil {
 		c.ui.userMessage(text)
 		c.ui.start(c, "prompt")
@@ -474,10 +509,13 @@ func (c *client) Prompt(ctx context.Context, sessionID, text string) error {
 		c.restoreAttachments(files)
 		return err
 	}
-	if c.ui == nil || !c.ui.active() {
+	if c.events == nil && (c.ui == nil || !c.ui.active()) {
 		fmt.Fprintln(c.stdout)
 	}
 	if out.StopReason != "" && out.StopReason != "end_turn" && out.StopReason != "stop" {
+		if c.emitInfo("stop", out.StopReason) {
+			return nil
+		}
 		if c.ui != nil && c.ui.active() {
 			c.ui.infoCell("stop", out.StopReason)
 		} else {
@@ -498,6 +536,10 @@ func (c *client) SubmitPrompt(ctx context.Context, text string) {
 		c.state.QueueLen = len(c.promptQueue)
 		queued := c.state.QueueLen
 		c.mu.Unlock()
+		c.emitState()
+		if c.emitInfo("queued", fmt.Sprintf("%d prompt(s) waiting", queued)) {
+			return
+		}
 		if c.ui != nil && c.ui.active() {
 			c.ui.infoCell("queued", fmt.Sprintf("%d prompt(s) waiting", queued))
 			c.ui.refresh(c)
@@ -529,6 +571,7 @@ func (c *client) runPromptQueue(ctx context.Context, first string) {
 		c.promptQueue = c.promptQueue[1:]
 		c.state.QueueLen = len(c.promptQueue)
 		c.mu.Unlock()
+		c.emitState()
 	}
 }
 
@@ -568,6 +611,7 @@ func (c *client) setSessionState(addr, cwd string, session acp.NewSessionRespons
 	c.mu.Lock()
 	c.state = state
 	c.mu.Unlock()
+	c.emitState()
 }
 
 func (c *client) Call(ctx context.Context, method string, params any, result any) error {
@@ -919,6 +963,9 @@ func (c *client) runCommand(ctx context.Context, line string) error {
 	case line == "/save" || strings.HasPrefix(line, "/save "):
 		name := strings.TrimSpace(strings.TrimPrefix(line, "/save"))
 		if name == "" {
+			if c.emitInfo("save", "usage: /save NAME") {
+				return nil
+			}
 			fmt.Fprintln(c.stderr, "usage: /save NAME")
 			return nil
 		}
@@ -926,6 +973,9 @@ func (c *client) runCommand(ctx context.Context, line string) error {
 	case line == "/load" || strings.HasPrefix(line, "/load "):
 		name := strings.TrimSpace(strings.TrimPrefix(line, "/load"))
 		if name == "" {
+			if c.emitInfo("load", "usage: /load CHECKPOINT_NAME_OR_ID") {
+				return nil
+			}
 			fmt.Fprintln(c.stderr, "usage: /load CHECKPOINT_NAME_OR_ID")
 			return nil
 		}
@@ -985,26 +1035,46 @@ func (c *client) printHelp() {
 		c.ui.infoCell("help", strings.TrimRight(body, "\n"))
 		return
 	}
+	if c.emitInfo("help", strings.TrimRight(body, "\n")) {
+		return
+	}
 	fmt.Fprint(c.stderr, body)
 }
 
 func (c *client) commandAttach(args string) {
 	if args == "" {
+		if c.emitInfo("attach", "usage: /attach PATH [...]") {
+			return
+		}
 		fmt.Fprintln(c.stderr, "usage: /attach PATH [...]")
 		return
 	}
+	var b strings.Builder
 	var added int
 	for _, path := range strings.Fields(args) {
 		res, err := c.attachPath(path)
 		if err != nil {
-			fmt.Fprintf(c.stderr, "attach failed for %s: %v\n", path, err)
+			fmt.Fprintf(&b, "attach failed for %s: %v\n", path, err)
+			if c.events == nil {
+				fmt.Fprintf(c.stderr, "attach failed for %s: %v\n", path, err)
+			}
 			continue
 		}
 		added++
-		fmt.Fprintf(c.stderr, "attached %s chars=%d truncated=%v\n", res.Path, len(res.Text), res.Truncated)
+		fmt.Fprintf(&b, "attached %s chars=%d truncated=%v\n", res.Path, len(res.Text), res.Truncated)
+		if c.events == nil {
+			fmt.Fprintf(c.stderr, "attached %s chars=%d truncated=%v\n", res.Path, len(res.Text), res.Truncated)
+		}
 	}
 	if added == 0 {
+		if c.emitInfo("attach", strings.TrimRight(firstNonEmpty(b.String(), "no files attached"), "\n")) {
+			return
+		}
 		fmt.Fprintln(c.stderr, "no files attached")
+		return
+	}
+	if c.emitInfo("attach", strings.TrimRight(b.String(), "\n")) {
+		return
 	}
 }
 
@@ -1030,14 +1100,25 @@ func (c *client) commandFiles() {
 	files := append([]attachment(nil), c.files...)
 	c.mu.Unlock()
 	if len(files) == 0 {
+		if c.emitInfo("files", "queued files: none") {
+			return
+		}
 		fmt.Fprintln(c.stderr, "queued files: none")
 		return
 	}
-	fmt.Fprintln(c.stderr, "queued files:")
+	var b strings.Builder
+	b.WriteString("queued files:\n")
+	if c.events == nil {
+		fmt.Fprintln(c.stderr, "queued files:")
+	}
 	for i, f := range files {
 		res := f.Resource
-		fmt.Fprintf(c.stderr, "%d. %s mime=%s chars=%d truncated=%v\n", i+1, res.Path, res.MimeType, len(res.Text), res.Truncated)
+		fmt.Fprintf(&b, "%d. %s mime=%s chars=%d truncated=%v\n", i+1, res.Path, res.MimeType, len(res.Text), res.Truncated)
+		if c.events == nil {
+			fmt.Fprintf(c.stderr, "%d. %s mime=%s chars=%d truncated=%v\n", i+1, res.Path, res.MimeType, len(res.Text), res.Truncated)
+		}
 	}
+	c.emitInfo("files", strings.TrimRight(b.String(), "\n"))
 }
 
 func (c *client) commandClearFiles() {
@@ -1045,10 +1126,16 @@ func (c *client) commandClearFiles() {
 	n := len(c.files)
 	c.files = nil
 	c.mu.Unlock()
+	if c.emitInfo("files", fmt.Sprintf("cleared %d queued files", n)) {
+		return
+	}
 	fmt.Fprintf(c.stderr, "cleared %d queued files\n", n)
 }
 
 func (c *client) commandStructure() {
+	if c.emitInfo("structure", strings.TrimRight(c.structureString(), "\n")) {
+		return
+	}
 	fmt.Fprint(c.stderr, c.structureString())
 }
 
@@ -1073,15 +1160,24 @@ func (c *client) structureString() string {
 
 func (c *client) commandLua(ctx context.Context, fields []string) {
 	if len(fields) < 2 {
+		if c.emitInfo("lua", "usage: /lua FILE [args...]") {
+			return
+		}
 		fmt.Fprintln(c.stderr, "usage: /lua FILE [args...]")
 		return
 	}
 	result, err := c.runLua(ctx, runLuaParams{Path: fields[1], Args: fields[2:]})
 	if err != nil {
+		if c.emitError("lua failed: " + err.Error()) {
+			return
+		}
 		fmt.Fprintln(c.stderr, "lua failed:", err)
 		return
 	}
 	if strings.TrimSpace(result.Output) != "" {
+		if c.emitInfo("lua", strings.TrimRight(result.Output, "\n")) {
+			return
+		}
 		fmt.Fprintln(c.stdout, result.Output)
 	}
 }
@@ -1090,10 +1186,16 @@ func (c *client) commandGoal(ctx context.Context, args string) {
 	body, _ := json.Marshal(args)
 	result, err := c.runLua(ctx, runLuaParams{Code: "cli.say(cli.goal.command(" + string(body) + "))"})
 	if err != nil {
+		if c.emitError("goal failed: " + err.Error()) {
+			return
+		}
 		fmt.Fprintln(c.stderr, "goal failed:", err)
 		return
 	}
 	if strings.TrimSpace(result.Output) != "" {
+		if c.emitInfo("goal", strings.TrimRight(result.Output, "\n")) {
+			return
+		}
 		fmt.Fprintln(c.stdout, result.Output)
 	}
 }
@@ -1103,6 +1205,9 @@ func (c *client) commandServerPrompt(ctx context.Context, prompt string) {
 	sessionID := c.state.SessionID
 	c.mu.Unlock()
 	if err := c.Prompt(ctx, sessionID, prompt); err != nil {
+		if c.emitError("command failed: " + err.Error()) {
+			return
+		}
 		fmt.Fprintln(c.stderr, "command failed:", err)
 	}
 }
@@ -1113,6 +1218,9 @@ func (c *client) commandNew(ctx context.Context) {
 	c.mu.Unlock()
 	session, err := c.NewSession(ctx, cwd)
 	if err != nil {
+		if c.emitError("session/new failed: " + err.Error()) {
+			return
+		}
 		fmt.Fprintln(c.stderr, "session/new failed:", err)
 		return
 	}
@@ -1120,6 +1228,9 @@ func (c *client) commandNew(ctx context.Context) {
 	addr := c.state.Addr
 	c.mu.Unlock()
 	c.setSessionState(addr, cwd, session)
+	if c.emitInfo("session", fmt.Sprintf("new session %s cwd=%s", session.SessionID, cwd)) {
+		return
+	}
 	fmt.Fprintf(c.stderr, "new session %s cwd=%s\n", session.SessionID, cwd)
 }
 
@@ -1128,11 +1239,20 @@ func (c *client) commandStop(ctx context.Context) {
 	sessionID := c.state.SessionID
 	c.mu.Unlock()
 	if sessionID == "" {
+		if c.emitInfo("stop", "no active session") {
+			return
+		}
 		fmt.Fprintln(c.stderr, "no active session")
 		return
 	}
 	if err := c.Cancel(ctx, sessionID); err != nil {
+		if c.emitError("session/cancel failed: " + err.Error()) {
+			return
+		}
 		fmt.Fprintln(c.stderr, "session/cancel failed:", err)
+		return
+	}
+	if c.emitInfo("stop", "stop requested") {
 		return
 	}
 	fmt.Fprintln(c.stderr, "stop requested")
@@ -1143,6 +1263,9 @@ func (c *client) printQueue() {
 	queue := append([]string(nil), c.promptQueue...)
 	c.mu.Unlock()
 	if len(queue) == 0 {
+		if c.emitInfo("queue", "empty") {
+			return
+		}
 		if c.ui != nil && c.ui.active() {
 			c.ui.infoCell("queue", "empty")
 		} else {
@@ -1158,6 +1281,9 @@ func (c *client) printQueue() {
 		c.ui.infoCell("queue", strings.TrimRight(b.String(), "\n"))
 		return
 	}
+	if c.emitInfo("queue", strings.TrimRight(b.String(), "\n")) {
+		return
+	}
 	fmt.Fprint(c.stderr, b.String())
 }
 
@@ -1165,6 +1291,9 @@ func (c *client) printStatus() {
 	body := c.statusString()
 	if c.ui != nil && c.ui.active() {
 		c.ui.statusCard(c, body)
+		return
+	}
+	if c.emitInfo("status", strings.TrimRight(body, "\n")) {
 		return
 	}
 	fmt.Fprint(c.stderr, body)
@@ -1197,42 +1326,71 @@ func percentOrUnknown(v float64) string {
 func (c *client) commandSessions(ctx context.Context) {
 	list, err := c.ListSessions(ctx)
 	if err != nil {
+		if c.emitError("session/list failed: " + err.Error()) {
+			return
+		}
 		fmt.Fprintln(c.stderr, "session/list failed:", err)
 		return
 	}
 	if len(list.Sessions) == 0 {
+		if c.emitInfo("sessions", "no sessions") {
+			return
+		}
 		fmt.Fprintln(c.stderr, "no sessions")
 		return
 	}
+	var b strings.Builder
 	for _, s := range list.Sessions {
 		title := ""
 		if s.Title != nil {
 			title = *s.Title
 		}
-		fmt.Fprintf(c.stderr, "%s\t%s\t%s\t%s\n", s.SessionID, s.UpdatedAt, s.Cwd, title)
+		fmt.Fprintf(&b, "%s\t%s\t%s\t%s\n", s.SessionID, s.UpdatedAt, s.Cwd, title)
+		if c.events == nil {
+			fmt.Fprintf(c.stderr, "%s\t%s\t%s\t%s\n", s.SessionID, s.UpdatedAt, s.Cwd, title)
+		}
 	}
+	c.emitInfo("sessions", strings.TrimRight(b.String(), "\n"))
 }
 
 func (c *client) commandResume(ctx context.Context, sessionID string, replay bool) {
 	if sessionID == "" {
 		if replay {
+			if c.emitInfo("session", "usage: /session-load SESSION_ID") {
+				return
+			}
 			fmt.Fprintln(c.stderr, "usage: /session-load SESSION_ID")
 		} else {
+			if c.emitInfo("session", "usage: /resume SESSION_ID") {
+				return
+			}
 			fmt.Fprintln(c.stderr, "usage: /resume SESSION_ID")
 		}
 		return
 	}
 	if err := c.ResumeSession(ctx, sessionID, replay); err != nil {
 		if replay {
+			if c.emitError("session/load failed: " + err.Error()) {
+				return
+			}
 			fmt.Fprintln(c.stderr, "session/load failed:", err)
 		} else {
+			if c.emitError("session/resume failed: " + err.Error()) {
+				return
+			}
 			fmt.Fprintln(c.stderr, "session/resume failed:", err)
 		}
 		return
 	}
 	if replay {
+		if c.emitInfo("session", "loaded "+sessionID) {
+			return
+		}
 		fmt.Fprintln(c.stderr, "loaded", sessionID)
 	} else {
+		if c.emitInfo("session", "resumed "+sessionID) {
+			return
+		}
 		fmt.Fprintln(c.stderr, "resumed", sessionID)
 	}
 }
@@ -1242,6 +1400,9 @@ func (c *client) commandModel(ctx context.Context, model string) {
 		c.mu.Lock()
 		cur := c.state.Model
 		c.mu.Unlock()
+		if c.emitInfo("model", cur) {
+			return
+		}
 		fmt.Fprintln(c.stderr, "model", cur)
 		return
 	}
@@ -1249,7 +1410,13 @@ func (c *client) commandModel(ctx context.Context, model string) {
 	sessionID := c.state.SessionID
 	c.mu.Unlock()
 	if err := c.SetModel(ctx, sessionID, model); err != nil {
+		if c.emitError("set model failed: " + err.Error()) {
+			return
+		}
 		fmt.Fprintln(c.stderr, "set model failed:", err)
+		return
+	}
+	if c.emitInfo("model", model) {
 		return
 	}
 	fmt.Fprintln(c.stderr, "model", model)
@@ -1260,6 +1427,9 @@ func (c *client) commandMode(ctx context.Context, mode string) {
 		c.mu.Lock()
 		cur := c.state.Mode
 		c.mu.Unlock()
+		if c.emitInfo("mode", cur) {
+			return
+		}
 		fmt.Fprintln(c.stderr, "mode", cur)
 		return
 	}
@@ -1267,7 +1437,13 @@ func (c *client) commandMode(ctx context.Context, mode string) {
 	sessionID := c.state.SessionID
 	c.mu.Unlock()
 	if err := c.SetMode(ctx, sessionID, mode); err != nil {
+		if c.emitError("set mode failed: " + err.Error()) {
+			return
+		}
 		fmt.Fprintln(c.stderr, "set mode failed:", err)
+		return
+	}
+	if c.emitInfo("mode", mode) {
 		return
 	}
 	fmt.Fprintln(c.stderr, "mode", mode)
@@ -1278,6 +1454,9 @@ func (c *client) commandPermission(mode string) {
 		c.mu.Lock()
 		permission := c.opts.Permission
 		c.mu.Unlock()
+		if c.emitInfo("permission", firstNonEmpty(permission, "prompt")) {
+			return
+		}
 		fmt.Fprintln(c.stderr, "permission", firstNonEmpty(permission, "prompt"))
 		return
 	}
@@ -1287,16 +1466,27 @@ func (c *client) commandPermission(mode string) {
 		c.opts.Permission = strings.ToLower(mode)
 		permission := c.opts.Permission
 		c.mu.Unlock()
+		c.emitState()
+		if c.emitInfo("permission", permission) {
+			return
+		}
 		fmt.Fprintln(c.stderr, "permission", permission)
 	default:
+		if c.emitInfo("permission", "permission must be prompt, allow, reject, or cancel") {
+			return
+		}
 		fmt.Fprintln(c.stderr, "permission must be prompt, allow, reject, or cancel")
 	}
 }
 
 func (c *client) commandBool(name, value string, target *bool) {
 	c.mu.Lock()
-	defer c.mu.Unlock()
 	if value == "" {
+		out := fmt.Sprintf("%s %v", name, *target)
+		c.mu.Unlock()
+		if c.emitInfo(name, out) {
+			return
+		}
 		fmt.Fprintf(c.stderr, "%s %v\n", name, *target)
 		return
 	}
@@ -1308,7 +1498,17 @@ func (c *client) commandBool(name, value string, target *bool) {
 	case "toggle":
 		*target = !*target
 	default:
+		c.mu.Unlock()
+		if c.emitInfo(name, fmt.Sprintf("%s must be on, off, or toggle", name)) {
+			return
+		}
 		fmt.Fprintf(c.stderr, "%s must be on, off, or toggle\n", name)
+		return
+	}
+	out := fmt.Sprintf("%s %v", name, *target)
+	c.mu.Unlock()
+	c.emitState()
+	if c.emitInfo(name, out) {
 		return
 	}
 	fmt.Fprintf(c.stderr, "%s %v\n", name, *target)

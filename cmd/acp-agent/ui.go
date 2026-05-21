@@ -26,6 +26,7 @@ type cliUI struct {
 	activity  string
 	answer    bool
 	streaming bool
+	thinking  bool
 	rows      int
 	fixed     bool
 }
@@ -196,6 +197,7 @@ func (u *cliUI) beginAnswer() {
 	u.stopSpinner()
 	u.mu.Lock()
 	if !u.answer {
+		u.finishThinkingLocked()
 		u.clearComposer()
 		fmt.Fprint(u.w, "\r\033[2K")
 		u.answer = true
@@ -218,6 +220,7 @@ func (u *cliUI) finishAnswer(c *client) {
 		fmt.Fprint(u.w, "\n")
 		u.streaming = false
 	}
+	u.finishThinkingLocked()
 	u.status = "Ready"
 	u.activity = ""
 	u.answer = false
@@ -290,6 +293,7 @@ func (u *cliUI) userMessage(text string) {
 	}
 	u.stopSpinner()
 	u.mu.Lock()
+	u.finishThinkingLocked()
 	u.clearComposer()
 	fmt.Fprint(u.w, "\r\033[2K")
 	lines := splitDisplayLines(text)
@@ -311,6 +315,7 @@ func (u *cliUI) infoCell(title, body string) {
 	}
 	u.stopSpinner()
 	u.mu.Lock()
+	u.finishThinkingLocked()
 	u.clearComposer()
 	fmt.Fprint(u.w, "\r\033[2K")
 	fmt.Fprintln(u.w, colorize(u.color, "36", "\n"+title))
@@ -326,6 +331,7 @@ func (u *cliUI) toolCell(status, title, detail string) {
 	}
 	u.stopSpinner()
 	u.mu.Lock()
+	u.finishThinkingLocked()
 	u.clearComposer()
 	fmt.Fprint(u.w, "\r\033[2K")
 	if status == "completed" && strings.TrimSpace(detail) == "" {
@@ -350,12 +356,45 @@ func (u *cliUI) toolCell(status, title, detail string) {
 	u.mu.Unlock()
 }
 
+func (u *cliUI) thinkingChunk(text string) {
+	if u == nil || !u.enabled || text == "" {
+		return
+	}
+	u.mu.Lock()
+	if !u.thinking {
+		u.clearComposer()
+		fmt.Fprint(u.w, "\r\033[2K")
+		fmt.Fprint(u.w, colorize(u.color, "2", "\nthinking"), "\n  ")
+		u.thinking = true
+	}
+	fmt.Fprint(u.w, colorize(u.color, "2", text))
+	u.mu.Unlock()
+}
+
+func (u *cliUI) finishThinking() {
+	if u == nil || !u.enabled {
+		return
+	}
+	u.mu.Lock()
+	u.finishThinkingLocked()
+	u.mu.Unlock()
+}
+
+func (u *cliUI) finishThinkingLocked() {
+	if u == nil || !u.thinking {
+		return
+	}
+	fmt.Fprint(u.w, "\n")
+	u.thinking = false
+}
+
 func (u *cliUI) statusCard(c *client, body string) {
 	if u == nil || !u.enabled {
 		return
 	}
 	u.stopSpinner()
 	u.mu.Lock()
+	u.finishThinkingLocked()
 	u.clearComposer()
 	fmt.Fprint(u.w, "\r\033[2K")
 	fmt.Fprintln(u.w, colorize(u.color, "36", "\nstatus"))
@@ -380,6 +419,7 @@ func (u *cliUI) overlay(title, detail string, options []choiceOption) {
 	}
 	u.stopSpinner()
 	u.mu.Lock()
+	u.finishThinkingLocked()
 	u.clearComposer()
 	fmt.Fprint(u.w, "\r\033[2K")
 	width := minInt(72, maxInt(40, terminalColumns()-2))

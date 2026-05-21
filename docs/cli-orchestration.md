@@ -27,6 +27,20 @@ The broader ownership and permission rules are documented in
 
 ## Layers
 
+### Terminal UI
+
+`acp-agent` uses Bubble Tea for the default interactive shell. The layering is:
+
+- ACP transport and JSON-RPC handling stay in `client`.
+- Transport updates are normalized into `uiEvent` values.
+- The Bubble Tea model owns the viewport, composer, status surface, permission
+  overlay, and transcript cells.
+- The legacy ANSI/line-oriented UI remains available behind `--plain` for
+  debugging and minimal terminals.
+
+This split keeps terminal control out of the ACP transport. The server emits
+structured events; the client decides how those events are rendered.
+
 The Lua API is organized as primitive functions plus composition functions.
 Primitive functions touch one concern directly. Composition functions assemble
 primitives into reusable LLM workflows.

@@ -14,13 +14,15 @@ func (c *client) printUpdate(p acp.SessionUpdateParams) {
 	update := p.Update
 	switch update["sessionUpdate"] {
 	case "agent_message_chunk":
+		c.finishThinkingOutput()
 		if c.ui != nil {
 			c.ui.beginAnswer()
 		}
 		if text := updateText(update); text != "" {
+			c.emit(uiAssistantDeltaEvent{Text: text})
 			if c.stream != nil {
 				c.stream.push(text)
-			} else {
+			} else if c.events == nil {
 				fmt.Fprint(c.stdout, text)
 				flush(c.stdout)
 			}
@@ -31,18 +33,23 @@ func (c *client) printUpdate(p acp.SessionUpdateParams) {
 		c.mu.Unlock()
 		if show {
 			if text := updateText(update); text != "" {
+				c.emit(uiThinkingDeltaEvent{Text: text})
+				if c.events != nil {
+					return
+				}
 				if c.ui != nil && c.ui.active() {
-					c.ui.toolCell("thinking", "reasoning", text)
+					c.ui.thinkingChunk(text)
 				} else {
 					if c.ui != nil {
 						c.ui.clear()
 					}
-					fmt.Fprintf(c.stderr, "\n[thinking] %s\n", text)
+					c.printPlainThinking(text)
 					flush(c.stderr)
 				}
 			}
 		}
 	case "tool_call":
+		c.finishThinkingOutput()
 		if c.stream != nil {
 			c.stream.finish()
 		}
@@ -60,8 +67,13 @@ func (c *client) printUpdate(p acp.SessionUpdateParams) {
 			c.ui.setActivity(c, firstNonEmpty(status, "tool")+" "+title)
 		}
 		if title != "" {
+			detail := toolDetail(update)
+			c.emit(uiToolEvent{Status: toolLabel(kind, firstNonEmpty(status, "start")), Title: title, Detail: detail})
+			if c.events != nil {
+				return
+			}
 			if c.ui != nil && c.ui.active() {
-				c.ui.toolCell(toolLabel(kind, firstNonEmpty(status, "start")), title, toolDetail(update))
+				c.ui.toolCell(toolLabel(kind, firstNonEmpty(status, "start")), title, detail)
 			} else {
 				if c.ui != nil {
 					c.ui.clear()
@@ -71,6 +83,7 @@ func (c *client) printUpdate(p acp.SessionUpdateParams) {
 			}
 		}
 	case "tool_call_update":
+		c.finishThinkingOutput()
 		if c.stream != nil {
 			c.stream.finish()
 		}
@@ -90,6 +103,10 @@ func (c *client) printUpdate(p acp.SessionUpdateParams) {
 			return
 		}
 		if status != "" {
+			c.emit(uiToolEvent{Status: status, Title: "tool update", Detail: detail})
+			if c.events != nil {
+				return
+			}
 			if c.ui != nil && c.ui.active() {
 				c.ui.toolCell(status, "tool update", detail)
 			} else {
@@ -122,6 +139,32 @@ func (c *client) printUpdate(p acp.SessionUpdateParams) {
 			fmt.Fprintf(c.stderr, "\n[update] %s\n", raw)
 			flush(c.stderr)
 		}
+	}
+}
+
+func (c *client) printPlainThinking(text string) {
+	c.mu.Lock()
+	first := !c.thinkingPlain
+	c.thinkingPlain = true
+	c.mu.Unlock()
+	if first {
+		fmt.Fprint(c.stderr, "\n[thinking] ")
+	}
+	fmt.Fprint(c.stderr, text)
+}
+
+func (c *client) finishThinkingOutput() {
+	if c.ui != nil && c.ui.active() {
+		c.ui.finishThinking()
+		return
+	}
+	c.mu.Lock()
+	active := c.thinkingPlain
+	c.thinkingPlain = false
+	c.mu.Unlock()
+	if active {
+		fmt.Fprintln(c.stderr)
+		flush(c.stderr)
 	}
 }
 
@@ -165,6 +208,7 @@ func (c *client) updateToolSurface(update map[string]any, status, title, kind st
 	}
 	c.state.Tools = len(c.activeTools)
 	c.state.Subagents = len(c.activeAgents)
+	c.emitState()
 }
 
 func toolLabel(kind, status string) string {
@@ -189,6 +233,7 @@ func (c *client) applySessionInfoUpdate(update map[string]any) {
 	if c.ui != nil {
 		c.ui.refresh(c)
 	}
+	c.emitState()
 }
 
 func parseLimitState(update map[string]any) limitState {

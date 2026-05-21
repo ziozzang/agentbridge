@@ -25,6 +25,21 @@ shell script를 실행하지 않습니다.
 
 ## Layers
 
+### Terminal UI
+
+`acp-agent`의 기본 interactive shell은 Bubble Tea를 사용합니다. Layer는 다음처럼
+나뉩니다.
+
+- ACP transport와 JSON-RPC 처리는 `client`에 남습니다.
+- Transport update는 `uiEvent` 값으로 정규화됩니다.
+- Bubble Tea model은 viewport, composer, status surface, permission overlay,
+  transcript cell을 소유합니다.
+- 기존 ANSI/line-oriented UI는 `--plain` 뒤에 debugging/minimal terminal용
+  fallback으로 남깁니다.
+
+이 분리는 terminal control을 ACP transport에서 떼어냅니다. 서버는 구조화된
+event를 내리고, client가 이를 어떻게 렌더링할지 결정합니다.
+
 Lua API는 primitive function과 composition function으로 구성합니다. Primitive는
 하나의 관심사를 직접 다루고, composition은 primitive를 조립해서 LLM workflow를
 만듭니다.

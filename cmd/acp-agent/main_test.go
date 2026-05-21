@@ -110,6 +110,53 @@ func TestPrintUpdateShowsThinkingWhenRequested(t *testing.T) {
 	}
 }
 
+func TestPrintUpdateCoalescesThinkingChunks(t *testing.T) {
+	var stderr bytes.Buffer
+	c := &client{stdout: ioDiscard{}, stderr: &stderr, opts: clientOptions{ShowThinking: true}}
+	for _, part := range []string{"useful", " things", " I", " could"} {
+		c.printUpdate(acp.SessionUpdateParams{Update: map[string]any{
+			"sessionUpdate": "agent_thought_chunk",
+			"content":       map[string]any{"type": "text", "text": part},
+		}})
+	}
+	c.printUpdate(acp.SessionUpdateParams{Update: map[string]any{
+		"sessionUpdate": "agent_message_chunk",
+		"content":       map[string]any{"type": "text", "text": "answer"},
+	}})
+	got := stderr.String()
+	if strings.Count(got, "[thinking]") != 1 {
+		t.Fatalf("thinking header count mismatch: %q", got)
+	}
+	if !strings.Contains(got, "[thinking] useful things I could\n") {
+		t.Fatalf("thinking chunks not coalesced: %q", got)
+	}
+}
+
+func TestTTYThinkingDoesNotUseToolCell(t *testing.T) {
+	var stderr bytes.Buffer
+	c := &client{
+		stdout: ioDiscard{},
+		stderr: &stderr,
+		ui:     &cliUI{w: &stderr, enabled: true},
+		opts:   clientOptions{ShowThinking: true},
+	}
+	c.printUpdate(acp.SessionUpdateParams{Update: map[string]any{
+		"sessionUpdate": "agent_thought_chunk",
+		"content":       map[string]any{"type": "text", "text": "useful"},
+	}})
+	c.printUpdate(acp.SessionUpdateParams{Update: map[string]any{
+		"sessionUpdate": "agent_thought_chunk",
+		"content":       map[string]any{"type": "text", "text": " things"},
+	}})
+	got := stderr.String()
+	if strings.Contains(got, "tool:thinking") || strings.Contains(got, "reasoning") {
+		t.Fatalf("thinking rendered as tool cell: %q", got)
+	}
+	if strings.Count(got, "thinking") != 1 || !strings.Contains(got, "useful things") {
+		t.Fatalf("thinking not rendered as one stream: %q", got)
+	}
+}
+
 func TestPrintUpdateSeparatesToolStatus(t *testing.T) {
 	var stderr bytes.Buffer
 	c := &client{stdout: ioDiscard{}, stderr: &stderr, opts: clientOptions{ShowTools: true}}

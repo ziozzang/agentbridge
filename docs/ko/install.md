@@ -59,13 +59,18 @@ agentbridge --server --listen 127.0.0.1:8765
 acp-agent --addr 127.0.0.1:8765 --model glm-5.1
 ```
 
-Interactive UI는 answer token을 직접 streaming하고, model/mode/session/context
-상태를 compact status bar로 유지합니다. User message, assistant stream,
-thinking, tool, status, approval은 별도 terminal history cell로 렌더링합니다.
-Tool permission은 Codex 스타일 overlay와 숫자 선택지로 묻습니다. Prompt 실행 중
-`Ctrl-C`는 먼저 `session/cancel`을 보내고, active prompt가 없을 때는 client를
-종료합니다. Prompt 실행 중 입력된 추가 prompt는 queue에 들어가며 `/queue`로
-확인할 수 있습니다. Shell 실행은 계속 client-owned tool입니다.
+기본 interactive UI는 Bubble Tea application입니다. 이벤트 루프는 TUI runtime이
+소유합니다. ACP update는 UI event로 변환되고, viewport는 transcript scrolling을,
+bottom composer는 입력을, fixed status surface는 model/mode/session/context/quota
+상태를 담당합니다. User message, assistant stream, thinking, tool, status,
+approval은 별도 history cell로 렌더링합니다. Tool permission은 Codex 스타일
+overlay와 숫자/커서 선택지로 묻습니다. Prompt 실행 중 `Ctrl-C`는 먼저
+`session/cancel`을 보내고, active prompt가 없을 때는 client를 종료합니다. Prompt
+실행 중 입력된 추가 prompt는 queue에 들어가며 `/queue`로 확인할 수 있습니다.
+Shell 실행은 계속 client-owned tool입니다.
+
+`--plain`을 주면 legacy line-oriented UI를 사용합니다. 최소 터미널이나 디버깅에
+사용하기 위한 fallback입니다.
 
 단발 prompt:
 
@@ -86,6 +91,7 @@ acp-agent --addr 127.0.0.1:8765 --model codex-agent \
 - `--read-only`: `--mode default --permission reject` 축약.
 - `--show-thinking`: ACP `agent_thought_chunk` update를 stderr에 출력합니다.
   기본값은 숨김입니다.
+- `--plain`: Bubble Tea UI를 끄고 legacy line-oriented UI를 사용합니다.
 
 대화형 command:
 
