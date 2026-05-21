@@ -149,7 +149,7 @@ func (h *handler) runAgentProvider(ctx context.Context, opts httpAgentOptions, m
 				loopMessages = compacted
 			}
 		}
-		chunks, errs := p.StreamChat(ctx, loopMessages, provider.StreamOptions{
+		streamOpts := provider.PrepareStreamOptions(p, provider.StreamOptions{
 			Model:                model,
 			Tools:                tools,
 			SessionID:            opts.SessionID,
@@ -158,6 +158,7 @@ func (h *handler) runAgentProvider(ctx context.Context, opts httpAgentOptions, m
 			ServiceTier:          opts.ServiceTier,
 			ReasoningEffort:      opts.ReasoningEffort,
 		})
+		chunks, errs := p.StreamChat(ctx, loopMessages, streamOpts)
 		var assistantText strings.Builder
 		var toolCalls []provider.ToolCall
 		streamStop := ""
@@ -249,6 +250,7 @@ func compactHTTPMessagesWithOptions(ctx context.Context, p provider.Provider, me
 	opts.Model = firstNonEmpty(opts.Model, model)
 	opts.Tools = tools
 	opts.TargetTokens = targetTokens
+	opts = provider.PrepareCompactOptions(p, opts)
 	if settings.NativeEnabled {
 		if compactor, ok := p.(provider.ConversationCompactor); ok {
 			out, err := compactor.CompactConversation(ctx, messages, opts)

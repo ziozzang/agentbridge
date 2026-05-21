@@ -12,6 +12,7 @@ import (
 
 	"github.com/ziozzang/agentbridge/internal/acp"
 	"github.com/ziozzang/agentbridge/internal/protocol/sessionstore"
+	"github.com/ziozzang/agentbridge/internal/provider"
 	"github.com/ziozzang/agentbridge/internal/provider/glm"
 )
 
@@ -118,6 +119,74 @@ func newAgentWith(t *testing.T, conn Notifier, srv *httptest.Server) *Agent {
 	a.GLM = &glm.Client{APIKey: "key", BaseURL: srv.URL, MaxTokens: 64, HTTPClient: srv.Client()}
 	a.Conn = conn
 	return a
+}
+
+type nativeTestProvider struct {
+	calls int
+}
+
+func (p *nativeTestProvider) Name() string { return "native-test" }
+func (p *nativeTestProvider) Kind() string { return "native-test" }
+func (p *nativeTestProvider) AvailableModels() []provider.ModelInfo {
+	return []provider.ModelInfo{{ModelID: "native-model", Name: "native-model"}}
+}
+func (p *nativeTestProvider) DefaultModel() string      { return "native-model" }
+func (p *nativeTestProvider) ContextWindow(string) int  { return 100000 }
+func (p *nativeTestProvider) UsesNativeAgentLoop() bool { return true }
+func (p *nativeTestProvider) StreamChat(_ context.Context, messages []provider.Message, _ provider.StreamOptions) (<-chan provider.Chunk, <-chan error) {
+	p.calls++
+	chunks := make(chan provider.Chunk, 2)
+	errs := make(chan error, 1)
+	go func() {
+		defer close(chunks)
+		defer close(errs)
+		last := messages[len(messages)-1]
+		text := "native:" + strings.TrimSpace(last.Content.(string))
+		chunks <- provider.Chunk{Text: text}
+		chunks <- provider.Chunk{Done: true, StopReason: "stop"}
+		errs <- nil
+	}()
+	return chunks, errs
+}
+
+func TestNativeProviderSessionBypassesLocalHarness(t *testing.T) {
+	a := New(sessionstore.NewIn(t.TempDir()))
+	conn := &recorderConn{}
+	a.Conn = conn
+	p := &nativeTestProvider{}
+	a.Provider = p
+
+	ns, err := a.NewSession(context.Background(), acp.NewSessionParams{Cwd: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ns.Modes == nil || ns.Modes.CurrentModeID != ModeProviderNative {
+		t.Fatalf("modes = %#v", ns.Modes)
+	}
+	resp, err := a.Prompt(context.Background(), acp.PromptParams{
+		SessionID: ns.SessionID,
+		MessageID: "m1",
+		Prompt:    []acp.ContentBlock{{Type: "text", Text: "hello native"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.StopReason != "end_turn" {
+		t.Fatalf("stop = %q", resp.StopReason)
+	}
+	if p.calls != 1 {
+		t.Fatalf("provider calls = %d", p.calls)
+	}
+	got := a.sessions[ns.SessionID]
+	if !got.NativeAgent || len(got.Messages) != 2 {
+		t.Fatalf("session = %#v", got)
+	}
+	if text := got.Messages[1].Content.(string); text != "native:hello native" {
+		t.Fatalf("assistant text = %q", text)
+	}
+	if conn.permissionCalls != 0 {
+		t.Fatalf("native provider should not request local tool permissions; calls=%d", conn.permissionCalls)
+	}
 }
 
 // ---------------------------------------------------------------------------

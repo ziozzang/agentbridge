@@ -122,6 +122,57 @@ func TestExperimentalIntentionProbe(t *testing.T) {
 	}
 }
 
+func TestProviderStatusAndUI(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{\"content\":\"OK\"},\"finish_reason\":\"stop\"}]}\n\n")
+		fmt.Fprint(w, "data: [DONE]\n\n")
+	}))
+	defer upstream.Close()
+
+	cfg := filepath.Join(t.TempDir(), "providers.yaml")
+	if err := os.WriteFile(cfg, []byte(`providers:
+  test-http:
+    kind: openai-chat
+    base_url: `+upstream.URL+`
+    api_key: test-key
+    default_model: test-model
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("ACP_HARNESS_PROVIDERS_FILE", cfg)
+	t.Setenv("ACP_HARNESS_PROVIDER", "test-http")
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(t.TempDir(), "missing"))
+
+	srv := httptest.NewServer(NewHandler())
+	defer srv.Close()
+
+	resp, err := http.Get(srv.URL + "/v1/providers/status")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	var status struct {
+		Provider map[string]any `json:"provider"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&status); err != nil {
+		t.Fatal(err)
+	}
+	if status.Provider["kind"] != "openai-chat" {
+		t.Fatalf("provider status = %#v", status.Provider)
+	}
+
+	uiResp, err := http.Get(srv.URL + "/ui/")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer uiResp.Body.Close()
+	body, _ := io.ReadAll(uiResp.Body)
+	if uiResp.StatusCode != http.StatusOK || !strings.Contains(string(body), "AgentBridge Status") {
+		t.Fatalf("ui status=%d body=%q", uiResp.StatusCode, string(body))
+	}
+}
+
 func TestExperimentalIntentionProbeDisabledByDefault(t *testing.T) {
 	t.Setenv("AGENTBRIDGE_EXPERIMENTAL_INTENTION_PROBE", "")
 	t.Setenv("AGENTBRIDGE_EXPERIMENTS", "")

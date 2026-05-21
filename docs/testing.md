@@ -96,6 +96,10 @@ HTTP compatibility endpoint run the same local tool loop used by ACP before
 returning the final assistant text. `metadata.cwd` controls the working
 directory for file and shell tools.
 
+Native agent providers such as `codex-app` are different: ACP already bypasses
+the local harness for them, and `/v1/chat/completions` uses the provider's own
+session/runtime when the active provider is native-agent capable.
+
 ```bash
 AGENTBRIDGE_PROVIDER=xai-oauth agentbridge --http-listen 0.0.0.0:8766
 curl -sS -X POST http://127.0.0.1:8766/v1/chat/completions \

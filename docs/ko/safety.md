@@ -33,7 +33,7 @@ PII 감지 요청을 피해야 합니다.
 | JSON mode | provider-level workaround 있음 | OpenAI 호환 provider는 `extra.request_defaults`로 `response_format`을 보낼 수 있습니다. Top-level `inject[].set.response_format`은 parse되지만 전역 적용은 아직 연결 전입니다. |
 | Header changes | static header 있음 | Provider `headers:`는 이미 upstream으로 전송됩니다. Kong-style add/set/remove/rename/replace transform은 아직 대기 상태입니다. |
 | Request path wiring | provider wrapper 활성 | 설정 기반 ACP agent와 HTTP/A2A provider 생성 시 active provider를 감싸므로, 공통 `StreamChat` 및 native compaction 경로가 safety pipeline을 탑니다. |
-| `/v1/providers/status` | 대기 | 아직 mount되지 않았습니다. 목표 shape는 provider health, request/error count, quota state, response time, cache stats입니다. |
+| `/v1/providers/status` | 연결됨 | active provider 정보, in-flight HTTP request, active ACP session, completed/failed HTTP counter를 보여주는 read-only 운영자 snapshot입니다. |
 
 ## 설정
 
@@ -216,21 +216,24 @@ Response cache는 작고 deterministic한 cache입니다.
 목표는 동일한 non-sensitive, non-streaming 요청의 upstream 호출을 줄이는
 것입니다. Durable storage가 아닙니다.
 
-## Provider Status 목표
+## Provider Status
 
-`/v1/providers/status`는 이 pipeline의 운영자용 상태 화면으로 추가할 예정입니다.
-목표 응답에는 아래 정보가 들어가야 합니다.
+`/v1/providers/status`는 이제 이 pipeline의 read-only 운영자 상태 화면으로
+mount되어 있습니다. 현재 응답에는 아래 정보가 들어갑니다.
 
-- provider name, kind, 필요한 경우 origin 수준으로 redacted base URL
-- health state: `healthy`, `unhealthy`, `rate_limited`, `unknown`
-- request/success/error count
-- error rate 및 최근 latency 추정값
+- provider name, kind, base URL, default model, provider-native agent loop 여부
+- active in-flight HTTP request
+- active in-memory ACP session
+- completed/failed HTTP request counter
+
+`/ui/`는 같은 snapshot을 간단한 대시보드로 렌더링합니다.
+
+다음으로 유용한 추가 항목은 아래입니다.
+
+- provider health state 및 rate-limit state
+- request success/error rate와 최근 latency 추정값
 - quota state: remaining requests/tokens, reset time, last quota reason
-- 가능한 경우 active concurrency/session count
 - response cache stats
-
-Endpoint가 mount되기 전까지는 `/metrics`, router log, provider error를
-운영 가시성에 사용합니다.
 
 ## Rollout Notes
 

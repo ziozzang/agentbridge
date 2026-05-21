@@ -3,6 +3,13 @@
 AgentBridge routes every protocol surface through a common provider
 interface. Select one with `AGENTBRIDGE_PROVIDER=<name>`.
 
+There are now two agent-loop modes:
+
+- Standard LLM providers use AgentBridge's built-in harness for ACP and for
+  HTTP requests that opt into `agent:<model>` or `metadata.agent=true`.
+- Native agent providers keep their own upstream session runtime and bypass the
+  built-in harness. The current native provider is `codex-app`.
+
 ## Built-In Providers
 
 | Name | Kind | Notes |
@@ -17,6 +24,7 @@ interface. Select one with `AGENTBRIDGE_PROVIDER=<name>`.
 | `amazon-bedrock` | `bedrock-converse` | Amazon Bedrock Converse with AWS SigV4 signing. |
 | `amazon-bedrock-mantle` | `anthropic` | Bedrock Mantle Anthropic-compatible endpoint with bearer auth. |
 | `claude-code` | `claude-code-cli` | Claude Code CLI one-shot adapter. |
+| `codex-app` | `codex-app-server` | Native local `codex app-server` transport over stdio JSON-RPC. |
 | `ollama` | `ollama` | Native Ollama `/api/chat`. |
 | `llamacpp` | `llama.cpp` | Local or remote llama.cpp server; omits `model` unless explicitly requested. |
 | `openrouter` | `openai-chat` | OpenRouter Chat Completions. |
@@ -170,6 +178,7 @@ tools can also be exposed directly through MCP `POST /mcp` and `/v1/mcp`.
 | `openai` | `OPENAI_API_KEY` | OpenAI Chat Completions | Built-in agent tools |
 | `openai-responses` | `OPENAI_API_KEY` | OpenAI Responses | Hosted `web_search` when configured in provider `extra` |
 | `codex` | Codex OAuth from `~/.codex/auth.json` | ChatGPT Codex Responses backend | Codex hosted `web_search`, prompt cache metadata |
+| `codex-app` | Local Codex CLI auth/session | Native `codex app-server` transport | Local session reuse, provider-native upstream compaction |
 | `google` | `GOOGLE_API_KEY` / `GEMINI_API_KEY` | Gemini native `streamGenerateContent` | Built-in agent tools; native cachedContent prompt cache |
 | `google-vertex`, `google-antigravity` | `GOOGLE_OAUTH_ACCESS_TOKEN` or authenticated `gcloud`, plus `GOOGLE_CLOUD_PROJECT` | Vertex Gemini `streamGenerateContent` | Built-in agent tools |
 | `amazon-bedrock` | `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, optional `AWS_SESSION_TOKEN` | Bedrock Converse | Built-in agent tools |
@@ -348,6 +357,26 @@ AGENTBRIDGE_API_KEY=anything \
 AGENTBRIDGE_MODEL=kimi-k2.6 \
 agentbridge
 ```
+
+Codex app-server native runtime:
+
+```bash
+AGENTBRIDGE_PROVIDER=codex-app \
+CODEX_COMMAND=codex \
+CODEX_MODEL=gpt-5 \
+CODEX_APPROVAL_POLICY=never \
+agentbridge
+```
+
+`codex-app` does not send OpenAI-style `prompt_cache_*` hints upstream. Instead,
+it reuses the local Codex thread whenever `session_id` or `prompt_cache_key`
+stays stable on the AgentBridge side. That makes it suitable for
+`/v1/chat/completions` clients that want a local native runtime behind an
+OpenAI-shaped API.
+
+For ACP sessions, `codex-app` advertises a single mode, `provider_native`.
+That indicates the provider itself owns the agentic loop, compaction trigger,
+and tool-execution lifecycle.
 
 Codex OAuth:
 

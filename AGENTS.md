@@ -14,35 +14,22 @@ GLM models; it has since been generalised into a provider-agnostic harness
 with a plugin system. The repository name and the binary name (`agentbridge`)
 are kept for back-compat — *but the harness itself is provider-neutral*.
 
-It speaks ACP over stdio (JSON-RPC 2.0 / newline-delimited JSON) and
-brokers between any ACP-aware client (Zed, the ACP CLI, …) and an LLM
-**provider** of the user's choice.
+It speaks ACP over stdio (JSON-RPC 2.0 / newline-delimited JSON), ACP over TCP,
+and HTTP compatibility APIs. It brokers between ACP-aware clients, OpenAI-style
+HTTP clients, A2A/MCP clients, and a **provider** of the user's choice.
 
 ## High-level architecture
 
 ```
-                ┌───────────────────────────┐
-   stdio  ────► │  internal/acp  (JSON-RPC) │ ◄──── ACP client (Zed, …)
-                └────────────┬──────────────┘
-                             │
-                             ▼
-                ┌───────────────────────────┐
-                │  internal/agent           │  per-session prompt loop,
-                │  (Agent)                  │  history, modes, tool dispatch
-                └───┬───────────┬───────┬───┘
-                    │           │       │
-        ┌───────────▼───┐  ┌────▼───────────────┐  ┌──▼─────────────────┐
-        │ internal/     │  │ internal/tools/    │  │ internal/plugins/  │
-        │   provider/   │  │   executor         │  │   sqlite, duckdb,  │
-        │ (LLM adapters)│  │ (file/shell/MCP)   │  │   …                │
-        └───┬───────────┘  └────────────────────┘  └────────────────────┘
-            │
-   ┌────────┴──────────────┬────────────┬────────────┬──────────┐
-   ▼                       ▼            ▼            ▼          ▼
- openai-chat       openai-responses  anthropic     ollama      glm
- (also litellm,    (Codex OAuth     (Messages    (native      (thinking
-  openrouter,       compatible)      API)         /api/chat)  flag)
-  ollama-openai)
+ACP stdio/TCP ─► internal/acp ─► internal/agent ─┬─ built-in agent loop
+HTTP/A2A/MCP ─► internal/httpcompat ─────────────┤
+                                                  ▼
+                                           internal/provider
+                                                  │
+                        ┌─────────────────────────┴─────────────────────────┐
+                        ▼                                                   ▼
+               standard LLM providers                           native-agent providers
+         openai-chat, responses, glm, ...                        codex-app-server, future ACP/Claude
 ```
 
 Important boundaries:
@@ -50,6 +37,9 @@ Important boundaries:
 - `internal/provider` defines the neutral `Provider` interface and the
   shared `Message`/`Chunk`/`ToolCall` types. **Every adapter translates
   between this neutral shape and an upstream API.**
+- Provider implementations are either standard LLM providers or
+  provider-native agent providers. See [docs/architecture.md](docs/architecture.md)
+  before changing this boundary.
 - `internal/provider/glm` contains the GLM/Z.AI client, compaction helpers,
   context-overflow error type, and provider-neutral type aliases used by the
   agent. `internal/provider/glm/preset` registers the `"glm"` provider kind.
@@ -61,6 +51,8 @@ Important boundaries:
   `AGENTBRIDGE_PLUGINS=sqlite,duckdb`. Plugin tools are exposed under
   `plugin__<name>__<tool>` and surfaced through the executor.
 - `internal/oauth/codex` resolves `oauth:codex` API keys.
+- `internal/observability` stores process-local runtime status for
+  `/v1/providers/status` and `/ui/`.
 
 ## Provider abstraction
 
@@ -75,6 +67,18 @@ type Provider interface {
 }
 ```
 
+Optional provider interfaces matter:
+
+- `ConversationCompactor` enables provider-native compaction.
+- `IntentionProber` enables experimental logprob intention probing.
+- `StreamOptionsSanitizer` and `CompactOptionsSanitizer` let providers drop or
+  reinterpret unsupported request options.
+- `NativeAgentProvider` marks providers that already own an agentic loop.
+
+The safety pipeline wrapper in `internal/provider/pipeline` must preserve these
+optional interfaces. If you add another optional provider capability, update the
+wrapper too.
+
 Registration uses an init() function:
 
 ```go
@@ -87,6 +91,47 @@ Errors that indicate a context-window overflow must wrap
 `*provider.ContextOverflowError` — the agent uses this to trigger
 emergency compaction and a single retry.
 
+## Agent-loop architecture
+
+AgentBridge has two execution modes. Do not blur them.
+
+### Standard LLM providers
+
+Standard providers only expose a model API. ACP requests for these providers
+must pass through AgentBridge's built-in harness:
+
+1. Build a system prompt from cwd, AGENTS.md/project context, tools, and profile.
+2. Stream the model response.
+3. Execute tool calls through `internal/tools/executor`.
+4. Append tool results and continue until stop or `MaxTurns`.
+5. Use configured compaction on thresholds or context-overflow errors.
+
+HTTP uses this loop only when the caller opts in with `agent:<model>` or
+metadata such as `{"agent": true}`. Plain `/v1/chat/completions` stays a single
+provider call.
+
+### Provider-native agent providers
+
+Providers like `codex-app-server`, Claude SDK, and ACP-backed agents can own
+their own session runtime, tool execution, permissions, and compaction. These
+must implement `provider.NativeAgentProvider` and bypass the built-in ACP
+harness.
+
+Rules for native-agent providers:
+
+- Session identity is always anchored by AgentBridge `sessionId`.
+- ACP mode must be `provider_native`.
+- Do not connect session-scoped MCP or run local tool execution unless the
+  provider specifically delegates that responsibility back to AgentBridge.
+- Keep a lightweight local transcript for UI/session persistence, but treat the
+  provider session as the source of truth.
+- Forward only options the native transport supports. Use option sanitizer
+  interfaces for cache/reasoning/compaction exceptions.
+
+For `codex-app-server`, `prompt_cache_key` may be used as local session
+affinity for HTTP, but `prompt_cache_retention` is dropped because it is not an
+app-server wire option.
+
 ### How to add a new provider
 
 1. Create `internal/provider/<kind>/<kind>.go`.
@@ -95,9 +140,15 @@ emergency compaction and a single retry.
 3. Register it in `init()`.
 4. Add a template entry in `internal/config/providers.yaml`.
 5. Import the package for its side-effect from `internal/agent/agent.go`.
-6. Write tests using `httptest.Server` that drive a real SSE/NDJSON wire
+6. Import it from `internal/httpcompat/server.go` when HTTP surfaces need it.
+7. For provider-native agents, implement `NativeAgentProvider`, document the
+   native session behavior, and add bypass tests in `internal/agent`.
+8. Write tests using `httptest.Server` that drive a real SSE/NDJSON wire
    format. Follow the patterns in
    `internal/provider/openaichat/openaichat_test.go`.
+
+For process-backed native providers, prefer a small helper-process test using
+`os.Args[0]` over shelling out to a real CLI. Real CLI tests must be opt-in.
 
 ## Plugin system
 
@@ -156,6 +207,15 @@ logger.Errorf("session/load: %v", err)
 Never write directly to `os.Stderr`/`fmt.Println` inside agent code — the
 stdio channel must remain pure JSON-RPC.
 
+## HTTP status UI
+
+`/v1/providers/status` and `/ui/` are read-only operational views. They should
+not mutate runtime config. Put shared state in `internal/observability`; do not
+make protocol packages reach into each other's internal maps.
+
+The UI is intentionally simple, embedded HTML. Keep it dependency-free and
+focused on live request/session/provider state.
+
 ## Conventions
 
 - **No new top-level dependencies** without strong justification; the
@@ -181,6 +241,11 @@ go test ./...               # ~24 packages, ~5s on a laptop
 go vet ./...
 ```
 
+At the time of writing, `internal/plugins/xai` has an environment-sensitive
+mock/OAuth test that can fail with EOF when local xAI OAuth state leaks into
+the test. When this happens, run and report the targeted package set relevant
+to your change, then call out the residual xAI test failure explicitly.
+
 Single-package iteration:
 
 ```bash
@@ -204,11 +269,13 @@ internal/credentials           # XDG credentials + Z_AI_API_KEY back-compat
 internal/provider/glm          # GLM/Z.AI client, compaction helpers, preset
 internal/logger                # leveled logger with file sink + rotation
 internal/oauth/codex           # `oauth:codex` token resolver
+internal/observability         # process-local status snapshot for /ui and status API
 internal/plugins               # plugin core (sqlite, duckdb)
 internal/protocol/imagepre     # image content-block preprocessor
 internal/protocol/sessionstore # per-session JSON persistence
 internal/protocol/systemprompt # system prompt builder + AGENTS.md loader
 internal/provider              # provider abstraction + concrete adapters
+internal/provider/codexnative  # local `codex app-server` native-agent provider
 internal/tools/definitions     # OpenAI function-calling tool schemas
 internal/tools/executor        # tool dispatcher (file/shell/MCP/plugin)
 internal/tools/sessionmcp      # session-scoped MCP servers

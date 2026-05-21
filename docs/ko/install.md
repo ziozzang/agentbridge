@@ -64,6 +64,7 @@ agentbridge --http-listen 127.0.0.1:8766
 - `POST /v1/embeddings`
 - `POST /v1/rerank`
 - `GET /v1/models`
+- `GET /v1/providers/status`
 - `POST /v1/a2a/rpc`
 - `GET /.well-known/agent-card.json`
 - `POST /v1/mcp`
@@ -73,6 +74,7 @@ agentbridge --http-listen 127.0.0.1:8766
 - `POST /v1/agui/run`
 - `GET /openapi.json`
 - `GET /swagger`
+- `GET /ui/`
 - `GET /metrics`
 - `GET /health`
 

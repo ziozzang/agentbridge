@@ -41,6 +41,7 @@ func TestLoadEmbeddedDefaults(t *testing.T) {
 		"claude-code",
 		"cloudflare-ai-gateway",
 		"codex",
+		"codex-app",
 		"deepinfra",
 		"deepseek",
 		"fireworks",

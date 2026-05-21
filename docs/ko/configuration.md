@@ -204,6 +204,10 @@ Hermes에서 가져온 provider별 knob는 provider `extra` 또는 내장 templa
 | `CODEX_PROMPT_CACHE_KEY` | `codex` | 기본값 `{session_id}`; `{model}`, `{provider}` template도 지원합니다. |
 | `CODEX_REASONING_EFFORT` | `codex` | 기본값 `medium`. |
 | `CODEX_REASONING_SUMMARY` | `codex` | 기본값 `auto`. |
+| `CODEX_COMMAND` | `codex-app` | `codex app-server`에 사용할 로컬 Codex CLI binary. 기본값 `codex`. |
+| `CODEX_APPROVAL_POLICY` | `codex-app` | 기본값 `never`; native app-server thread에 적용됩니다. |
+| `CODEX_SANDBOX` | `codex-app` | `workspace-write`, `danger-full-access` 같은 native Codex sandbox mode. |
+| `CODEX_REASONING_EFFORT` | `codex-app` | native app-server turn reasoning effort. |
 | `COPILOT_API_TOKEN` | `github-copilot` | 이미 교환된 Copilot API token을 사용합니다. |
 | `COPILOT_GITHUB_TOKEN`, `GH_TOKEN`, `GITHUB_TOKEN` | `github-copilot` | 짧은 수명의 Copilot API token으로 교환하고 캐시합니다. |
 | `XAI_PROMPT_CACHE_KEY` | `xai`, `xai-oauth` | 기본값 `{session_id}`. |

@@ -252,6 +252,26 @@ providers:
       - id: claude-sonnet-4-6
         name: Claude Sonnet 4.6
 
+  # --------- Codex app-server (native local runtime) ---------------------
+  codex-app:
+    kind: codex-app-server
+    default_model: ${CODEX_MODEL:-gpt-5}
+    context_window: 400000
+    extra:
+      command: ${CODEX_COMMAND:-codex}
+      approval_policy: ${CODEX_APPROVAL_POLICY:-never}
+      sandbox: ${CODEX_SANDBOX:-workspace-write}
+      reasoning_effort: ${CODEX_REASONING_EFFORT:-medium}
+      service_tier: ${CODEX_SERVICE_TIER:-}
+      cwd: ${CODEX_CWD:-}
+    models:
+      - id: gpt-5
+        name: GPT-5 (Codex app-server)
+      - id: gpt-5-mini
+        name: GPT-5 mini (Codex app-server)
+      - id: o4-mini
+        name: o4-mini (Codex app-server)
+
   # --------- Ollama (native /api/chat) -----------------------------------
   ollama:
     kind: ollama

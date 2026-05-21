@@ -57,6 +57,15 @@ func (w *Wrapper) Kind() string                          { return w.inner.Kind()
 func (w *Wrapper) AvailableModels() []provider.ModelInfo { return w.inner.AvailableModels() }
 func (w *Wrapper) DefaultModel() string                  { return w.inner.DefaultModel() }
 func (w *Wrapper) ContextWindow(model string) int        { return w.inner.ContextWindow(model) }
+func (w *Wrapper) UsesNativeAgentLoop() bool             { return provider.UsesNativeAgentLoop(w.inner) }
+
+func (w *Wrapper) SanitizeStreamOptions(opts provider.StreamOptions) provider.StreamOptions {
+	return provider.PrepareStreamOptions(w.inner, opts)
+}
+
+func (w *Wrapper) SanitizeCompactOptions(opts provider.CompactOptions) provider.CompactOptions {
+	return provider.PrepareCompactOptions(w.inner, opts)
+}
 
 func (w *Wrapper) StreamChat(ctx context.Context, messages []provider.Message, opts provider.StreamOptions) (<-chan provider.Chunk, <-chan error) {
 	messages, mapping, _, err := w.prepare(messages, &opts.Model)

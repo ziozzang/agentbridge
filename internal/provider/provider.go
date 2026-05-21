@@ -186,6 +186,25 @@ type ConversationCompactor interface {
 	CompactConversation(ctx context.Context, messages []Message, opts CompactOptions) ([]Message, error)
 }
 
+// StreamOptionsSanitizer lets providers normalize or drop unsupported
+// per-request options before a turn starts.
+type StreamOptionsSanitizer interface {
+	SanitizeStreamOptions(opts StreamOptions) StreamOptions
+}
+
+// CompactOptionsSanitizer lets providers normalize or drop unsupported
+// compaction options before a compact request runs.
+type CompactOptionsSanitizer interface {
+	SanitizeCompactOptions(opts CompactOptions) CompactOptions
+}
+
+// NativeAgentProvider marks providers that already implement an agentic loop
+// and should bypass AgentBridge's built-in tool-execution harness for ACP
+// session prompts.
+type NativeAgentProvider interface {
+	UsesNativeAgentLoop() bool
+}
+
 // Config carries the user-provided / template-derived knobs every adapter
 // needs. Concrete adapters embed this and add their own fields.
 type Config struct {
@@ -244,6 +263,33 @@ func RegisteredKinds() []string {
 	}
 	sort.Strings(kinds)
 	return kinds
+}
+
+// PrepareStreamOptions applies provider-specific option sanitation when the
+// active provider exposes one.
+func PrepareStreamOptions(p Provider, opts StreamOptions) StreamOptions {
+	if sanitizer, ok := p.(StreamOptionsSanitizer); ok {
+		return sanitizer.SanitizeStreamOptions(opts)
+	}
+	return opts
+}
+
+// PrepareCompactOptions applies provider-specific compaction option
+// sanitation when the active provider exposes one.
+func PrepareCompactOptions(p Provider, opts CompactOptions) CompactOptions {
+	if sanitizer, ok := p.(CompactOptionsSanitizer); ok {
+		return sanitizer.SanitizeCompactOptions(opts)
+	}
+	return opts
+}
+
+// UsesNativeAgentLoop reports whether p already exposes a provider-native
+// agent/session runtime and should bypass the built-in ACP harness loop.
+func UsesNativeAgentLoop(p Provider) bool {
+	if native, ok := p.(NativeAgentProvider); ok {
+		return native.UsesNativeAgentLoop()
+	}
+	return false
 }
 
 // ContextOverflowError is the typed error adapters return when the upstream

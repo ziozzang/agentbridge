@@ -207,6 +207,10 @@ or the embedded template environment variables:
 | `CODEX_PROMPT_CACHE_KEY` | `codex` | Defaults to `{session_id}`; supports `{model}` and `{provider}` templates. |
 | `CODEX_REASONING_EFFORT` | `codex` | Defaults to `medium`. |
 | `CODEX_REASONING_SUMMARY` | `codex` | Defaults to `auto`. |
+| `CODEX_COMMAND` | `codex-app` | Local Codex CLI binary for `codex app-server`; defaults to `codex`. |
+| `CODEX_APPROVAL_POLICY` | `codex-app` | Defaults to `never`; applied to native app-server threads. |
+| `CODEX_SANDBOX` | `codex-app` | Native Codex sandbox mode such as `workspace-write` or `danger-full-access`. |
+| `CODEX_REASONING_EFFORT` | `codex-app` | Native app-server turn reasoning effort. |
 | `COPILOT_API_TOKEN` | `github-copilot` | Uses a pre-exchanged Copilot API token. |
 | `COPILOT_GITHUB_TOKEN`, `GH_TOKEN`, `GITHUB_TOKEN` | `github-copilot` | Exchanged for a short-lived Copilot API token and cached. |
 | `XAI_PROMPT_CACHE_KEY` | `xai`, `xai-oauth` | Defaults to `{session_id}`. |

@@ -37,12 +37,12 @@ func (a *Agent) compactPromptMessages(ctx context.Context, messages []glm.Messag
 	}
 	if settings.NativeEnabled && a.Provider != nil {
 		if compactor, ok := a.Provider.(provider.ConversationCompactor); ok {
-			compacted, err := compactor.CompactConversation(ctx, messages, provider.CompactOptions{
+			compacted, err := compactor.CompactConversation(ctx, messages, provider.PrepareCompactOptions(a.Provider, provider.CompactOptions{
 				Model:        model,
 				Tools:        tools,
 				TargetTokens: targetTokens,
 				Reason:       reason,
-			})
+			}))
 			if err == nil && len(compacted) > 0 {
 				if compacted[0].Role != "system" && compacted[0].Type != "system" {
 					compacted = append([]glm.Message{messages[0]}, compacted...)

@@ -26,6 +26,7 @@ import (
 	copilotoauth "github.com/ziozzang/agentbridge/internal/oauth/copilot"
 	googleoauth "github.com/ziozzang/agentbridge/internal/oauth/google"
 	xaioauth "github.com/ziozzang/agentbridge/internal/oauth/xai"
+	"github.com/ziozzang/agentbridge/internal/observability"
 	"github.com/ziozzang/agentbridge/internal/plugins"
 	_ "github.com/ziozzang/agentbridge/internal/plugins/duckdb" // register duckdb stub
 	_ "github.com/ziozzang/agentbridge/internal/plugins/jina"   // register Jina tools
@@ -40,6 +41,7 @@ import (
 	_ "github.com/ziozzang/agentbridge/internal/provider/anthropic"  // register anthropic
 	_ "github.com/ziozzang/agentbridge/internal/provider/bedrock"    // register bedrock-converse
 	_ "github.com/ziozzang/agentbridge/internal/provider/claudecode" // register claude-code-cli
+	_ "github.com/ziozzang/agentbridge/internal/provider/codexnative"
 	"github.com/ziozzang/agentbridge/internal/provider/glm"
 	_ "github.com/ziozzang/agentbridge/internal/provider/glm/preset" // register glm kind
 	_ "github.com/ziozzang/agentbridge/internal/provider/google"     // register google
@@ -67,9 +69,10 @@ const DefaultMaxTurns = 20
 
 // Session mode identifiers.
 const (
-	ModeDefault     = "default"
-	ModeAcceptEdits = "accept_edits"
-	ModeBypassPerms = "bypass_permissions"
+	ModeDefault        = "default"
+	ModeAcceptEdits    = "accept_edits"
+	ModeBypassPerms    = "bypass_permissions"
+	ModeProviderNative = "provider_native"
 )
 
 // ValidModes is the set of session mode IDs we accept.
@@ -107,13 +110,14 @@ type Agent struct {
 
 // sessionState is the in-memory state for a session.
 type sessionState struct {
-	ID        string
-	Cwd       string
-	Model     string
-	Mode      string
-	Messages  []glm.Message
-	Title     *string
-	UpdatedAt string
+	ID          string
+	Cwd         string
+	Model       string
+	Mode        string
+	Messages    []glm.Message
+	Title       *string
+	UpdatedAt   string
+	NativeAgent bool
 
 	// Per-session locks: promptMu serializes prompts; cancelMu protects
 	// cancelCurrent; promptDone unblocks waiters when a prompt finishes.
@@ -204,6 +208,7 @@ func (a *Agent) Initialize(_ context.Context, p acp.InitializeParams) (acp.Initi
 // they share aliased shapes via internal/provider.
 func (a *Agent) streamChat(ctx context.Context, msgs []glm.Message, opts glm.StreamOptions) (<-chan glm.Chunk, <-chan error) {
 	if a.Provider != nil {
+		opts = provider.PrepareStreamOptions(a.Provider, opts)
 		return a.Provider.StreamChat(ctx, msgs, opts)
 	}
 	return a.GLM.StreamChat(ctx, msgs, opts)
@@ -250,11 +255,18 @@ func (a *Agent) NewSession(_ context.Context, p acp.NewSessionParams) (acp.NewSe
 	}
 	id := newSessionID()
 	model := a.defaultModel()
+	mode := ModeDefault
+	nativeAgent := provider.UsesNativeAgentLoop(a.Provider)
+	if nativeAgent {
+		mode = ModeProviderNative
+	}
 	tools := a.availableTools()
 
 	// Connect to session-scoped MCP servers.
 	var mcpClient sessionMcpClient
-	if specs, err := configuredMCPServers(p.MCPServers); err != nil {
+	if nativeAgent {
+		tools = nil
+	} else if specs, err := configuredMCPServers(p.MCPServers); err != nil {
 		logger.Debugf("session/new: failed to parse MCP servers: %v", err)
 	} else if len(specs) > 0 {
 		client, err := sessionmcp.New(specs)
@@ -268,15 +280,16 @@ func (a *Agent) NewSession(_ context.Context, p acp.NewSessionParams) (acp.NewSe
 
 	a.mu.Lock()
 	a.sessions[id] = &sessionState{
-		ID: id, Cwd: p.Cwd, Model: model, Mode: ModeDefault,
-		Messages: nil, UpdatedAt: nowRFC3339(), tools: tools, sessionMcp: mcpClient,
+		ID: id, Cwd: p.Cwd, Model: model, Mode: mode,
+		Messages: nil, UpdatedAt: nowRFC3339(), tools: tools, sessionMcp: mcpClient, NativeAgent: nativeAgent,
 	}
 	a.mu.Unlock()
+	a.recordSessionSnapshot(id)
 	logger.Debugf("session/new id=%s cwd=%s model=%s tools=%d", id, p.Cwd, model, len(tools))
 	return acp.NewSessionResponse{
 		SessionID: id,
 		Models:    a.modelState(model),
-		Modes:     modesState(ModeDefault),
+		Modes:     a.sessionModes(mode),
 	}, nil
 }
 
@@ -295,14 +308,26 @@ func (a *Agent) LoadSession(ctx context.Context, p acp.LoadSessionParams) (acp.L
 		model = a.defaultModel()
 	}
 	mode := persisted.Mode
+	nativeAgent := provider.UsesNativeAgentLoop(a.Provider)
 	if mode == "" {
+		if nativeAgent {
+			mode = ModeProviderNative
+		} else {
+			mode = ModeDefault
+		}
+	}
+	if nativeAgent {
+		mode = ModeProviderNative
+	} else if mode == "" {
 		mode = ModeDefault
 	}
 	tools := a.availableTools()
 
 	// Connect to session-scoped MCP servers.
 	var mcpClient sessionMcpClient
-	if specs, err := configuredMCPServers(p.MCPServers); err != nil {
+	if nativeAgent {
+		tools = nil
+	} else if specs, err := configuredMCPServers(p.MCPServers); err != nil {
 		logger.Debugf("session/load: failed to parse MCP servers: %v", err)
 	} else if len(specs) > 0 {
 		client, err := sessionmcp.New(specs)
@@ -318,15 +343,16 @@ func (a *Agent) LoadSession(ctx context.Context, p acp.LoadSessionParams) (acp.L
 	a.sessions[p.SessionID] = &sessionState{
 		ID: p.SessionID, Cwd: p.Cwd, Model: model, Mode: mode,
 		Messages: persisted.Messages, Title: persisted.Title, UpdatedAt: persisted.UpdatedAt,
-		tools: tools, sessionMcp: mcpClient,
+		tools: tools, sessionMcp: mcpClient, NativeAgent: nativeAgent,
 	}
 	a.mu.Unlock()
+	a.recordSessionSnapshot(p.SessionID)
 
 	a.replayMessages(ctx, p.SessionID, persisted.Messages)
 
 	return acp.LoadSessionResponse{
 		Models: a.modelState(model),
-		Modes:  modesState(mode),
+		Modes:  a.sessionModes(mode),
 	}, nil
 }
 
@@ -345,14 +371,26 @@ func (a *Agent) ResumeSession(_ context.Context, p acp.LoadSessionParams) (acp.L
 		model = a.defaultModel()
 	}
 	mode := persisted.Mode
+	nativeAgent := provider.UsesNativeAgentLoop(a.Provider)
 	if mode == "" {
+		if nativeAgent {
+			mode = ModeProviderNative
+		} else {
+			mode = ModeDefault
+		}
+	}
+	if nativeAgent {
+		mode = ModeProviderNative
+	} else if mode == "" {
 		mode = ModeDefault
 	}
 	tools := a.availableTools()
 
 	// Connect to session-scoped MCP servers.
 	var mcpClient sessionMcpClient
-	if specs, err := configuredMCPServers(p.MCPServers); err != nil {
+	if nativeAgent {
+		tools = nil
+	} else if specs, err := configuredMCPServers(p.MCPServers); err != nil {
 		logger.Debugf("session/resume: failed to parse MCP servers: %v", err)
 	} else if len(specs) > 0 {
 		client, err := sessionmcp.New(specs)
@@ -368,10 +406,11 @@ func (a *Agent) ResumeSession(_ context.Context, p acp.LoadSessionParams) (acp.L
 	a.sessions[p.SessionID] = &sessionState{
 		ID: p.SessionID, Cwd: p.Cwd, Model: model, Mode: mode,
 		Messages: persisted.Messages, Title: persisted.Title, UpdatedAt: persisted.UpdatedAt,
-		tools: tools, sessionMcp: mcpClient,
+		tools: tools, sessionMcp: mcpClient, NativeAgent: nativeAgent,
 	}
 	a.mu.Unlock()
-	return acp.LoadSessionResponse{Models: a.modelState(model), Modes: modesState(mode)}, nil
+	a.recordSessionSnapshot(p.SessionID)
+	return acp.LoadSessionResponse{Models: a.modelState(model), Modes: a.sessionModes(mode)}, nil
 }
 
 // ForkSession creates a new session from the messages of an existing one.
@@ -387,6 +426,7 @@ func (a *Agent) ForkSession(_ context.Context, p acp.LoadSessionParams) (acp.For
 	var title *string
 	model := a.defaultModel()
 	mode := ModeDefault
+	nativeAgent := provider.UsesNativeAgentLoop(a.Provider)
 	if inMem {
 		msgs = append([]glm.Message(nil), source.Messages...)
 		title = source.Title
@@ -396,6 +436,7 @@ func (a *Agent) ForkSession(_ context.Context, p acp.LoadSessionParams) (acp.For
 		if source.Mode != "" {
 			mode = source.Mode
 		}
+		nativeAgent = source.NativeAgent
 	} else {
 		persisted, _ := a.Store.Load(p.SessionID)
 		if persisted == nil {
@@ -409,6 +450,9 @@ func (a *Agent) ForkSession(_ context.Context, p acp.LoadSessionParams) (acp.For
 		if persisted.Mode != "" {
 			mode = persisted.Mode
 		}
+	}
+	if nativeAgent {
+		mode = ModeProviderNative
 	}
 	// Tag fork title.
 	if title != nil {
@@ -424,14 +468,21 @@ func (a *Agent) ForkSession(_ context.Context, p acp.LoadSessionParams) (acp.For
 		Messages:  msgs,
 		Title:     title,
 		UpdatedAt: now,
-		tools:     a.availableTools(),
+		tools: func() []definitions.Tool {
+			if nativeAgent {
+				return nil
+			}
+			return a.availableTools()
+		}(),
+		NativeAgent: nativeAgent,
 	}
 	a.mu.Unlock()
+	a.recordSessionSnapshot(id)
 	_ = a.Store.Save(sessionstore.PersistedSession{
 		SessionID: id, Cwd: p.Cwd, Messages: msgs,
 		Title: title, UpdatedAt: now, Model: model, Mode: mode,
 	})
-	return acp.ForkSessionResponse{SessionID: id, Models: a.modelState(model), Modes: modesState(mode)}, nil
+	return acp.ForkSessionResponse{SessionID: id, Models: a.modelState(model), Modes: a.sessionModes(mode)}, nil
 }
 
 // CloseSession persists final state, cancels any in-flight prompt, and
@@ -446,6 +497,7 @@ func (a *Agent) CloseSession(_ context.Context, p acp.CloseSessionParams) (any, 
 	if s == nil {
 		return map[string]any{}, nil
 	}
+	observability.DeleteSession(p.SessionID)
 	// Cancel any in-flight prompt so subsequent prompts can't keep mutating
 	// session state after the client has closed the session.
 	s.cancelMu.Lock()
@@ -502,7 +554,7 @@ func (a *Agent) ListSessions(_ context.Context, p acp.ListSessionsParams) (acp.L
 // SetSessionMode validates the requested mode, persists it, and emits a
 // current_mode_update notification so the client UI refreshes.
 func (a *Agent) SetSessionMode(_ context.Context, p acp.SetModeParams) (any, error) {
-	if !isValidMode(p.ModeID) {
+	if !isValidMode(p.ModeID) && p.ModeID != ModeProviderNative {
 		return nil, &acp.RPCError{
 			Code:    -32602,
 			Message: fmt.Sprintf("Invalid modeId: %s. Valid modes are: %s", p.ModeID, strings.Join(ValidModes, ", ")),
@@ -514,9 +566,14 @@ func (a *Agent) SetSessionMode(_ context.Context, p acp.SetModeParams) (any, err
 		a.mu.Unlock()
 		return nil, &acp.RPCError{Code: -32001, Message: "session not found: " + p.SessionID}
 	}
+	if s.NativeAgent && p.ModeID != ModeProviderNative {
+		a.mu.Unlock()
+		return nil, &acp.RPCError{Code: -32602, Message: "native-agent sessions only support modeId=provider_native"}
+	}
 	s.Mode = p.ModeID
 	s.UpdatedAt = nowRFC3339()
 	a.mu.Unlock()
+	a.recordSessionSnapshot(p.SessionID)
 	_ = a.Store.Save(sessionstore.PersistedSession{
 		SessionID: s.ID, Cwd: s.Cwd, Messages: s.Messages,
 		Title: s.Title, UpdatedAt: s.UpdatedAt, Model: s.Model, Mode: s.Mode,
@@ -541,6 +598,7 @@ func (a *Agent) SetSessionModel(_ context.Context, p acp.SetModelParams) (any, e
 	s.UpdatedAt = nowRFC3339()
 	updatedAt := s.UpdatedAt
 	a.mu.Unlock()
+	a.recordSessionSnapshot(p.SessionID)
 	a.notifyUpdate(p.SessionID, map[string]any{
 		"sessionUpdate": "session_info_update",
 		"updatedAt":     updatedAt,
@@ -574,6 +632,9 @@ func (a *Agent) Prompt(ctx context.Context, p acp.PromptParams) (acp.PromptRespo
 	a.mu.Unlock()
 	if !ok {
 		return acp.PromptResponse{}, &acp.RPCError{Code: -32001, Message: "session not found: " + p.SessionID}
+	}
+	if s.NativeAgent {
+		return a.promptWithNativeProvider(ctx, s, p)
 	}
 
 	// Per-session serialization: a follow-up prompt waits for the previous
@@ -794,6 +855,116 @@ func (a *Agent) Prompt(ctx context.Context, p acp.PromptParams) (acp.PromptRespo
 	if lastUsage != nil {
 		resp.Usage = lastUsage
 	}
+	a.recordSessionSnapshot(p.SessionID)
+	return resp, nil
+}
+
+func (a *Agent) promptWithNativeProvider(ctx context.Context, s *sessionState, p acp.PromptParams) (acp.PromptResponse, error) {
+	s.promptMu.Lock()
+	defer s.promptMu.Unlock()
+
+	promptCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	s.cancelMu.Lock()
+	s.cancelCurrent = cancel
+	s.cancelMu.Unlock()
+	defer func() {
+		s.cancelMu.Lock()
+		s.cancelCurrent = nil
+		s.cancelMu.Unlock()
+	}()
+
+	pre := imagepre.Preprocess(promptCtx, p.Prompt, a.visionClient())
+	defer func() {
+		for _, fn := range pre.Cleanups {
+			fn()
+		}
+	}()
+	userText := imagepre.RenderToString(pre.Blocks)
+	logger.Debugf("session/prompt native sessionId=%s blocks=%d userTextLen=%d", p.SessionID, len(p.Prompt), len(userText))
+
+	s.Messages = append(s.Messages, glm.Message{Role: "user", Content: userText})
+	msgs := append([]glm.Message(nil), s.Messages...)
+	streamOpts := provider.StreamOptions{Model: a.effectiveModel(s.Model), SessionID: p.SessionID}
+
+	var lastUsage *glm.Usage
+	stop := "stop"
+	for attempt := 0; attempt < 2; attempt++ {
+		chunks, errs := a.streamChat(promptCtx, msgs, streamOpts)
+		var assistantText, assistantThought string
+		for c := range chunks {
+			if c.Text != "" {
+				assistantText += c.Text
+				a.notifyUpdate(p.SessionID, map[string]any{
+					"sessionUpdate": "agent_message_chunk",
+					"content":       map[string]any{"type": "text", "text": c.Text},
+				})
+			}
+			if c.Thinking != "" {
+				assistantThought += c.Thinking
+				a.notifyUpdate(p.SessionID, map[string]any{
+					"sessionUpdate": "agent_thought_chunk",
+					"content":       map[string]any{"type": "text", "text": c.Thinking},
+				})
+			}
+			if c.Usage != nil {
+				lastUsage = c.Usage
+			}
+			if c.Done && c.StopReason != "" {
+				stop = mapStopReason(c.StopReason)
+			}
+		}
+		if err := <-errs; err != nil {
+			if errors.Is(err, context.Canceled) || promptCtx.Err() != nil {
+				stop = "cancelled"
+				break
+			}
+			if attempt == 0 && provider.IsContextOverflow(err) {
+				if compactor, ok := a.Provider.(provider.ConversationCompactor); ok {
+					out, compactErr := compactor.CompactConversation(promptCtx, s.Messages, provider.PrepareCompactOptions(a.Provider, provider.CompactOptions{
+						Model:     a.effectiveModel(s.Model),
+						SessionID: p.SessionID,
+						Reason:    "native-agent context overflow retry",
+					}))
+					if compactErr == nil && len(out) > 0 {
+						s.Messages = append([]glm.Message(nil), out...)
+						msgs = append([]glm.Message(nil), s.Messages...)
+						continue
+					}
+				}
+			}
+			return acp.PromptResponse{}, fmt.Errorf("native provider stream failed: %w", err)
+		}
+		s.Messages = append(s.Messages, glm.Message{Role: "assistant", Content: assistantText})
+		s.UpdatedAt = nowRFC3339()
+		if s.Title == nil {
+			derived := deriveTitle(userText)
+			if derived == "" {
+				derived = "New conversation"
+			}
+			s.Title = &derived
+		}
+		a.notifyUpdate(p.SessionID, map[string]any{
+			"sessionUpdate": "session_info_update",
+			"updatedAt":     s.UpdatedAt,
+			"title":         s.Title,
+		})
+		_ = a.Store.Save(sessionstore.PersistedSession{
+			SessionID: s.ID, Cwd: s.Cwd, Messages: s.Messages,
+			Title: s.Title, UpdatedAt: s.UpdatedAt, Model: s.Model, Mode: s.Mode,
+		})
+		a.recordSessionSnapshot(p.SessionID)
+		resp := acp.PromptResponse{StopReason: stop, UserMessageID: p.MessageID}
+		if lastUsage != nil {
+			resp.Usage = lastUsage
+		}
+		return resp, nil
+	}
+	resp := acp.PromptResponse{StopReason: stop, UserMessageID: p.MessageID}
+	if lastUsage != nil {
+		resp.Usage = lastUsage
+	}
+	a.recordSessionSnapshot(p.SessionID)
 	return resp, nil
 }
 
@@ -832,7 +1003,7 @@ func (a *Agent) ensureClient() error {
 	if rerr := resolveOAuthConfig(&cfg); rerr != nil {
 		return rerr
 	}
-	if cfg.APIKey == "" && cfg.Kind != "ollama" && cfg.Kind != "llama.cpp" && cfg.Kind != "llamacpp" && cfg.Kind != "claude-code-cli" {
+	if cfg.APIKey == "" && cfg.Kind != "ollama" && cfg.Kind != "llama.cpp" && cfg.Kind != "llamacpp" && cfg.Kind != "claude-code-cli" && cfg.Kind != "codex-app-server" {
 		return errors.New("No API key configured. Set an API key via AGENTBRIDGE_API_KEY, AGENTBRIDGE_<PROVIDER>_API_KEY, a provider-specific env var (Z_AI_API_KEY/OPENAI_API_KEY/…), or run `agentbridge --setup`. Legacy ACP_HARNESS_* variables are still accepted.")
 	}
 	p, err := provider.Build(cfg)
@@ -840,6 +1011,13 @@ func (a *Agent) ensureClient() error {
 		return err
 	}
 	a.Provider = pipeline.WrapFromConfig(p)
+	observability.SetProvider(observability.ProviderState{
+		Name:        cfg.Name,
+		Kind:        cfg.Kind,
+		Model:       a.Provider.DefaultModel(),
+		BaseURL:     cfg.BaseURL,
+		NativeAgent: provider.UsesNativeAgentLoop(a.Provider),
+	})
 	logger.Infof("active provider: %s (kind=%s, model=%s, base=%s)",
 		cfg.Name, cfg.Kind, a.Provider.DefaultModel(), cfg.BaseURL)
 	if a.MCP == nil {
@@ -940,6 +1118,18 @@ func (a *Agent) modelState(current string) *acp.SessionModelState {
 	return &acp.SessionModelState{AvailableModels: out, CurrentModelID: current}
 }
 
+func (a *Agent) sessionModes(current string) *acp.SessionModeState {
+	if a.Provider != nil && provider.UsesNativeAgentLoop(a.Provider) {
+		return &acp.SessionModeState{
+			AvailableModes: []acp.SessionModeInfo{
+				{ID: ModeProviderNative, Name: "Provider-native agent", Description: "The upstream provider owns the agentic loop and session runtime."},
+			},
+			CurrentModeID: ModeProviderNative,
+		}
+	}
+	return modesState(current)
+}
+
 func modesState(current string) *acp.SessionModeState {
 	return &acp.SessionModeState{
 		AvailableModes: []acp.SessionModeInfo{
@@ -982,6 +1172,24 @@ func (a *Agent) availableTools() []definitions.Tool {
 		out = append(out, a.Plugins.Tools()...)
 	}
 	return out
+}
+
+func (a *Agent) recordSessionSnapshot(sessionID string) {
+	a.mu.Lock()
+	s := a.sessions[sessionID]
+	a.mu.Unlock()
+	if s == nil {
+		return
+	}
+	observability.UpsertSession(observability.SessionState{
+		SessionID:    s.ID,
+		Cwd:          s.Cwd,
+		Model:        s.Model,
+		Mode:         s.Mode,
+		UpdatedAt:    s.UpdatedAt,
+		NativeAgent:  s.NativeAgent,
+		MessageCount: len(s.Messages),
+	})
 }
 
 func (a *Agent) profileByName(name string) *agentprofiles.Profile {

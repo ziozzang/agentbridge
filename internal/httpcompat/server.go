@@ -23,6 +23,7 @@ import (
 	copilotoauth "github.com/ziozzang/agentbridge/internal/oauth/copilot"
 	googleoauth "github.com/ziozzang/agentbridge/internal/oauth/google"
 	xaioauth "github.com/ziozzang/agentbridge/internal/oauth/xai"
+	"github.com/ziozzang/agentbridge/internal/observability"
 	"github.com/ziozzang/agentbridge/internal/plugins"
 	_ "github.com/ziozzang/agentbridge/internal/plugins/duckdb"
 	_ "github.com/ziozzang/agentbridge/internal/plugins/jina"
@@ -34,6 +35,7 @@ import (
 	_ "github.com/ziozzang/agentbridge/internal/provider/anthropic"
 	_ "github.com/ziozzang/agentbridge/internal/provider/bedrock"
 	_ "github.com/ziozzang/agentbridge/internal/provider/claudecode"
+	_ "github.com/ziozzang/agentbridge/internal/provider/codexnative"
 	_ "github.com/ziozzang/agentbridge/internal/provider/glm/preset"
 	_ "github.com/ziozzang/agentbridge/internal/provider/google"
 	_ "github.com/ziozzang/agentbridge/internal/provider/llamacpp"
@@ -66,6 +68,9 @@ func NewHandler() http.Handler {
 	}
 	mux.HandleFunc("/", h.root)
 	mux.HandleFunc("/health", h.health)
+	mux.HandleFunc("/ui", h.ui)
+	mux.HandleFunc("/ui/", h.ui)
+	mux.HandleFunc("/ui/status", h.uiStatus)
 	mux.HandleFunc("/metrics", h.metrics)
 	mux.HandleFunc("/metric", h.metrics)
 	mux.HandleFunc("/openapi.json", h.openapi)
@@ -107,6 +112,7 @@ func NewHandler() http.Handler {
 	mux.HandleFunc("/rerank", h.rerank)
 	mux.HandleFunc("/v1/models", h.models)
 	mux.HandleFunc("/models", h.models)
+	mux.HandleFunc("/v1/providers/status", h.providersStatus)
 	return h.instrument(mux)
 }
 
@@ -932,6 +938,7 @@ func StreamProviderWithOptions(ctx context.Context, model string, messages []pro
 		return nil, nil, err
 	}
 	opts.Model = firstNonEmpty(opts.Model, model)
+	opts = provider.PrepareStreamOptions(p, opts)
 	chunks, errs := p.StreamChat(ctx, messages, opts)
 	return chunks, errs, nil
 }
@@ -961,14 +968,22 @@ func buildProvider() (provider.Provider, error) {
 			}
 		}
 	}
-	if cfg.APIKey == "" && cfg.Kind != "ollama" && cfg.Kind != "llama.cpp" && cfg.Kind != "llamacpp" && cfg.Kind != "claude-code-cli" {
+	if cfg.APIKey == "" && cfg.Kind != "ollama" && cfg.Kind != "llama.cpp" && cfg.Kind != "llamacpp" && cfg.Kind != "claude-code-cli" && cfg.Kind != "codex-app-server" {
 		return nil, errors.New("no API key configured")
 	}
 	p, err := provider.Build(cfg)
 	if err != nil {
 		return nil, err
 	}
-	return pipeline.WrapFromConfig(p), nil
+	p = pipeline.WrapFromConfig(p)
+	observability.SetProvider(observability.ProviderState{
+		Name:        cfg.Name,
+		Kind:        cfg.Kind,
+		Model:       p.DefaultModel(),
+		BaseURL:     cfg.BaseURL,
+		NativeAgent: provider.UsesNativeAgentLoop(p),
+	})
+	return p, nil
 }
 
 func resolveOAuthKey(key string) (string, string, error) {

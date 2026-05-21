@@ -34,3 +34,4 @@ go.work.sum
 # Built CLI binary
 /glm-acp-agent
 /agentbridge
+/bin/

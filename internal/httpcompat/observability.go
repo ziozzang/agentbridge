@@ -3,18 +3,23 @@ package httpcompat
 import (
 	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/ziozzang/agentbridge/internal/logger"
 	"github.com/ziozzang/agentbridge/internal/metrics"
+	"github.com/ziozzang/agentbridge/internal/observability"
 )
 
 var httpMetrics = &metricsRegistry{
 	start:  time.Now(),
 	counts: map[string]uint64{},
 }
+
+var httpRequestSeq atomic.Uint64
 
 type metricsRegistry struct {
 	mu        sync.Mutex
@@ -56,6 +61,8 @@ func (h *handler) instrument(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
 		httpMetrics.begin()
+		requestID := "http-" + strconv.FormatUint(httpRequestSeq.Add(1), 16)
+		observability.BeginHTTPRequest(requestID, r.Method, r.URL.Path)
 		rec := &statusRecorder{ResponseWriter: w}
 		next.ServeHTTP(rec, r)
 		status := rec.status
@@ -63,6 +70,7 @@ func (h *handler) instrument(next http.Handler) http.Handler {
 			status = http.StatusOK
 		}
 		httpMetrics.finish(r.URL.Path, status, time.Since(start))
+		observability.EndHTTPRequest(requestID, status)
 		logger.Infof("http request method=%s path=%s status=%d bytes=%d duration_ms=%d", r.Method, r.URL.Path, status, rec.bytes, time.Since(start).Milliseconds())
 	})
 }

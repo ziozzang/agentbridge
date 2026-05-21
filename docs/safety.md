@@ -33,7 +33,7 @@ avoid PII-detected requests.
 | JSON mode | Provider-level workaround present | OpenAI-compatible providers can receive `response_format` through provider `extra.request_defaults`; top-level `inject[].set.response_format` is parsed but not yet wired globally. |
 | Header changes | Provider static headers present | Provider `headers:` are already sent upstream. Kong-style add/set/remove/rename/replace transforms are still pending. |
 | Request path wiring | Provider wrapper active | Configured ACP agent and HTTP/A2A provider construction wraps the active provider, so shared `StreamChat` and native compaction paths receive the safety pipeline. |
-| `/v1/providers/status` | Pending | The endpoint is not mounted yet. The target shape should include provider health, request/error counts, quota state, response times, and cache stats. |
+| `/v1/providers/status` | Mounted | Read-only operator snapshot with active provider info, in-flight HTTP requests, active ACP sessions, and completed/failed HTTP counters. |
 
 ## Configuration
 
@@ -220,21 +220,25 @@ The response cache is intentionally small and deterministic:
 The cache is meant to reduce duplicate upstream calls for identical,
 non-sensitive, non-streaming requests. It is not a durable store.
 
-## Provider Status Target
+## Provider Status
 
-`/v1/providers/status` is planned as the operator-facing status view for this
-pipeline. The target response should include:
+`/v1/providers/status` is now mounted as the operator-facing read-only status
+view for this pipeline. The current response includes:
 
-- provider name, kind, base URL redacted to origin when useful
-- health state: `healthy`, `unhealthy`, `rate_limited`, or `unknown`
-- request, success, and error counts
-- error rate and recent latency estimates
+- provider name, kind, base URL, default model, and whether it uses a
+  provider-native agent loop
+- active in-flight HTTP requests
+- active in-memory ACP sessions
+- completed and failed HTTP request counters
+
+`/ui/` renders the same snapshot as a simple dashboard for live inspection.
+
+Useful follow-up additions are:
+
+- provider health state and rate-limit state
+- request success/error rate and recent latency estimates
 - quota state: remaining requests/tokens, reset time, last quota reason
-- active concurrency/session counts when known
 - response cache stats
-
-Until the endpoint is mounted, use `/metrics`, router logs, and provider
-errors for operational visibility.
 
 ## Rollout Notes
 
