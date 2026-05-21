@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/lipgloss"
 )
@@ -20,6 +21,8 @@ var (
 	tuiQuotaStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("11")).Background(lipgloss.Color("236"))
 	tuiPermStyle      = lipgloss.NewStyle().Foreground(lipgloss.Color("13")).Background(lipgloss.Color("236"))
 	tuiHintStyle      = lipgloss.NewStyle().Foreground(lipgloss.Color("8")).Background(lipgloss.Color("236"))
+	tuiNoticeStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("15")).Background(lipgloss.Color("238"))
+	tuiWarnStyle      = lipgloss.NewStyle().Foreground(lipgloss.Color("11")).Background(lipgloss.Color("238")).Bold(true)
 	tuiComposerStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("15")).Background(lipgloss.Color("235"))
 	tuiOverlayStyle   = lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).Padding(0, 1).BorderForeground(lipgloss.Color("11"))
 )
@@ -32,9 +35,34 @@ func (m tuiModel) View() string {
 	if m.overlay != nil {
 		transcript = overlayBlock(m.width, m.height, transcript, m.renderOverlay())
 	}
+	notice := tuiNoticeStyle.Width(m.width).Render(m.noticeLine())
 	composer := tuiComposerStyle.Width(m.width).Render(m.input.View())
 	status := tuiStatusStyle.Width(m.width).Render(m.statusLine())
-	return lipgloss.JoinVertical(lipgloss.Left, transcript, composer, status)
+	return lipgloss.JoinVertical(lipgloss.Left, transcript, notice, composer, status)
+}
+
+func (m tuiModel) noticeLine() string {
+	if m.width <= 0 {
+		return ""
+	}
+	if m.overlay != nil {
+		return tuiWarnStyle.Render("approval requested") + " choose with numbers, arrows, enter, or esc"
+	}
+	if m.escArmed {
+		return tuiWarnStyle.Render("stop current turn?") + " press ESC again to stop · Ctrl-C stops immediately · Ctrl-C again exits"
+	}
+	if m.state.Busy {
+		parts := []string{"running " + m.turnElapsed()}
+		if strings.TrimSpace(m.activity) != "" {
+			parts = append(parts, m.activity)
+		}
+		parts = append(parts, "ESC: confirm stop", "Ctrl-C: stop", "Ctrl-D: exit")
+		return strings.Join(parts, " · ")
+	}
+	if hint := m.completionHint(); hint != "" {
+		return tuiHintStyle.Render(hint)
+	}
+	return "Ctrl-D: exit · /help"
 }
 
 func (m tuiModel) completionHint() string {
@@ -182,6 +210,9 @@ func (m tuiModel) statusLine() string {
 	if m.activity != "" {
 		status += ": " + m.activity
 	}
+	if state.Busy {
+		status += " · " + m.turnElapsed()
+	}
 	parts := []string{
 		tuiStateStyle.Render(status),
 		tuiContextStyle.Render(contextLabel(state.Context)),
@@ -204,15 +235,44 @@ func (m tuiModel) statusLine() string {
 	if state.Tools > 0 {
 		parts = append(parts, fmt.Sprintf("Tools %d", state.Tools))
 	}
-	if hint := m.completionHint(); hint != "" {
-		parts = append(parts, tuiHintStyle.Render(hint))
-	}
 	parts = append(parts, agentVersionShort(), shortSession(state.SessionID))
 	line := strings.Join(nonEmpty(parts), " · ")
 	if lipgloss.Width(line) > m.width && m.width > 0 {
 		return lipgloss.NewStyle().MaxWidth(m.width).Render(line)
 	}
 	return line
+}
+
+func (m tuiModel) turnElapsed() string {
+	if m.turnAt.IsZero() {
+		return "0s"
+	}
+	now := m.now
+	if now.IsZero() {
+		now = m.turnAt
+	}
+	if now.Before(m.turnAt) {
+		now = m.turnAt
+	}
+	return compactDuration(now.Sub(m.turnAt))
+}
+
+func compactDuration(d time.Duration) string {
+	if d < 0 {
+		d = 0
+	}
+	seconds := int(d.Seconds())
+	if seconds < 60 {
+		return fmt.Sprintf("%ds", seconds)
+	}
+	minutes := seconds / 60
+	seconds %= 60
+	if minutes < 60 {
+		return fmt.Sprintf("%dm%02ds", minutes, seconds)
+	}
+	hours := minutes / 60
+	minutes %= 60
+	return fmt.Sprintf("%dh%02dm", hours, minutes)
 }
 
 func indentLines(s, prefix string) string {

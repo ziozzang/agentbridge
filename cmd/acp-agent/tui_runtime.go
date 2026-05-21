@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/spinner"
@@ -41,6 +42,7 @@ func runBubbleTUI(ctx context.Context, c *client) error {
 		viewport: viewport.New(80, 20),
 		input:    input,
 		spinner:  sp,
+		now:      time.Now(),
 	}
 	p := tea.NewProgram(m, tea.WithAltScreen())
 	_, err := p.Run()
@@ -74,14 +76,14 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		switch msg.String() {
 		case "ctrl+c":
-			if m.client.Interrupt(m.ctx) {
-				m.appendCell(tuiCell{Kind: "info", Title: "interrupt", Body: "cancelled current session prompt"})
-				return m, nil
-			}
-			return m, tea.Quit
+			return m.handleCtrlC()
 		case "ctrl+d":
 			return m, tea.Quit
+		case "esc":
+			return m.handleEsc()
 		case "enter":
+			m.escArmed = false
+			m.ctrlCArmed = false
 			line := strings.TrimSpace(m.input.Value())
 			m.input.Reset()
 			if line == "" {
@@ -100,6 +102,7 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.appendCell(tuiCell{Kind: "error", Title: "error", Body: msg.Err.Error()})
 		}
 	case spinner.TickMsg:
+		m.now = time.Now()
 		var cmd tea.Cmd
 		m.spinner, cmd = m.spinner.Update(msg)
 		cmds = append(cmds, cmd)
@@ -109,6 +112,42 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	cmds = append(cmds, cmd)
 	m.refreshViewport()
 	return m, tea.Batch(cmds...)
+}
+
+func (m tuiModel) handleCtrlC() (tea.Model, tea.Cmd) {
+	if m.ctrlCArmed {
+		return m, tea.Quit
+	}
+	if m.state.Busy {
+		m.requestStop("interrupt", "Ctrl-C cancelled current turn. Press Ctrl-C again to exit client.")
+		m.ctrlCArmed = true
+		m.escArmed = false
+		return m, nil
+	}
+	return m, tea.Quit
+}
+
+func (m tuiModel) handleEsc() (tea.Model, tea.Cmd) {
+	if !m.state.Busy {
+		m.escArmed = false
+		return m, nil
+	}
+	if !m.escArmed {
+		m.escArmed = true
+		m.ctrlCArmed = false
+		return m, nil
+	}
+	m.requestStop("stop", "ESC stopped current turn.")
+	m.escArmed = false
+	m.ctrlCArmed = false
+	return m, nil
+}
+
+func (m *tuiModel) requestStop(title, body string) {
+	if m.client != nil {
+		_ = m.client.Interrupt(m.ctx)
+	}
+	m.appendCell(tuiCell{Kind: "info", Title: title, Body: body})
 }
 
 func (m tuiModel) updateOverlay(msg tea.KeyMsg) (tea.Model, tea.Cmd) {

@@ -1,14 +1,27 @@
 package main
 
-import "strings"
+import (
+	"strings"
+	"time"
+)
 
 func (m *tuiModel) applyEvent(ev uiEvent) {
 	switch ev := ev.(type) {
 	case uiStateEvent:
+		wasBusy := m.state.Busy
 		m.state = ev.State
 		m.opts = ev.Opts
-		if !ev.State.Busy {
+		switch {
+		case ev.State.Busy && !wasBusy:
+			m.turnAt = time.Now()
+			m.now = m.turnAt
+			m.escArmed = false
+			m.ctrlCArmed = false
+		case !ev.State.Busy:
 			m.activity = ""
+			m.turnAt = time.Time{}
+			m.escArmed = false
+			m.ctrlCArmed = false
 		}
 	case uiUserEvent:
 		m.activity = "prompt queued"
@@ -63,7 +76,7 @@ func (m *tuiModel) reflow() {
 	}
 	m.input.Width = m.width - 3
 	m.viewport.Width = m.width
-	m.viewport.Height = maxInt(1, m.height-2)
+	m.viewport.Height = maxInt(1, m.height-3)
 	m.refreshViewport()
 }
 

@@ -4,6 +4,7 @@ import (
 	"context"
 	"strings"
 	"testing"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -112,16 +113,65 @@ func TestTUIPermissionArgumentSuggestions(t *testing.T) {
 }
 
 func TestTUIStatusLineShowsActivityAndPermission(t *testing.T) {
-	m := tuiModel{width: 180, activity: "tool: Read file", state: clientState{
+	start := time.Now().Add(-75 * time.Second)
+	m := tuiModel{width: 180, activity: "tool: Read file", turnAt: start, now: start.Add(75 * time.Second), state: clientState{
 		Busy:    true,
 		Model:   "glm-5.1",
 		Mode:    "default",
 		Context: contextState{Tokens: 64000, Window: 128000, UsedPercent: 50, LeftPercent: 50},
 	}, opts: clientOptions{Permission: "reject"}}
 	got := stripANSI(m.statusLine())
-	for _, want := range []string{"Working: tool: Read file", "Context 50% left", "Read Only", "glm-5.1"} {
+	for _, want := range []string{"Working: tool: Read file", "1m15s", "Context 50% left", "Read Only", "glm-5.1"} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("status missing %q: %q", want, got)
 		}
+	}
+}
+
+func TestTUIEscRequiresConfirmationBeforeStop(t *testing.T) {
+	m := tuiModel{width: 120, state: clientState{Busy: true}}
+	next, cmd := m.handleEsc()
+	m = next.(tuiModel)
+	if cmd != nil {
+		t.Fatalf("first esc should not quit")
+	}
+	if !m.escArmed {
+		t.Fatalf("first esc did not arm stop")
+	}
+	if !strings.Contains(stripANSI(m.noticeLine()), "stop current turn") {
+		t.Fatalf("missing stop notice: %q", m.noticeLine())
+	}
+	next, cmd = m.handleEsc()
+	m = next.(tuiModel)
+	if cmd != nil {
+		t.Fatalf("second esc should not quit")
+	}
+	if m.escArmed {
+		t.Fatalf("second esc should clear stop confirmation")
+	}
+}
+
+func TestTUICtrlCStopsThenExits(t *testing.T) {
+	m := tuiModel{state: clientState{Busy: true}}
+	next, cmd := m.handleCtrlC()
+	m = next.(tuiModel)
+	if cmd != nil {
+		t.Fatalf("first ctrl-c should not quit")
+	}
+	if !m.ctrlCArmed {
+		t.Fatalf("first ctrl-c did not arm exit")
+	}
+	_, cmd = m.handleCtrlC()
+	if cmd == nil {
+		t.Fatalf("second ctrl-c should quit")
+	}
+}
+
+func TestTUITurnElapsedFormatting(t *testing.T) {
+	if got := compactDuration(75 * time.Second); got != "1m15s" {
+		t.Fatalf("duration=%q", got)
+	}
+	if got := compactDuration(3*time.Hour + 2*time.Minute); got != "3h02m" {
+		t.Fatalf("duration=%q", got)
 	}
 }
