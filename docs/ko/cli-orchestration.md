@@ -39,6 +39,8 @@ shell script를 실행하지 않습니다.
 
 이 분리는 terminal control을 ACP transport에서 떼어냅니다. 서버는 구조화된
 event를 내리고, client가 이를 어떻게 렌더링할지 결정합니다.
+디버깅할 때는 `acp-agent --json-events`로 Bubble Tea renderer를 우회하고 같은
+정규화 event stream을 newline-delimited JSON으로 볼 수 있습니다.
 
 Lua API는 primitive function과 composition function으로 구성합니다. Primitive는
 하나의 관심사를 직접 다루고, composition은 primitive를 조립해서 LLM workflow를
@@ -106,6 +108,10 @@ Compositions:
 의도한 control loop는 아래 형태입니다.
 
 `plan -> fetch_next_job -> run -> check_status -> trigger -> steer/continue/stop`
+
+`control_loop`, `run`, local goal harness는 실행 중 `orch:*` UI event를 냅니다.
+따라서 Bubble Tea transcript와 `--json-events` mode에서 Lua script가 끝나기 전에도
+job start, job completion, failure, loop completion을 볼 수 있습니다.
 
 Trigger는 observation과 control의 경계입니다. Trigger는 loop를 멈추거나, steering
 directive를 쓰거나, context compact/save를 실행하거나, job을 enqueue하거나,

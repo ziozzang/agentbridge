@@ -72,6 +72,11 @@ Shell 실행은 계속 client-owned tool입니다.
 `--plain`을 주면 최소 line-oriented fallback을 사용합니다. Bubble Tea를 우회하고
 plain text를 출력하므로 최소 터미널이나 디버깅에 쓰기 위한 경로입니다.
 
+`--json-events`는 protocol-style debugging용입니다. Bubble Tea renderer를 끄고
+동일하게 정규화된 UI event를 newline-delimited JSON으로 출력합니다. User input,
+assistant delta, thinking delta, tool lifecycle, permission request, status update,
+Lua orchestration event를 순서대로 확인할 수 있습니다.
+
 단발 prompt:
 
 ```bash
@@ -92,6 +97,8 @@ acp-agent --addr 127.0.0.1:8765 --model codex-agent \
 - `--show-thinking`: ACP `agent_thought_chunk` update를 stderr에 출력합니다.
   기본값은 숨김입니다.
 - `--plain`: Bubble Tea UI를 끄고 최소 line-oriented fallback을 사용합니다.
+- `--json-events`: Bubble Tea UI를 끄고 정규화된 UI event를 newline-delimited
+  JSON으로 출력합니다.
 
 대화형 command:
 

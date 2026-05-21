@@ -584,6 +584,54 @@ cli.say(ctx.steering[1])
 	}
 }
 
+func TestRunLuaOrchestrationEmitsLiveUIEvents(t *testing.T) {
+	events := make(chan uiEvent, 16)
+	c := &client{
+		stdout: ioDiscard{},
+		stderr: ioDiscard{},
+		state:  clientState{Cwd: t.TempDir(), SessionID: "s1"},
+		events: events,
+	}
+	_, err := c.runLua(context.Background(), runLuaParams{Code: `
+local plan = cli.orch.plan({{ id = "inspect", task = "inspect" }})
+cli.orch.control_loop({
+  plan = plan,
+  run = function(job, ctx) return "ok" end
+})
+`})
+	if err != nil {
+		t.Fatal(err)
+	}
+	close(events)
+	var titles []string
+	for ev := range events {
+		if info, ok := ev.(uiInfoEvent); ok {
+			titles = append(titles, info.Title+":"+info.Body)
+		}
+	}
+	got := strings.Join(titles, "\n")
+	for _, want := range []string{"orch:control_loop_start", "orch:job_start:inspect", "orch:job_done:inspect", "orch:control_loop_done"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("missing %q in events:\n%s", want, got)
+		}
+	}
+}
+
+func TestUIEventRecordSerializesPermissionWithoutReplyChannel(t *testing.T) {
+	got := uiEventRecord(uiPermissionRequest{
+		Title:   "tool permission",
+		Detail:  "command: date",
+		Options: []choiceOption{{Key: "1", Label: "yes"}},
+		Reply:   make(chan string, 1),
+	})
+	if got["type"] != "permission_request" || got["title"] != "tool permission" {
+		t.Fatalf("bad event record: %#v", got)
+	}
+	if _, err := json.Marshal(got); err != nil {
+		t.Fatalf("event record should marshal without channel: %v", err)
+	}
+}
+
 func TestRunLuaSnapshotTimerAndState(t *testing.T) {
 	t.Setenv("AGENTBRIDGE_CLI_ORCH_DB", filepath.Join(t.TempDir(), "orch.sqlite"))
 	c := &client{

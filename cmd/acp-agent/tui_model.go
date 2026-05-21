@@ -117,6 +117,15 @@ func (m *tuiModel) reflow() {
 }
 
 func (m *tuiModel) refreshViewport() {
+	shouldFollow := m.autoFollow || m.viewport.AtBottom()
 	m.viewport.SetContent(m.renderTranscript())
-	m.viewport.GotoBottom()
+	if shouldFollow {
+		m.viewport.GotoBottom()
+		m.autoFollow = true
+		return
+	}
+	if m.viewport.PastBottom() {
+		m.viewport.GotoBottom()
+		m.autoFollow = true
+	}
 }

@@ -233,6 +233,9 @@ func (c *client) runLua(ctx context.Context, p runLuaParams) (runLuaResult, erro
 			payload = L.Get(2).String()
 		}
 		_, _ = db.ExecContext(runCtx, `insert into events(name, payload, created_at) values(?, ?, ?)`, name, payload, time.Now().UTC().Format(time.RFC3339Nano))
+		if c.events != nil {
+			c.emit(uiInfoEvent{Title: "orch:" + name, Body: payload})
+		}
 		if payload == "" {
 			out.WriteString("[event] " + name + "\n")
 		} else {
@@ -701,11 +704,16 @@ end
 function orch.run(job, fn)
   job.status = "running"
   job.started_at = cli.time_unix()
+  cli.emit("job_start", job.id or job.title or job.task or "job")
   local ok, result = pcall(fn, job)
   if ok then
-    return orch.done(job, result)
+    orch.done(job, result)
+    cli.emit("job_done", job.id or job.title or job.task or "job")
+    return job
   end
-  return orch.fail(job, tostring(result))
+  orch.fail(job, tostring(result))
+  cli.emit("job_failed", tostring(job.id or job.title or job.task or "job") .. ": " .. tostring(result))
+  return job
 end
 
 function orch.loop(plan, fn, opts)
@@ -731,6 +739,7 @@ function orch.control_loop(opts)
   local plan = opts.plan or orch.plan(opts.jobs or {})
   local ctx = opts.context or { plan = plan, steering = {} }
   ctx.plan = plan
+  cli.emit("control_loop_start", orch.status_line(plan))
   local max_steps = opts.max_steps or 100
   local steps = 0
   while steps < max_steps do
@@ -753,6 +762,7 @@ function orch.control_loop(opts)
   end
   ctx.steps = steps
   ctx.counts = orch.check_status(plan)
+  cli.emit("control_loop_done", orch.status_line(plan))
   return ctx
 end
 
@@ -918,6 +928,7 @@ function goal.prompt(opts)
   opts = opts or {}
   local g = goal.get()
   if g == "" then return "goal: none" end
+  cli.emit("goal_run", g)
   local body = "Continue working toward this goal. Use available tools when needed and stop when the goal is satisfied.\n\n<goal>\n" .. g .. "\n</goal>"
   if opts.context then body = body .. "\n<context>\n" .. tostring(opts.context) .. "\n</context>" end
   if opts.run == false then return body end

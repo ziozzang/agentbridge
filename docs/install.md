@@ -75,6 +75,11 @@ with `/queue`. Shell execution remains a client-owned tool.
 Use `--plain` to run the minimal line-oriented fallback. This bypasses Bubble
 Tea and prints plain text for minimal terminals and debugging.
 
+Use `--json-events` when you need protocol-style debugging. It disables the
+Bubble Tea renderer and prints the same normalized UI events as newline-delimited
+JSON, including user input, assistant deltas, thinking deltas, tool lifecycle
+updates, permission requests, status updates, and Lua orchestration events.
+
 One-shot prompt:
 
 ```bash
@@ -96,6 +101,8 @@ Useful flags:
   by default.
 - `--plain`: disable the Bubble Tea UI and use the minimal line-oriented
   fallback.
+- `--json-events`: disable the Bubble Tea UI and print normalized UI events as
+  newline-delimited JSON.
 
 Interactive commands:
 

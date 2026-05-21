@@ -46,6 +46,7 @@ Flags:
   --hide-tools         hide ACP tool_call/tool_call_update status messages
   --raw-updates        print raw non-text session/update payloads to stderr
   --plain              use the minimal line-oriented fallback
+  --json-events        print ACP UI events as newline-delimited JSON for debugging
   --version            print version and exit
 
 Interactive commands:
@@ -91,6 +92,7 @@ func main() {
 	hideTools := flag.Bool("hide-tools", false, "hide tool_call/tool_call_update status messages")
 	rawUpdates := flag.Bool("raw-updates", false, "print raw non-text session/update payloads")
 	plain := flag.Bool("plain", false, "use the minimal line-oriented fallback")
+	jsonEvents := flag.Bool("json-events", false, "print ACP UI events as newline-delimited JSON")
 	version := flag.Bool("version", false, "print version and exit")
 	help := flag.Bool("help", false, "show help")
 	flag.Usage = func() { fmt.Fprint(os.Stderr, usage) }
@@ -121,7 +123,7 @@ func main() {
 	if text == "" && flag.NArg() > 0 {
 		text = strings.Join(flag.Args(), " ")
 	}
-	interactiveTUI := text == "" && !*plain && isTerminalWriter(os.Stderr)
+	interactiveTUI := text == "" && !*plain && !*jsonEvents && isTerminalWriter(os.Stderr)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -133,13 +135,18 @@ func main() {
 		ShowThinking: *showThinking || interactiveTUI,
 		ShowTools:    !*hideTools,
 		RawUpdates:   *rawUpdates,
-		LegacyUI:     !interactiveTUI,
+		LegacyUI:     !interactiveTUI && !*jsonEvents,
 	})
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "connect failed:", err)
 		os.Exit(1)
 	}
 	defer cli.Close()
+	var jsonSink *jsonEventSink
+	if *jsonEvents {
+		jsonSink = startJSONEventSink(cli, os.Stdout)
+		defer jsonSink.Close()
+	}
 	if !interactiveTUI {
 		go func() {
 			for {
@@ -192,6 +199,13 @@ func main() {
 	if text != "" {
 		if err := cli.Prompt(ctx, sessionID, text); err != nil {
 			fmt.Fprintln(os.Stderr, "prompt failed:", err)
+			os.Exit(1)
+		}
+		return
+	}
+	if *jsonEvents {
+		if err := jsonEventRepl(ctx, cli); err != nil {
+			fmt.Fprintln(os.Stderr, "json repl failed:", err)
 			os.Exit(1)
 		}
 		return

@@ -71,6 +71,22 @@ func TestTUIPermissionOverlayReplies(t *testing.T) {
 	}
 }
 
+func TestTUIPermissionOverlayAcceptsLineFeedEnter(t *testing.T) {
+	reply := make(chan string, 1)
+	m := tuiModel{ctx: context.Background(), overlay: &uiPermissionRequest{
+		Options: []choiceOption{{Key: "1", Label: "yes"}},
+		Reply:   reply,
+	}}
+	next, _ := m.updateOverlay(tea.KeyMsg{Type: tea.KeyCtrlJ})
+	m = next.(tuiModel)
+	if m.overlay != nil {
+		t.Fatalf("overlay still active")
+	}
+	if got := <-reply; got != "1" {
+		t.Fatalf("reply=%q", got)
+	}
+}
+
 func TestTUIPermissionOverlayNumericChoice(t *testing.T) {
 	reply := make(chan string, 1)
 	m := tuiModel{ctx: context.Background(), overlay: &uiPermissionRequest{
@@ -222,10 +238,31 @@ func TestTUISubmitKeysIncludeLineFeedAndCarriageReturn(t *testing.T) {
 }
 
 func TestTUIReflowReservesNoticeComposerStatusRows(t *testing.T) {
-	m := tuiModel{width: 100, height: 30}
+	m := tuiModel{width: 100, height: 30, autoFollow: true}
 	m.reflow()
 	if m.viewport.Height != 27 {
 		t.Fatalf("viewport height=%d", m.viewport.Height)
+	}
+}
+
+func TestTUIScrollPositionIsPreservedWhenNotFollowing(t *testing.T) {
+	m := tuiModel{width: 80, height: 8, autoFollow: true}
+	for i := 0; i < 20; i++ {
+		m.appendCell(tuiCell{Kind: "info", Title: "line", Body: strings.Repeat("x", i+1)})
+	}
+	m.reflow()
+	if !m.viewport.AtBottom() {
+		t.Fatalf("expected initial viewport to follow bottom")
+	}
+	next, _ := m.updateViewport(tea.KeyMsg{Type: tea.KeyPgUp})
+	m = next.(tuiModel)
+	if m.autoFollow {
+		t.Fatalf("page up should disable auto-follow")
+	}
+	offset := m.viewport.YOffset
+	m.applyEvent(uiAssistantDeltaEvent{Text: "new content"})
+	if m.viewport.YOffset != offset {
+		t.Fatalf("viewport offset changed from %d to %d", offset, m.viewport.YOffset)
 	}
 }
 

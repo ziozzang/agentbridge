@@ -40,6 +40,8 @@ The broader ownership and permission rules are documented in
 
 This split keeps terminal control out of the ACP transport. The server emits
 structured events; the client decides how those events are rendered.
+For debugging, `acp-agent --json-events` bypasses the Bubble Tea renderer and
+prints the same normalized event stream as newline-delimited JSON.
 
 The Lua API is organized as primitive functions plus composition functions.
 Primitive functions touch one concern directly. Composition functions assemble
@@ -107,6 +109,11 @@ Compositions:
 The intended control loop is:
 
 `plan -> fetch_next_job -> run -> check_status -> trigger -> steer/continue/stop`
+
+`control_loop`, `run`, and the local goal harness emit `orch:*` UI events while
+they execute, so the Bubble Tea transcript and `--json-events` mode can show
+job start, job completion, failures, and loop completion without waiting for the
+Lua script to finish.
 
 Triggers are the boundary between observation and control. They can stop the
 loop, write steering directives, compact context, save checkpoints, enqueue

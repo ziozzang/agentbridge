@@ -34,15 +34,16 @@ func runBubbleTUI(ctx context.Context, c *client) error {
 	sp.Spinner = spinner.Line
 
 	m := tuiModel{
-		ctx:      ctx,
-		client:   c,
-		events:   c.events,
-		state:    c.state,
-		opts:     c.opts,
-		viewport: viewport.New(80, 20),
-		input:    input,
-		spinner:  sp,
-		now:      time.Now(),
+		ctx:        ctx,
+		client:     c,
+		events:     c.events,
+		state:      c.state,
+		opts:       c.opts,
+		viewport:   viewport.New(80, 20),
+		autoFollow: true,
+		input:      input,
+		spinner:    sp,
+		now:        time.Now(),
 	}
 	p := tea.NewProgram(m, tea.WithAltScreen())
 	_, err := p.Run()
@@ -77,15 +78,17 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.handleCtrlC()
 		case keyName == "ctrl+d":
 			return m, tea.Quit
-		case keyName == "esc":
-			return m.handleEsc()
 		}
 		if m.overlay != nil {
 			return m.updateOverlay(msg)
 		}
 		switch {
+		case keyName == "esc":
+			return m.handleEsc()
 		case isSubmitKey(keyName):
 			return m.submitInput(cmds)
+		case isViewportKey(keyName):
+			return m.updateViewport(msg)
 		}
 		switch keyName {
 		}
@@ -118,9 +121,26 @@ func isSubmitKey(keyName string) bool {
 	}
 }
 
+func isViewportKey(keyName string) bool {
+	switch keyName {
+	case "up", "down", "pgup", "pgdown", "home", "end", "ctrl+u", "ctrl+d":
+		return true
+	default:
+		return false
+	}
+}
+
+func (m tuiModel) updateViewport(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	var cmd tea.Cmd
+	m.viewport, cmd = m.viewport.Update(msg)
+	m.autoFollow = m.viewport.AtBottom()
+	return m, cmd
+}
+
 func (m tuiModel) submitInput(cmds []tea.Cmd) (tea.Model, tea.Cmd) {
 	m.escArmed = false
 	m.ctrlCArmed = false
+	m.autoFollow = true
 	line := strings.TrimSpace(m.input.Value())
 	m.input.Reset()
 	if line == "" {
@@ -185,7 +205,7 @@ func (m tuiModel) updateOverlay(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	case "esc":
 		m.cancelOverlay()
-	case "enter":
+	case "enter", "ctrl+j", "ctrl+m":
 		m.replyOverlayChoice(m.choice)
 	default:
 		if m.hasOverlayChoiceKey(msg.String()) {

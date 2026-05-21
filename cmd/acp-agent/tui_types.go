@@ -28,6 +28,7 @@ type tuiModel struct {
 	width         int
 	height        int
 	viewport      viewport.Model
+	autoFollow    bool
 	input         textinput.Model
 	spinner       spinner.Model
 	cells         []tuiCell
