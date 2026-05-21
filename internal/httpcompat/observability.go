@@ -60,19 +60,35 @@ func (w *statusRecorder) Flush() {
 func (h *handler) instrument(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
-		httpMetrics.begin()
-		requestID := "http-" + strconv.FormatUint(httpRequestSeq.Add(1), 16)
-		observability.BeginHTTPRequest(requestID, r.Method, r.URL.Path)
+		observe := !isObservabilityPath(r.URL.Path)
+		requestID := ""
+		if observe {
+			httpMetrics.begin()
+			requestID = "http-" + strconv.FormatUint(httpRequestSeq.Add(1), 16)
+			observability.BeginHTTPRequest(requestID, r.Method, r.URL.Path)
+		}
 		rec := &statusRecorder{ResponseWriter: w}
 		next.ServeHTTP(rec, r)
 		status := rec.status
 		if status == 0 {
 			status = http.StatusOK
 		}
-		httpMetrics.finish(r.URL.Path, status, time.Since(start))
-		observability.EndHTTPRequest(requestID, status)
+		if observe {
+			httpMetrics.finish(r.URL.Path, status, time.Since(start))
+			observability.EndHTTPRequest(requestID, status)
+		}
 		logger.Infof("http request method=%s path=%s status=%d bytes=%d duration_ms=%d", r.Method, r.URL.Path, status, rec.bytes, time.Since(start).Milliseconds())
 	})
+}
+
+func isObservabilityPath(path string) bool {
+	switch path {
+	case "/health", "/metrics", "/metric", "/ui", "/ui/", "/ui/status", "/v1/providers/status",
+		"/openapi.json", "/swagger.json", "/swagger", "/docs", "/v1/openapi.json":
+		return true
+	default:
+		return false
+	}
 }
 
 func (h *handler) metrics(w http.ResponseWriter, r *http.Request) {

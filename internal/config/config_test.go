@@ -407,6 +407,8 @@ func TestUserConfigFileOverride(t *testing.T) {
 
 func TestResolveSelectsDefault(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(t.TempDir(), "missing"))
+	t.Setenv("AGENTBRIDGE_CONFIG_FILE", "")
+	_ = os.Unsetenv("AGENTBRIDGE_PROVIDER")
 	_ = os.Unsetenv("ACP_HARNESS_PROVIDERS_FILE")
 	_ = os.Unsetenv("ACP_HARNESS_PROVIDER")
 	_ = os.Unsetenv("ACP_PROVIDER")
@@ -416,5 +418,23 @@ func TestResolveSelectsDefault(t *testing.T) {
 	t.Setenv("ACP_HARNESS_PROVIDER", "anthropic")
 	if SelectedProviderName() != "anthropic" {
 		t.Errorf("env not honoured")
+	}
+}
+
+func TestResolveSelectsProviderFromConfigFile(t *testing.T) {
+	dir := t.TempDir()
+	cfgDir := filepath.Join(dir, "agentbridge")
+	if err := os.MkdirAll(cfgDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(cfgDir, "config.yaml"), []byte("provider: router\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("XDG_CONFIG_HOME", dir)
+	t.Setenv("AGENTBRIDGE_PROVIDER", "")
+	t.Setenv("ACP_HARNESS_PROVIDER", "")
+	t.Setenv("ACP_PROVIDER", "")
+	if got := SelectedProviderName(); got != "router" {
+		t.Fatalf("provider from config = %q", got)
 	}
 }

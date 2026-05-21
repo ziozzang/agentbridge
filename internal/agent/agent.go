@@ -1003,7 +1003,7 @@ func (a *Agent) ensureClient() error {
 	if rerr := resolveOAuthConfig(&cfg); rerr != nil {
 		return rerr
 	}
-	if cfg.APIKey == "" && cfg.Kind != "ollama" && cfg.Kind != "llama.cpp" && cfg.Kind != "llamacpp" && cfg.Kind != "claude-code-cli" && cfg.Kind != "codex-app-server" {
+	if cfg.APIKey == "" && cfg.Kind != "ollama" && cfg.Kind != "llama.cpp" && cfg.Kind != "llamacpp" && cfg.Kind != "claude-code-cli" && cfg.Kind != "codex-app-server" && cfg.Kind != "router" {
 		return errors.New("No API key configured. Set an API key via AGENTBRIDGE_API_KEY, AGENTBRIDGE_<PROVIDER>_API_KEY, a provider-specific env var (Z_AI_API_KEY/OPENAI_API_KEY/…), or run `agentbridge --setup`. Legacy ACP_HARNESS_* variables are still accepted.")
 	}
 	p, err := provider.Build(cfg)

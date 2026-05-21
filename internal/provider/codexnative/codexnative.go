@@ -158,6 +158,12 @@ func (c *Client) StreamChat(ctx context.Context, messages []provider.Message, op
 		var usage provider.Usage
 		stopReason := "stop"
 		for {
+			select {
+			case <-ctx.Done():
+				errs <- ctx.Err()
+				return
+			default:
+			}
 			msg, err := rpc.Next()
 			if err != nil {
 				errs <- err
@@ -185,6 +191,9 @@ func (c *Client) StreamChat(ctx context.Context, messages []provider.Message, op
 				if delta := stringAt(params, "delta"); delta != "" {
 					chunks <- provider.Chunk{Text: delta}
 				}
+			case "error":
+				errs <- errors.New(firstNonEmpty(stringAt(params, "message"), nestedString(params, "error", "message"), "codex app-server error"))
+				return
 			case "thread/tokenUsage/updated":
 				if stringAt(params, "threadId") != threadID || stringAt(params, "turnId") != turnID {
 					continue

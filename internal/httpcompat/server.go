@@ -19,6 +19,7 @@ import (
 	"github.com/ziozzang/agentbridge/internal/credentials"
 	"github.com/ziozzang/agentbridge/internal/logger"
 	"github.com/ziozzang/agentbridge/internal/mcpconfig"
+	"github.com/ziozzang/agentbridge/internal/metrics"
 	codexoauth "github.com/ziozzang/agentbridge/internal/oauth/codex"
 	copilotoauth "github.com/ziozzang/agentbridge/internal/oauth/copilot"
 	googleoauth "github.com/ziozzang/agentbridge/internal/oauth/google"
@@ -940,7 +941,65 @@ func StreamProviderWithOptions(ctx context.Context, model string, messages []pro
 	opts.Model = firstNonEmpty(opts.Model, model)
 	opts = provider.PrepareStreamOptions(p, opts)
 	chunks, errs := p.StreamChat(ctx, messages, opts)
-	return chunks, errs, nil
+	observedChunks, observedErrs := observeProviderStream(opts.Model, chunks, errs)
+	return observedChunks, observedErrs, nil
+}
+
+func observeProviderStream(model string, chunks <-chan provider.Chunk, errs <-chan error) (<-chan provider.Chunk, <-chan error) {
+	out := make(chan provider.Chunk, 32)
+	outErrs := make(chan error, 1)
+	go func() {
+		defer close(out)
+		defer close(outErrs)
+		start := time.Now()
+		var firstTokenAt time.Time
+		var lastTokenAt time.Time
+		var usage provider.Usage
+		var textBytes int
+		for ch := range chunks {
+			if ch.Text != "" {
+				now := time.Now()
+				if firstTokenAt.IsZero() {
+					firstTokenAt = now
+				}
+				lastTokenAt = now
+				textBytes += len(ch.Text)
+			}
+			if ch.Usage != nil {
+				usage = *ch.Usage
+			}
+			out <- ch
+		}
+		err := <-errs
+		outputTokens := usage.OutputTokens
+		if outputTokens <= 0 && textBytes > 0 {
+			outputTokens = estimateTokensFromBytes(textBytes)
+		}
+		var firstTokenSeconds float64
+		var generationSeconds float64
+		if !firstTokenAt.IsZero() {
+			firstTokenSeconds = firstTokenAt.Sub(start).Seconds()
+			end := lastTokenAt
+			if end.IsZero() {
+				end = time.Now()
+			}
+			generationSeconds = end.Sub(firstTokenAt).Seconds()
+		}
+		metrics.ObserveGeneration(model, firstTokenSeconds, generationSeconds, outputTokens, err == nil)
+		outErrs <- err
+	}()
+	return out, outErrs
+}
+
+func estimateTokensFromBytes(n int) int {
+	if n <= 0 {
+		return 0
+	}
+	tokens := n / 4
+	if tokens == 0 {
+		tokens = 1
+	}
+	return tokens
 }
 
 func buildProvider() (provider.Provider, error) {
@@ -968,7 +1027,7 @@ func buildProvider() (provider.Provider, error) {
 			}
 		}
 	}
-	if cfg.APIKey == "" && cfg.Kind != "ollama" && cfg.Kind != "llama.cpp" && cfg.Kind != "llamacpp" && cfg.Kind != "claude-code-cli" && cfg.Kind != "codex-app-server" {
+	if cfg.APIKey == "" && cfg.Kind != "ollama" && cfg.Kind != "llama.cpp" && cfg.Kind != "llamacpp" && cfg.Kind != "claude-code-cli" && cfg.Kind != "codex-app-server" && cfg.Kind != "router" {
 		return nil, errors.New("no API key configured")
 	}
 	p, err := provider.Build(cfg)

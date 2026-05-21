@@ -20,6 +20,14 @@ YAML/JSON 파일로 설정합니다.
 
 기존 `ACP_HARNESS_*` 변수는 alias로 계속 지원됩니다.
 
+활성 provider는 `config.yaml` 안에서도 `provider`, `active_provider`,
+`default_provider` 중 하나로 지정할 수 있습니다. 환경 변수 설정이 있으면
+파일 설정보다 우선합니다.
+
+```yaml
+provider: router
+```
+
 ## 전역 변수
 
 | 변수 | 용도 |

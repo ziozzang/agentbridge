@@ -296,8 +296,12 @@ configuration and save that instance's `/openapi.json` output.
 
 ## Prometheus Metrics
 
-`GET /metrics` and `GET /metric` expose Prometheus text metrics. HTTP route
-metrics are always emitted. MCP and plugin tool calls are counted as:
+`GET /metrics` and `GET /metric` expose Prometheus text metrics. Operator
+inspection routes such as `/health`, `/metrics`, `/ui/`, `/ui/status`, and
+`/v1/providers/status` are excluded from HTTP request counters and active
+request snapshots so dashboards do not count their own polling.
+
+MCP and plugin tool calls are counted as:
 
 ```text
 agentbridge_tool_calls_total{kind="plugin",name="plugin__jina__jina_search",status="ok"} 1
@@ -306,6 +310,18 @@ agentbridge_tool_calls_total{kind="mcp",name="mcp__search__query",status="error"
 
 Tool metrics cover calls through HTTP MCP and model-initiated calls inside ACP
 sessions when the process also serves the metrics endpoint.
+
+Provider generation metrics also include request counts, first-token latency
+sum, generation duration sum, observed output token totals, and sampled TPS:
+
+```text
+agentbridge_llm_requests_total{model="glm-5.1",status="ok"} 1
+agentbridge_llm_first_token_latency_seconds_sum 0.842000
+agentbridge_llm_generation_duration_seconds_sum 2.410000
+agentbridge_llm_output_tokens_total 156
+agentbridge_llm_tokens_per_second_sum 64.730290
+agentbridge_llm_tokens_per_second_count 1
+```
 
 ## Security
 

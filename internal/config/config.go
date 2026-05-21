@@ -33,7 +33,10 @@ var embeddedProvidersYAML []byte
 // rawConfig is the YAML schema. It mirrors provider.Config but with
 // snake_case field names and a "models" entry list using nested keys.
 type rawConfig struct {
-	Providers map[string]rawProvider `yaml:"providers"`
+	Provider        string                 `yaml:"provider"`
+	ActiveProvider  string                 `yaml:"active_provider"`
+	DefaultProvider string                 `yaml:"default_provider"`
+	Providers       map[string]rawProvider `yaml:"providers"`
 }
 
 type rawProvider struct {
@@ -338,7 +341,37 @@ func SelectedProviderName() string {
 	if v := os.Getenv("ACP_PROVIDER"); v != "" {
 		return v
 	}
+	if v := selectedProviderFromUserConfig(); v != "" {
+		return v
+	}
 	return "glm"
+}
+
+func selectedProviderFromUserConfig() string {
+	type selected struct {
+		Provider        string `yaml:"provider"`
+		ActiveProvider  string `yaml:"active_provider"`
+		DefaultProvider string `yaml:"default_provider"`
+	}
+	path := envFirst("AGENTBRIDGE_CONFIG_FILE", "ACP_HARNESS_CONFIG_FILE")
+	paths := userConfigPaths()
+	if path != "" {
+		paths = append([]string{path}, paths...)
+	}
+	for _, p := range paths {
+		data, err := os.ReadFile(p)
+		if err != nil {
+			continue
+		}
+		var cfg selected
+		if err := yaml.Unmarshal([]byte(expandEnvString(string(data), os.Getenv, 0)), &cfg); err != nil {
+			continue
+		}
+		if v := firstNonEmpty(cfg.Provider, cfg.ActiveProvider, cfg.DefaultProvider); v != "" {
+			return v
+		}
+	}
+	return ""
 }
 
 // Resolve returns the provider.Config for the active provider, applying

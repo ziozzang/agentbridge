@@ -22,6 +22,14 @@ files under `$XDG_CONFIG_HOME/agentbridge`.
 
 Legacy `ACP_HARNESS_*` variables remain supported as aliases.
 
+The active provider can also be selected in `config.yaml` with one of
+`provider`, `active_provider`, or `default_provider`. Environment variables
+still win over the file setting:
+
+```yaml
+provider: router
+```
+
 ## Top-Level Variables
 
 | Variable | Purpose |

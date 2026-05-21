@@ -281,9 +281,12 @@ curl -sS http://127.0.0.1:8766/v1/tools/plugin__jina__jina_search \
 
 ## Prometheus Metrics
 
-`GET /metrics`, `GET /metric`은 Prometheus text metrics를 노출합니다. HTTP
-route metric은 항상 출력됩니다. MCP와 plugin tool call은 아래 counter로
-집계됩니다.
+`GET /metrics`, `GET /metric`은 Prometheus text metrics를 노출합니다.
+`/health`, `/metrics`, `/ui/`, `/ui/status`, `/v1/providers/status` 같은
+운영자 확인용 route는 HTTP request counter와 active request snapshot에서
+제외됩니다. 대시보드가 자기 polling을 request로 누적하지 않게 하기 위함입니다.
+
+MCP와 plugin tool call은 아래 counter로 집계됩니다.
 
 ```text
 agentbridge_tool_calls_total{kind="plugin",name="plugin__jina__jina_search",status="ok"} 1
@@ -292,6 +295,18 @@ agentbridge_tool_calls_total{kind="mcp",name="mcp__search__query",status="error"
 
 Tool metric은 HTTP MCP를 통한 호출과, 같은 프로세스에서 metrics endpoint를
 제공하는 경우 ACP session 내부에서 모델이 수행한 MCP/plugin 호출을 포함합니다.
+
+Provider generation metric에는 request count, 첫 토큰 지연 시간 합계, 토큰
+생성 구간 시간 합계, 관측된 output token 수, TPS sample도 포함됩니다.
+
+```text
+agentbridge_llm_requests_total{model="glm-5.1",status="ok"} 1
+agentbridge_llm_first_token_latency_seconds_sum 0.842000
+agentbridge_llm_generation_duration_seconds_sum 2.410000
+agentbridge_llm_output_tokens_total 156
+agentbridge_llm_tokens_per_second_sum 64.730290
+agentbridge_llm_tokens_per_second_count 1
+```
 
 ## 보안
 
