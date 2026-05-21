@@ -59,6 +59,8 @@ shell script를 실행하지 않습니다.
 - Stop request는 같은 key event 안에서 즉시 transcript cell을 추가하고 viewport를
   refresh합니다. 그래서 다음 provider event가 오기 전에도 interrupt feedback이
   화면에 보입니다.
+- Turn 실행 중 들어온 prompt는 client queue에 들어가고 state/info event로 방출되어
+  transcript와 status surface 양쪽에 렌더링됩니다.
 - 최소 line-oriented fallback은 `--plain` 뒤에 debugging/minimal terminal용으로
   남깁니다. 이 경로는 terminal layout을 소유하지 않습니다.
 

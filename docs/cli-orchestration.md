@@ -62,6 +62,8 @@ The broader ownership and permission rules are documented in
 - Stop requests append an immediate transcript cell and refresh the viewport in
   the same key event, so interrupt feedback is visible before the next provider
   event arrives.
+- Prompts submitted while a turn is busy are queued by the client, emitted as
+  state/info events, and rendered in both the transcript and status surface.
 - A minimal line-oriented fallback remains available behind `--plain` for
   debugging and minimal terminals. It does not own terminal layout.
 

@@ -444,6 +444,37 @@ func TestTUIUpdateSequenceRendersTranscriptProgressAndOverlay(t *testing.T) {
 	}
 }
 
+func TestTUIBusySubmitQueueEventsReachFrame(t *testing.T) {
+	events := make(chan uiEvent, 4)
+	c := &client{
+		events: events,
+		stderr: ioDiscard{},
+		state:  clientState{Busy: true, Model: "glm-5.1", Context: contextState{LeftPercent: 80}},
+		opts:   clientOptions{Permission: "prompt"},
+	}
+	m := newTUIModel(context.Background(), c)
+	m.width = 180
+	m.height = 12
+	m.reflow()
+
+	c.SubmitPrompt(context.Background(), "queued prompt")
+	for i := 0; i < 2; i++ {
+		select {
+		case ev := <-events:
+			next, _ := m.Update(tuiEventMsg{Event: ev})
+			m = next.(tuiModel)
+		case <-time.After(time.Second):
+			t.Fatalf("timed out waiting for queue event %d", i+1)
+		}
+	}
+	got := stripANSI(m.View())
+	for _, want := range []string{"queued", "1 prompt(s) waiting", "Queue 1", "Working"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("queue frame missing %q: %q", want, got)
+		}
+	}
+}
+
 func TestTUITurnElapsedFormatting(t *testing.T) {
 	if got := compactDuration(75 * time.Second); got != "1m15s" {
 		t.Fatalf("duration=%q", got)
