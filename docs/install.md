@@ -85,6 +85,9 @@ Interactive commands:
 
 - `/status`: show address, session id, cwd, model, mode, permission handling,
   thinking display, tool display, and raw update display.
+- `/sessions`: list known ACP sessions for the current cwd.
+- `/resume SESSION_ID`: resume a persisted session without replaying history.
+- `/load SESSION_ID`: load a persisted session and replay messages.
 - `/model [MODEL]`: show or switch model.
 - `/mode [MODE]`: show or switch ACP mode.
 - `/permission [prompt|allow|reject|cancel]`: show or change permission

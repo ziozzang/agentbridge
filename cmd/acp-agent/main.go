@@ -46,6 +46,9 @@ Flags:
 Interactive commands:
   /help                show commands
   /status              show current connection/session settings
+  /sessions            list sessions for the current cwd
+  /resume SESSION_ID   resume a persisted session without replay
+  /load SESSION_ID     load a persisted session and replay messages
   /exit, /quit         leave the session
   /model [MODEL]       show or switch model with session/set_model
   /mode [MODE]         show or switch mode with session/set_mode
@@ -146,7 +149,7 @@ func main() {
 		}
 		return
 	}
-	if err := repl(ctx, cli, sessionID); err != nil {
+	if err := repl(ctx, cli); err != nil {
 		fmt.Fprintln(os.Stderr, "repl failed:", err)
 		os.Exit(1)
 	}
@@ -259,6 +262,39 @@ func (c *client) SetMode(ctx context.Context, sessionID, mode string) error {
 	}
 	c.mu.Lock()
 	c.state.Mode = mode
+	c.mu.Unlock()
+	return nil
+}
+
+func (c *client) ListSessions(ctx context.Context) (acp.ListSessionsResponse, error) {
+	c.mu.Lock()
+	cwd := c.state.Cwd
+	c.mu.Unlock()
+	var out acp.ListSessionsResponse
+	err := c.Call(ctx, "session/list", acp.ListSessionsParams{Cwd: cwd}, &out)
+	return out, err
+}
+
+func (c *client) ResumeSession(ctx context.Context, sessionID string, replay bool) error {
+	c.mu.Lock()
+	cwd := c.state.Cwd
+	c.mu.Unlock()
+	var out acp.LoadSessionResponse
+	method := "session/resume"
+	if replay {
+		method = "session/load"
+	}
+	if err := c.Call(ctx, method, acp.LoadSessionParams{SessionID: sessionID, Cwd: cwd}, &out); err != nil {
+		return err
+	}
+	c.mu.Lock()
+	c.state.SessionID = sessionID
+	if out.Models != nil {
+		c.state.Model = out.Models.CurrentModelID
+	}
+	if out.Modes != nil {
+		c.state.Mode = out.Modes.CurrentModeID
+	}
 	c.mu.Unlock()
 	return nil
 }
@@ -532,7 +568,7 @@ func updateText(update map[string]any) string {
 	return text
 }
 
-func repl(ctx context.Context, c *client, sessionID string) error {
+func repl(ctx context.Context, c *client) error {
 	for {
 		fmt.Fprint(c.stderr, "\nacp> ")
 		line, err := c.stdin.ReadString('\n')
@@ -551,12 +587,18 @@ func repl(ctx context.Context, c *client, sessionID string) error {
 			c.printHelp()
 		case line == "/status":
 			c.printStatus()
+		case line == "/sessions":
+			c.commandSessions(ctx)
 		case line == "/exit" || line == "/quit":
 			return nil
 		case line == "/model" || strings.HasPrefix(line, "/model "):
-			c.commandModel(ctx, sessionID, strings.TrimSpace(strings.TrimPrefix(line, "/model")))
+			c.commandModel(ctx, strings.TrimSpace(strings.TrimPrefix(line, "/model")))
 		case line == "/mode" || strings.HasPrefix(line, "/mode "):
-			c.commandMode(ctx, sessionID, strings.TrimSpace(strings.TrimPrefix(line, "/mode")))
+			c.commandMode(ctx, strings.TrimSpace(strings.TrimPrefix(line, "/mode")))
+		case strings.HasPrefix(line, "/resume "):
+			c.commandResume(ctx, strings.TrimSpace(strings.TrimPrefix(line, "/resume ")), false)
+		case strings.HasPrefix(line, "/load "):
+			c.commandResume(ctx, strings.TrimSpace(strings.TrimPrefix(line, "/load ")), true)
 		case line == "/permission" || strings.HasPrefix(line, "/permission "):
 			c.commandPermission(strings.TrimSpace(strings.TrimPrefix(line, "/permission")))
 		case line == "/thinking" || strings.HasPrefix(line, "/thinking "):
@@ -566,6 +608,9 @@ func repl(ctx context.Context, c *client, sessionID string) error {
 		case line == "/raw" || strings.HasPrefix(line, "/raw "):
 			c.commandBool("raw", strings.TrimSpace(strings.TrimPrefix(line, "/raw")), &c.opts.RawUpdates)
 		default:
+			c.mu.Lock()
+			sessionID := c.state.SessionID
+			c.mu.Unlock()
 			if err := c.Prompt(ctx, sessionID, line); err != nil {
 				return err
 			}
@@ -576,6 +621,9 @@ func repl(ctx context.Context, c *client, sessionID string) error {
 func (c *client) printHelp() {
 	fmt.Fprint(c.stderr, `commands:
   /status
+  /sessions
+  /resume SESSION_ID
+  /load SESSION_ID
   /model [MODEL]
   /mode [MODE]
   /permission [prompt|allow|reject|cancel]
@@ -596,7 +644,50 @@ func (c *client) printStatus() {
 		firstNonEmpty(opts.Permission, "prompt"), opts.ShowThinking, opts.ShowTools, opts.RawUpdates)
 }
 
-func (c *client) commandModel(ctx context.Context, sessionID, model string) {
+func (c *client) commandSessions(ctx context.Context) {
+	list, err := c.ListSessions(ctx)
+	if err != nil {
+		fmt.Fprintln(c.stderr, "session/list failed:", err)
+		return
+	}
+	if len(list.Sessions) == 0 {
+		fmt.Fprintln(c.stderr, "no sessions")
+		return
+	}
+	for _, s := range list.Sessions {
+		title := ""
+		if s.Title != nil {
+			title = *s.Title
+		}
+		fmt.Fprintf(c.stderr, "%s\t%s\t%s\t%s\n", s.SessionID, s.UpdatedAt, s.Cwd, title)
+	}
+}
+
+func (c *client) commandResume(ctx context.Context, sessionID string, replay bool) {
+	if sessionID == "" {
+		if replay {
+			fmt.Fprintln(c.stderr, "usage: /load SESSION_ID")
+		} else {
+			fmt.Fprintln(c.stderr, "usage: /resume SESSION_ID")
+		}
+		return
+	}
+	if err := c.ResumeSession(ctx, sessionID, replay); err != nil {
+		if replay {
+			fmt.Fprintln(c.stderr, "session/load failed:", err)
+		} else {
+			fmt.Fprintln(c.stderr, "session/resume failed:", err)
+		}
+		return
+	}
+	if replay {
+		fmt.Fprintln(c.stderr, "loaded", sessionID)
+	} else {
+		fmt.Fprintln(c.stderr, "resumed", sessionID)
+	}
+}
+
+func (c *client) commandModel(ctx context.Context, model string) {
 	if model == "" {
 		c.mu.Lock()
 		cur := c.state.Model
@@ -604,6 +695,9 @@ func (c *client) commandModel(ctx context.Context, sessionID, model string) {
 		fmt.Fprintln(c.stderr, "model", cur)
 		return
 	}
+	c.mu.Lock()
+	sessionID := c.state.SessionID
+	c.mu.Unlock()
 	if err := c.SetModel(ctx, sessionID, model); err != nil {
 		fmt.Fprintln(c.stderr, "set model failed:", err)
 		return
@@ -611,7 +705,7 @@ func (c *client) commandModel(ctx context.Context, sessionID, model string) {
 	fmt.Fprintln(c.stderr, "model", model)
 }
 
-func (c *client) commandMode(ctx context.Context, sessionID, mode string) {
+func (c *client) commandMode(ctx context.Context, mode string) {
 	if mode == "" {
 		c.mu.Lock()
 		cur := c.state.Mode
@@ -619,6 +713,9 @@ func (c *client) commandMode(ctx context.Context, sessionID, mode string) {
 		fmt.Fprintln(c.stderr, "mode", cur)
 		return
 	}
+	c.mu.Lock()
+	sessionID := c.state.SessionID
+	c.mu.Unlock()
 	if err := c.SetMode(ctx, sessionID, mode); err != nil {
 		fmt.Fprintln(c.stderr, "set mode failed:", err)
 		return

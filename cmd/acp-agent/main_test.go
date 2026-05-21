@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"strings"
 	"testing"
 
@@ -111,6 +112,20 @@ func TestCommandsUpdateLocalState(t *testing.T) {
 		if !strings.Contains(got, want) {
 			t.Fatalf("status missing %q in:\n%s", want, got)
 		}
+	}
+}
+
+func TestCommandResumeUsage(t *testing.T) {
+	var stderr bytes.Buffer
+	c := &client{stderr: &stderr}
+	c.commandResume(context.Background(), "", false)
+	if !strings.Contains(stderr.String(), "usage: /resume SESSION_ID") {
+		t.Fatalf("resume usage missing: %q", stderr.String())
+	}
+	stderr.Reset()
+	c.commandResume(context.Background(), "", true)
+	if !strings.Contains(stderr.String(), "usage: /load SESSION_ID") {
+		t.Fatalf("load usage missing: %q", stderr.String())
 	}
 }
 
