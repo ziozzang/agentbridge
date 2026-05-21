@@ -234,10 +234,13 @@ func TestCodexNativeHelperProcess(t *testing.T) {
 			respondHelper(msg["id"], map[string]any{"sessionId": "helper-session"})
 		case "initialized":
 		case "thread/start":
+			notifyHelper("configWarning", map[string]any{"summary": "test warning"})
 			respondHelper(msg["id"], map[string]any{"thread": map[string]any{"id": "thread-1"}})
 		case "thread/resume":
+			notifyHelper("configWarning", map[string]any{"summary": "test warning"})
 			respondHelper(msg["id"], map[string]any{})
 		case "model/list":
+			notifyHelper("configWarning", map[string]any{"summary": "test warning"})
 			respondHelper(msg["id"], map[string]any{"data": []any{
 				map[string]any{"id": "gpt-5.5", "name": "GPT-5.5"},
 				map[string]any{"id": "gpt-5.4", "name": "GPT-5.4"},

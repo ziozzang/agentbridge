@@ -557,11 +557,15 @@ type rpcClient struct {
 	stderr *bytes.Buffer
 	nextID int
 	queue  []map[string]any
+	trace  io.WriteCloser
 }
 
 func (c *rpcClient) Close() error {
 	if c == nil || c.cmd == nil {
 		return nil
+	}
+	if c.trace != nil {
+		_ = c.trace.Close()
 	}
 	_ = c.stdin.Close()
 	err := c.cmd.Wait()
@@ -574,6 +578,9 @@ func (c *rpcClient) Close() error {
 func (c *rpcClient) Kill() {
 	if c == nil || c.cmd == nil || c.cmd.Process == nil {
 		return
+	}
+	if c.trace != nil {
+		_ = c.trace.Close()
 	}
 	_ = c.stdin.Close()
 	_ = syscall.Kill(-c.cmd.Process.Pid, syscall.SIGKILL)
@@ -627,7 +634,7 @@ func (c *rpcClient) Request(method string, params any) (map[string]any, error) {
 				return nil, err
 			}
 		case rpcKindNotification:
-			c.queue = append(c.queue, msg)
+			continue
 		default:
 			_ = payload
 		}
@@ -681,7 +688,7 @@ func (c *rpcClient) RequestContext(ctx context.Context, method string, params an
 				return nil, err
 			}
 		case rpcKindNotification:
-			c.queue = append(c.queue, msg)
+			continue
 		default:
 			_ = payload
 		}
@@ -710,6 +717,7 @@ func (c *rpcClient) Next() (map[string]any, error) {
 		if err := json.Unmarshal([]byte(line), &msg); err != nil {
 			return nil, fmt.Errorf("codex app-server emitted non-json stdout while waiting for RPC response")
 		}
+		c.traceMessage("recv", msg)
 		return msg, nil
 	}
 	if err := c.stdout.Err(); err != nil {
@@ -726,7 +734,27 @@ func (c *rpcClient) write(payload map[string]any) error {
 	if _, err := io.WriteString(c.stdin, string(data)+"\n"); err != nil {
 		return err
 	}
+	c.traceMessage("send", payload)
 	return nil
+}
+
+func (c *rpcClient) traceMessage(direction string, payload map[string]any) {
+	if c == nil {
+		return
+	}
+	if c.trace == nil {
+		path := strings.TrimSpace(os.Getenv("AGENTBRIDGE_CODEX_APP_TRACE"))
+		if path == "" {
+			return
+		}
+		f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
+		if err != nil {
+			return
+		}
+		c.trace = f
+	}
+	data, _ := json.Marshal(payload)
+	_, _ = fmt.Fprintf(c.trace, "%s %s %s\n", time.Now().Format(time.RFC3339Nano), direction, string(data))
 }
 
 func newScanner(r io.Reader) *bufio.Scanner {
