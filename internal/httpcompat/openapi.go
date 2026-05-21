@@ -13,8 +13,9 @@ func (h *handler) openapi(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	paths := map[string]any{
-		"/v1/chat/completions": pathItem("post", "OpenAI-compatible chat completions"),
-		"/v1/responses":        pathItem("post", "OpenAI-compatible responses"),
+		"/v1/chat/completions":  pathItem("post", "OpenAI-compatible chat completions"),
+		"/v1/responses":         pathItem("post", "OpenAI-compatible responses"),
+		"/v1/responses/compact": compactPathItem(),
 		"/v1/responses/{id}": map[string]any{"get": map[string]any{
 			"summary":    "Retrieve a stored response",
 			"parameters": []map[string]any{{"name": "id", "in": "path", "required": true, "schema": map[string]any{"type": "string"}}},
@@ -27,8 +28,16 @@ func (h *handler) openapi(w http.ResponseWriter, r *http.Request) {
 			"summary":   "OpenAI-compatible model list",
 			"responses": okResponse(),
 		}},
-		"/v1/a2a/rpc":  pathItem("post", "A2A JSON-RPC endpoint"),
-		"/v1/mcp":      pathItem("post", "MCP Streamable HTTP JSON-RPC endpoint"),
+		"/v1/a2a/rpc": pathItem("post", "A2A JSON-RPC endpoint"),
+		"/v1/mcp":     pathItem("post", "MCP Streamable HTTP JSON-RPC endpoint"),
+		"/v1/mcp/catalog": map[string]any{"get": map[string]any{
+			"summary":   "Configured MCP server and tool catalog",
+			"responses": okResponse(),
+		}},
+		"/v1/tool-catalog": map[string]any{"get": map[string]any{
+			"summary":   "AgentBridge builtin, plugin, and MCP tool catalog",
+			"responses": okResponse(),
+		}},
 		"/v1/agui/run": pathItem("post", "AG-UI SSE run endpoint"),
 		"/.well-known/agent-card.json": map[string]any{"get": map[string]any{
 			"summary":   "A2A agent card",
@@ -79,6 +88,36 @@ func (h *handler) openapi(w http.ResponseWriter, r *http.Request) {
 			},
 		},
 	})
+}
+
+func compactPathItem() map[string]any {
+	return map[string]any{"post": map[string]any{
+		"summary": "Compact a conversation into a smaller replacement message set",
+		"requestBody": map[string]any{
+			"required": true,
+			"content": map[string]any{"application/json": map[string]any{
+				"schema": map[string]any{
+					"type": "object",
+					"properties": map[string]any{
+						"model":                map[string]any{"type": "string"},
+						"input":                map[string]any{},
+						"messages":             map[string]any{"type": "array", "items": map[string]any{"type": "object"}},
+						"previous_response_id": map[string]any{"type": "string"},
+						"target_tokens":        map[string]any{"type": "integer", "minimum": 1},
+						"strategy":             map[string]any{"type": "string", "enum": []string{"auto", "native", "summary", "prune", "none"}},
+						"reason":               map[string]any{"type": "string"},
+					},
+					"example": map[string]any{
+						"model":         defaultModel(),
+						"messages":      []map[string]any{{"role": "system", "content": "You are concise."}, {"role": "user", "content": "Long conversation history..."}},
+						"strategy":      "auto",
+						"target_tokens": 8000,
+					},
+				},
+			}},
+		},
+		"responses": okResponse(),
+	}}
 }
 
 func toolPathItem(name, summary string, schema any) map[string]any {

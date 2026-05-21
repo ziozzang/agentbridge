@@ -52,9 +52,25 @@ type rawProvider struct {
 }
 
 type rawModel struct {
-	ID          string `yaml:"id"`
-	Name        string `yaml:"name"`
-	Description string `yaml:"description"`
+	ID            string         `yaml:"id"`
+	Name          string         `yaml:"name"`
+	Description   string         `yaml:"description"`
+	Provider      string         `yaml:"provider"`
+	API           string         `yaml:"api"`
+	BaseURL       string         `yaml:"base_url"`
+	Input         []string       `yaml:"input"`
+	Reasoning     *bool          `yaml:"reasoning"`
+	ContextWindow int            `yaml:"context_window"`
+	ContextTokens int            `yaml:"context_tokens"`
+	MaxTokens     int            `yaml:"max_tokens"`
+	Status        string         `yaml:"status"`
+	StatusReason  string         `yaml:"status_reason"`
+	Replaces      []string       `yaml:"replaces"`
+	ReplacedBy    string         `yaml:"replaced_by"`
+	Aliases       []string       `yaml:"aliases"`
+	Tags          []string       `yaml:"tags"`
+	Compat        map[string]any `yaml:"compat"`
+	Cost          map[string]any `yaml:"cost"`
 }
 
 // Manifest is the parsed, post-expansion configuration.
@@ -117,10 +133,37 @@ func convertProvider(name string, p rawProvider) provider.Config {
 	}
 	for _, m := range p.Models {
 		cfg.Models = append(cfg.Models, provider.ModelInfo{
-			ModelID: m.ID, Name: m.Name, Description: m.Description,
+			ModelID:       m.ID,
+			Name:          m.Name,
+			Description:   m.Description,
+			Provider:      firstNonEmpty(m.Provider, name),
+			API:           m.API,
+			BaseURL:       m.BaseURL,
+			Input:         m.Input,
+			Reasoning:     m.Reasoning,
+			ContextWindow: m.ContextWindow,
+			ContextTokens: m.ContextTokens,
+			MaxTokens:     m.MaxTokens,
+			Status:        m.Status,
+			StatusReason:  m.StatusReason,
+			Replaces:      m.Replaces,
+			ReplacedBy:    m.ReplacedBy,
+			Aliases:       m.Aliases,
+			Tags:          m.Tags,
+			Compat:        m.Compat,
+			Cost:          m.Cost,
 		})
 	}
 	return cfg
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, v := range values {
+		if v != "" {
+			return v
+		}
+	}
+	return ""
 }
 
 func readMergedYAML() ([]byte, error) {

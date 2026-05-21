@@ -35,6 +35,14 @@ type httpAgentOptions struct {
 	ReasoningEffort      string
 }
 
+type compactHTTPResult struct {
+	Messages     []provider.Message
+	Strategy     string
+	Compacted    bool
+	TokensBefore int
+	TokensAfter  int
+}
+
 type noopAgentConn struct{}
 
 func (noopAgentConn) SendNotification(string, any) error { return nil }
@@ -216,22 +224,43 @@ func (h *handler) runAgentProvider(ctx context.Context, opts httpAgentOptions, m
 }
 
 func compactHTTPMessages(ctx context.Context, p provider.Provider, messages []provider.Message, model string, tools []definitions.Tool, settings contextcompact.Settings, targetTokens int, reason string) ([]provider.Message, bool) {
-	if len(messages) <= 3 {
-		return messages, false
+	result := compactHTTPMessagesWithOptions(ctx, p, messages, model, tools, settings, provider.CompactOptions{
+		TargetTokens: targetTokens,
+		Reason:       reason,
+	})
+	return result.Messages, result.Compacted
+}
+
+func compactHTTPMessagesWithOptions(ctx context.Context, p provider.Provider, messages []provider.Message, model string, tools []definitions.Tool, settings contextcompact.Settings, opts provider.CompactOptions) compactHTTPResult {
+	before := contextcompact.EstimateTokens(messages)
+	result := compactHTTPResult{
+		Messages:     messages,
+		Strategy:     "none",
+		TokensBefore: before,
+		TokensAfter:  before,
 	}
+	if len(messages) <= 3 {
+		return result
+	}
+	targetTokens := opts.TargetTokens
+	if targetTokens <= 0 {
+		targetTokens = settings.TargetTokens(p.ContextWindow(model))
+	}
+	opts.Model = firstNonEmpty(opts.Model, model)
+	opts.Tools = tools
+	opts.TargetTokens = targetTokens
 	if settings.NativeEnabled {
 		if compactor, ok := p.(provider.ConversationCompactor); ok {
-			out, err := compactor.CompactConversation(ctx, messages, provider.CompactOptions{
-				Model:        model,
-				Tools:        tools,
-				TargetTokens: targetTokens,
-				Reason:       reason,
-			})
+			out, err := compactor.CompactConversation(ctx, messages, opts)
 			if err == nil && len(out) > 0 {
 				if out[0].Role != "system" && out[0].Type != "system" {
 					out = append([]provider.Message{messages[0]}, out...)
 				}
-				return out, true
+				result.Messages = out
+				result.Strategy = "native"
+				result.Compacted = true
+				result.TokensAfter = contextcompact.EstimateTokens(out)
+				return result
 			}
 			if err != nil && !errors.Is(err, provider.ErrNativeCompactionUnavailable) {
 				logger.Warnf("http agent compaction: provider-native failed, using fallback: %v", err)
@@ -239,16 +268,25 @@ func compactHTTPMessages(ctx context.Context, p provider.Provider, messages []pr
 		}
 	}
 	if settings.SummaryEnabled {
-		if out, err := summarizeHTTPMessages(ctx, p, messages, model, settings, reason); err == nil && len(out) > 0 {
-			return out, true
+		if out, err := summarizeHTTPMessages(ctx, p, messages, opts.Model, settings, opts.Reason); err == nil && len(out) > 0 {
+			result.Messages = out
+			result.Strategy = "summary"
+			result.Compacted = true
+			result.TokensAfter = contextcompact.EstimateTokens(out)
+			return result
 		} else if err != nil && !errors.Is(err, provider.ErrNativeCompactionUnavailable) {
 			logger.Warnf("http agent compaction: summary failed, using pruning fallback: %v", err)
 		}
 	}
 	if settings.PruneFallbackEnabled {
-		return contextcompact.PruneMessages(messages, targetTokens, settings.PreserveTurns), true
+		out := contextcompact.PruneMessages(messages, targetTokens, settings.PreserveTurns)
+		result.Messages = out
+		result.Strategy = "prune"
+		result.Compacted = true
+		result.TokensAfter = contextcompact.EstimateTokens(out)
+		return result
 	}
-	return messages, false
+	return result
 }
 
 func summarizeHTTPMessages(ctx context.Context, p provider.Provider, messages []provider.Message, model string, settings contextcompact.Settings, reason string) ([]provider.Message, error) {

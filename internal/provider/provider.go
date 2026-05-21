@@ -26,10 +26,25 @@ var ErrNativeCompactionUnavailable = errors.New("provider-native compaction is n
 
 // ModelInfo describes a model advertised to ACP clients.
 type ModelInfo struct {
-	ModelID     string `json:"modelId"`
-	Name        string `json:"name"`
-	Description string `json:"description,omitempty"`
-	Provider    string `json:"provider,omitempty"`
+	ModelID       string         `json:"modelId"`
+	Name          string         `json:"name"`
+	Description   string         `json:"description,omitempty"`
+	Provider      string         `json:"provider,omitempty"`
+	API           string         `json:"api,omitempty"`
+	BaseURL       string         `json:"baseUrl,omitempty"`
+	Input         []string       `json:"input,omitempty"`
+	Reasoning     *bool          `json:"reasoning,omitempty"`
+	ContextWindow int            `json:"contextWindow,omitempty"`
+	ContextTokens int            `json:"contextTokens,omitempty"`
+	MaxTokens     int            `json:"maxTokens,omitempty"`
+	Status        string         `json:"status,omitempty"`
+	StatusReason  string         `json:"statusReason,omitempty"`
+	Replaces      []string       `json:"replaces,omitempty"`
+	ReplacedBy    string         `json:"replacedBy,omitempty"`
+	Aliases       []string       `json:"aliases,omitempty"`
+	Tags          []string       `json:"tags,omitempty"`
+	Compat        map[string]any `json:"compat,omitempty"`
+	Cost          map[string]any `json:"cost,omitempty"`
 }
 
 // ToolCall is an assembled function call streamed from the model.

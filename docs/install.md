@@ -60,6 +60,7 @@ Routes:
 
 - `POST /v1/chat/completions`
 - `POST /v1/responses`
+- `POST /v1/responses/compact`
 - `GET /v1/responses/{id}`
 - `POST /v1/messages`
 - `POST /v1/embeddings`
@@ -68,6 +69,8 @@ Routes:
 - `POST /v1/a2a/rpc`
 - `GET /.well-known/agent-card.json`
 - `POST /v1/mcp`
+- `GET /v1/mcp/catalog`
+- `GET /v1/tool-catalog`
 - `POST /v1/tools/{tool-name}`
 - `POST /v1/agui/run`
 - `GET /openapi.json`

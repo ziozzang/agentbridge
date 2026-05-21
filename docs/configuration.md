@@ -146,6 +146,12 @@ overrides are also available:
 - `AGENTBRIDGE_COMPACTION_KEEP_RECENT_TOKENS`
 - `AGENTBRIDGE_COMPACTION_RESERVE_TOKENS`
 
+HTTP clients can request the same mechanism directly with
+`POST /v1/responses/compact`. The request accepts `input`, `messages`, or
+`previous_response_id`, plus optional `strategy` (`auto`, `native`, `summary`,
+`prune`, `none`) and `target_tokens`. The response returns a replacement
+message list with `strategy`, `compacted`, and token estimates.
+
 ## Provider Cache And Reasoning Options
 
 Several Hermes-derived provider knobs are available through provider `extra`
@@ -218,6 +224,12 @@ providers:
 The map key is the public model ID accepted by `POST /v1/embeddings` and
 returned from `GET /v1/models`. `model` is the upstream model ID.
 `provider` or `owned_by` controls the OpenAI-compatible `owned_by` field.
+
+Chat provider `models:` entries can also include metadata returned in
+`GET /v1/models`: `provider`, `api`, `base_url`, `input`, `reasoning`,
+`context_window`, `context_tokens`, `max_tokens`, `status`, `aliases`, `tags`,
+`compat`, and `cost`. This keeps aliases such as `grok-4` owned by `xai`
+instead of exposing generic pseudo-models such as `grok`.
 
 ## Agent Profiles
 
@@ -293,6 +305,9 @@ support wildcards.
 Use `inject_tools` to force additional ACP/MCP tool definitions even when the
 upstream server does not advertise them in `tools/list`. Injected tools are
 exposed as `mcp__<server>__<name>` and call `source_name` upstream.
+Use `GET /v1/tool-catalog` to inspect builtin, plugin, and MCP tools. Use
+`GET /v1/mcp/catalog` when you only need configured MCP server details. Secret
+headers are redacted in catalog responses.
 
 ## Provider YAML
 

@@ -17,6 +17,7 @@ import (
 	"os/exec"
 	"path"
 	"regexp"
+	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -36,6 +37,24 @@ type Client struct {
 	bindings map[string]*toolBinding
 	servers  []*serverState
 	nextID   atomic.Int64
+}
+
+type CatalogServer struct {
+	Name    string            `json:"name"`
+	Type    string            `json:"type"`
+	URL     string            `json:"url,omitempty"`
+	Command string            `json:"command,omitempty"`
+	Args    []string          `json:"args,omitempty"`
+	Cwd     string            `json:"cwd,omitempty"`
+	Headers map[string]string `json:"headers,omitempty"`
+	Tools   []CatalogTool     `json:"tools,omitempty"`
+}
+
+type CatalogTool struct {
+	Name        string          `json:"name"`
+	SourceName  string          `json:"source_name,omitempty"`
+	Description string          `json:"description,omitempty"`
+	InputSchema json.RawMessage `json:"input_schema,omitempty"`
 }
 
 type toolBinding struct {
@@ -238,6 +257,58 @@ func (c *Client) ToolDefinitions() []definitions.Tool {
 		out = append(out, b.definition)
 	}
 	return out
+}
+
+func (c *Client) Catalog() []CatalogServer {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	out := make([]CatalogServer, 0, len(c.servers))
+	for _, srv := range c.servers {
+		entry := CatalogServer{
+			Name:    srv.name,
+			Type:    srv.typ,
+			URL:     srv.url,
+			Command: srv.command,
+			Args:    append([]string(nil), srv.args...),
+			Cwd:     srv.cwd,
+			Headers: redactHeaders(srv.headers),
+		}
+		for _, b := range c.bindings {
+			if b.server != srv {
+				continue
+			}
+			entry.Tools = append(entry.Tools, CatalogTool{
+				Name:        b.exposedName,
+				SourceName:  b.sourceName,
+				Description: b.definition.Function.Description,
+				InputSchema: b.definition.Function.Parameters,
+			})
+		}
+		sort.Slice(entry.Tools, func(i, j int) bool { return entry.Tools[i].Name < entry.Tools[j].Name })
+		out = append(out, entry)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
+	return out
+}
+
+func redactHeaders(in map[string]string) map[string]string {
+	if len(in) == 0 {
+		return nil
+	}
+	out := map[string]string{}
+	for k, v := range in {
+		if isSensitiveHeader(k) {
+			out[k] = "********"
+		} else {
+			out[k] = v
+		}
+	}
+	return out
+}
+
+func isSensitiveHeader(key string) bool {
+	k := strings.ToLower(key)
+	return strings.Contains(k, "authorization") || strings.Contains(k, "api-key") || strings.Contains(k, "token")
 }
 
 // CallTool routes a namespaced tool call to the appropriate MCP server.

@@ -27,9 +27,55 @@ func (h *handler) models(w http.ResponseWriter, r *http.Request) {
 			"created":     created,
 			"owned_by":    owner,
 			"description": m.Description,
+			"name":        firstNonEmpty(m.Name, m.ModelID),
+			"metadata":    modelMetadata(m),
 		})
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"object": "list", "data": data})
+}
+
+func modelMetadata(m provider.ModelInfo) map[string]any {
+	meta := map[string]any{}
+	set := func(key string, value any) {
+		switch v := value.(type) {
+		case string:
+			if v != "" {
+				meta[key] = v
+			}
+		case int:
+			if v != 0 {
+				meta[key] = v
+			}
+		case []string:
+			if len(v) > 0 {
+				meta[key] = v
+			}
+		case map[string]any:
+			if len(v) > 0 {
+				meta[key] = v
+			}
+		case *bool:
+			if v != nil {
+				meta[key] = *v
+			}
+		}
+	}
+	set("api", m.API)
+	set("base_url", m.BaseURL)
+	set("input", m.Input)
+	set("reasoning", m.Reasoning)
+	set("context_window", m.ContextWindow)
+	set("context_tokens", m.ContextTokens)
+	set("max_tokens", m.MaxTokens)
+	set("status", m.Status)
+	set("status_reason", m.StatusReason)
+	set("replaces", m.Replaces)
+	set("replaced_by", m.ReplacedBy)
+	set("aliases", m.Aliases)
+	set("tags", m.Tags)
+	set("compat", m.Compat)
+	set("cost", m.Cost)
+	return meta
 }
 
 func (h *handler) availableHTTPModels() ([]provider.ModelInfo, error) {

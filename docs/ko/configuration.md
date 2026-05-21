@@ -144,6 +144,12 @@ override도 지원합니다.
 - `AGENTBRIDGE_COMPACTION_KEEP_RECENT_TOKENS`
 - `AGENTBRIDGE_COMPACTION_RESERVE_TOKENS`
 
+HTTP client는 같은 메커니즘을 `POST /v1/responses/compact`로 직접 호출할 수
+있습니다. 요청은 `input`, `messages`, `previous_response_id` 중 하나와
+선택적으로 `strategy`(`auto`, `native`, `summary`, `prune`, `none`),
+`target_tokens`를 받습니다. 응답은 교체용 message list와 `strategy`,
+`compacted`, token estimate를 돌려줍니다.
+
 ## Provider Cache / Reasoning 옵션
 
 Hermes에서 가져온 provider별 knob는 provider `extra` 또는 내장 template의 환경
@@ -216,6 +222,12 @@ providers:
 map key는 `POST /v1/embeddings`에서 받는 public model ID이며
 `GET /v1/models`에도 그대로 표시됩니다. `model`은 upstream model ID입니다.
 `provider` 또는 `owned_by`는 OpenAI 호환 `owned_by` 필드로 내려갑니다.
+
+Chat provider의 `models:` entry에는 `GET /v1/models`로 내려갈 metadata도
+넣을 수 있습니다. 지원 필드는 `provider`, `api`, `base_url`, `input`,
+`reasoning`, `context_window`, `context_tokens`, `max_tokens`, `status`,
+`aliases`, `tags`, `compat`, `cost`입니다. 이렇게 하면 `grok` 같은 generic
+pseudo-model 대신 실제 `grok-4`가 `owned_by: xai`로 노출됩니다.
 
 ## Agent Profiles
 
@@ -290,6 +302,9 @@ mcp_servers:
 Upstream이 `tools/list`에서 광고하지 않는 tool definition을 강제로 넣으려면
 `inject_tools`를 사용합니다. Injected tool은 `mcp__<server>__<name>`으로 노출되고
 upstream의 `source_name`을 호출합니다.
+`GET /v1/tool-catalog`는 builtin, plugin, MCP tool을 한 번에 보여줍니다.
+`GET /v1/mcp/catalog`는 설정된 MCP server 상세만 볼 때 사용합니다. Catalog
+응답의 secret header는 redaction됩니다.
 
 ## Provider YAML
 

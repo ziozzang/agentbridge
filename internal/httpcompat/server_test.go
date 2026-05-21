@@ -195,6 +195,16 @@ func TestMCPExposesPluginToolsWithoutCallingLLM(t *testing.T) {
 	if !strings.Contains(string(got), `/v1/tools/duckdb_status`) || strings.Contains(string(got), `/v1/tools/plugin__duckdb__duckdb_status`) {
 		t.Fatalf("tool path missing from OpenAPI: %s", string(got))
 	}
+
+	resp, err = http.Get(srv.URL + "/v1/tool-catalog")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	got, _ = io.ReadAll(resp.Body)
+	if !strings.Contains(string(got), `"object":"catalog"`) || !strings.Contains(string(got), `"name":"plugin__duckdb__duckdb_status"`) {
+		t.Fatalf("plugin tool missing from catalog: %s", string(got))
+	}
 }
 
 func TestMCPExposesConfiguredExternalMCPAndMetrics(t *testing.T) {
@@ -363,6 +373,97 @@ func TestResponsesPreviousResponseAndRetrieve(t *testing.T) {
 			t.Fatalf("bad retrieve: %q", string(got))
 		}
 	})
+}
+
+func TestResponsesCompactPrune(t *testing.T) {
+	cfg := filepath.Join(t.TempDir(), "providers.yaml")
+	if err := os.WriteFile(cfg, []byte(`providers:
+  test-http:
+    kind: openai-chat
+    base_url: http://127.0.0.1:1
+    api_key: test-key
+    default_model: test-model
+    context_window: 200
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("ACP_HARNESS_PROVIDERS_FILE", cfg)
+	t.Setenv("ACP_HARNESS_PROVIDER", "test-http")
+	t.Setenv("ACP_HARNESS_MODEL", "")
+	t.Setenv("ACP_HARNESS_API_KEY", "")
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(t.TempDir(), "missing"))
+
+	srv := httptest.NewServer(NewHandler())
+	defer srv.Close()
+
+	body := `{"model":"test-model","strategy":"prune","target_tokens":20,"messages":[` +
+		`{"role":"system","content":"system"},` +
+		`{"role":"user","content":"first long message that can be pruned"},` +
+		`{"role":"assistant","content":"first answer"},` +
+		`{"role":"user","content":"second long message that should remain near the end"},` +
+		`{"role":"assistant","content":"second answer"}]}`
+	resp, err := http.Post(srv.URL+"/v1/responses/compact", "application/json", strings.NewReader(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	out, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status=%d body=%s", resp.StatusCode, string(out))
+	}
+	text := string(out)
+	if !strings.Contains(text, `"object":"conversation.compaction"`) || !strings.Contains(text, `"strategy":"prune"`) || !strings.Contains(text, `"compacted":true`) {
+		t.Fatalf("bad compaction response: %s", text)
+	}
+}
+
+func TestModelsExposeProviderMetadata(t *testing.T) {
+	cfg := filepath.Join(t.TempDir(), "providers.yaml")
+	if err := os.WriteFile(cfg, []byte(`providers:
+  meta-http:
+    kind: openai-chat
+    base_url: http://127.0.0.1:1
+    api_key: test-key
+    default_model: grok-4
+    models:
+      - id: grok-4
+        name: Grok 4
+        description: xAI Grok via AgentBridge
+        provider: xai
+        api: responses
+        input: [text, image]
+        reasoning: true
+        context_window: 256000
+        max_tokens: 8192
+        aliases: [grok]
+        tags: [search]
+        compat:
+          responses: true
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("ACP_HARNESS_PROVIDERS_FILE", cfg)
+	t.Setenv("ACP_HARNESS_PROVIDER", "meta-http")
+	t.Setenv("ACP_HARNESS_MODEL", "")
+	t.Setenv("ACP_HARNESS_API_KEY", "")
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(t.TempDir(), "missing"))
+
+	srv := httptest.NewServer(NewHandler())
+	defer srv.Close()
+
+	resp, err := http.Get(srv.URL + "/v1/models")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	out, _ := io.ReadAll(resp.Body)
+	text := string(out)
+	if !strings.Contains(text, `"id":"grok-4"`) || !strings.Contains(text, `"owned_by":"xai"`) {
+		t.Fatalf("provider owner missing: %s", text)
+	}
+	if !strings.Contains(text, `"reasoning":true`) || !strings.Contains(text, `"context_window":256000`) || !strings.Contains(text, `"aliases":["grok"]`) {
+		t.Fatalf("model metadata missing: %s", text)
+	}
 }
 
 func TestEmbeddingsEndpointUsesActiveJinaPlugin(t *testing.T) {
