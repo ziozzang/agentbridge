@@ -344,6 +344,25 @@ messages with `cache_control`, matching the Hermes `system_and_3` strategy.
 Use `ANTHROPIC_PROMPT_CACHE=off` to disable it, or
 `ANTHROPIC_PROMPT_CACHE_TTL=1h` for the longer ephemeral TTL.
 
+Claude Code CLI:
+
+```bash
+AGENTBRIDGE_PROVIDER=claude-code \
+CLAUDE_CODE_COMMAND=/home/me/bin/claude \
+ANTHROPIC_AUTH_TOKEN=... \
+ANTHROPIC_BASE_URL=https://anthropic-compatible.example/v1 \
+ANTHROPIC_MODEL=custom-model \
+agentbridge
+```
+
+`claude-code` launches the Claude CLI as a child process and injects
+Claude-specific environment variables into that process only when they are set.
+Use the
+`CLAUDE_CODE_*` variants to override only AgentBridge's Claude child process,
+or the plain `ANTHROPIC_*` / `API_TIMEOUT_MS` variables when the whole shell
+should share the same settings. If `CLAUDE_CODE_MODEL` is unset,
+`ANTHROPIC_MODEL` becomes the provider's default model.
+
 GLM/Z.AI:
 
 ```bash

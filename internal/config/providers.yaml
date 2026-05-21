@@ -232,7 +232,7 @@ providers:
   # --------- Claude Code CLI ---------------------------------------------
   claude-code:
     kind: claude-code-cli
-    default_model: ${CLAUDE_CODE_MODEL:-sonnet}
+    default_model: ${CLAUDE_CODE_MODEL:-${ANTHROPIC_MODEL:-sonnet}}
     context_window: 200000
     extra:
       command: ${CLAUDE_CODE_COMMAND:-claude}
@@ -244,6 +244,12 @@ providers:
       append_system_prompt: ${CLAUDE_CODE_APPEND_SYSTEM_PROMPT:-}
       bare: ${CLAUDE_CODE_BARE:-false}
       no_session_persistence: ${CLAUDE_CODE_NO_SESSION_PERSISTENCE:-false}
+      env:
+        ANTHROPIC_AUTH_TOKEN: ${CLAUDE_CODE_ANTHROPIC_AUTH_TOKEN:-${ANTHROPIC_AUTH_TOKEN:-}}
+        ANTHROPIC_BASE_URL: ${CLAUDE_CODE_ANTHROPIC_BASE_URL:-${ANTHROPIC_BASE_URL:-}}
+        ANTHROPIC_MODEL: ${CLAUDE_CODE_ANTHROPIC_MODEL:-${ANTHROPIC_MODEL:-}}
+        API_TIMEOUT_MS: ${CLAUDE_CODE_API_TIMEOUT_MS:-${API_TIMEOUT_MS:-}}
+        CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: ${CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC:-}
     models:
       - id: sonnet
         name: Claude Sonnet (Claude Code)

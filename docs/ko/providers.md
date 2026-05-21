@@ -336,6 +336,23 @@ message 3개에 `cache_control`을 표시합니다. 끄려면
 `ANTHROPIC_PROMPT_CACHE=off`, 1시간 TTL을 쓰려면
 `ANTHROPIC_PROMPT_CACHE_TTL=1h`를 설정하세요.
 
+Claude Code CLI:
+
+```bash
+AGENTBRIDGE_PROVIDER=claude-code \
+CLAUDE_CODE_COMMAND=/home/me/bin/claude \
+ANTHROPIC_AUTH_TOKEN=... \
+ANTHROPIC_BASE_URL=https://anthropic-compatible.example/v1 \
+ANTHROPIC_MODEL=custom-model \
+agentbridge
+```
+
+`claude-code`는 Claude CLI를 child process로 실행하고 Claude 전용 환경변수를
+값이 설정된 경우에만 그 process에 주입합니다. AgentBridge의 Claude child process에만 적용하려면
+`CLAUDE_CODE_*` 변수를 쓰고, shell 전체가 같은 설정을 공유해도 되면
+일반 `ANTHROPIC_*` / `API_TIMEOUT_MS` 변수를 쓰면 됩니다.
+`CLAUDE_CODE_MODEL`이 없으면 `ANTHROPIC_MODEL`이 provider 기본 모델이 됩니다.
+
 GLM/Z.AI:
 
 ```bash

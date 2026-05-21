@@ -11,6 +11,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"os/exec"
 	"strings"
 
@@ -141,6 +142,7 @@ func (c *Client) run(ctx context.Context, prompt, model string) (*result, error)
 	if v := c.extraString("append_system_prompt"); v != "" {
 		cmd.Args = append(cmd.Args, "--append-system-prompt", v)
 	}
+	cmd.Env = c.commandEnv()
 
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
@@ -163,6 +165,31 @@ func (c *Client) command() string {
 		return v
 	}
 	return "claude"
+}
+
+func (c *Client) commandEnv() []string {
+	env := os.Environ()
+	for key, value := range c.extraStringMap("env") {
+		if strings.TrimSpace(value) == "" {
+			continue
+		}
+		env = upsertEnv(env, strings.TrimSpace(key), value)
+	}
+	return env
+}
+
+func upsertEnv(env []string, key, value string) []string {
+	if key == "" {
+		return env
+	}
+	prefix := key + "="
+	for i, item := range env {
+		if strings.HasPrefix(item, prefix) {
+			env[i] = prefix + value
+			return env
+		}
+	}
+	return append(env, prefix+value)
 }
 
 func (c *Client) prompt(messages []provider.Message) string {
@@ -208,6 +235,26 @@ func (c *Client) extraString(key string) string {
 	}
 	v, _ := c.cfg.Extra[key].(string)
 	return strings.TrimSpace(v)
+}
+
+func (c *Client) extraStringMap(key string) map[string]string {
+	out := map[string]string{}
+	if c.cfg.Extra == nil {
+		return out
+	}
+	switch raw := c.cfg.Extra[key].(type) {
+	case map[string]string:
+		for k, v := range raw {
+			out[k] = v
+		}
+	case map[string]any:
+		for k, v := range raw {
+			if s, ok := v.(string); ok {
+				out[k] = s
+			}
+		}
+	}
+	return out
 }
 
 func (c *Client) extraBool(key string, def bool) bool {
