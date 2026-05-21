@@ -157,6 +157,13 @@ func providerModels(cfg provider.Config) []provider.ModelInfo {
 			return models
 		}
 	}
+	if cfg.Kind == "codex-app-server" {
+		if p, err := provider.Build(cfg); err == nil {
+			if models := p.AvailableModels(); len(models) > 0 {
+				return models
+			}
+		}
+	}
 	out := make([]provider.ModelInfo, len(cfg.Models))
 	copy(out, cfg.Models)
 	return out

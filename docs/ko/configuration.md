@@ -212,6 +212,7 @@ Hermes에서 가져온 provider별 knob는 provider `extra` 또는 내장 templa
 | `CODEX_PROMPT_CACHE_KEY` | `codex` | 기본값 `{session_id}`; `{model}`, `{provider}` template도 지원합니다. |
 | `CODEX_REASONING_EFFORT` | `codex` | 기본값 `medium`. |
 | `CODEX_REASONING_SUMMARY` | `codex` | 기본값 `auto`. |
+| `CODEX_BINARY_PATH` | `codex-app` | Codex CLI/binary의 절대경로. `CODEX_COMMAND`보다 우선합니다. |
 | `CODEX_COMMAND` | `codex-app` | `codex app-server`에 사용할 로컬 Codex CLI binary. 기본값 `codex`. |
 | `CODEX_APPROVAL_POLICY` | `codex-app` | 기본값 `never`; native app-server thread에 적용됩니다. |
 | `CODEX_SANDBOX` | `codex-app` | `workspace-write`, `danger-full-access` 같은 native Codex sandbox mode. |

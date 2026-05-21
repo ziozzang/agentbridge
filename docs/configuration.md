@@ -215,6 +215,7 @@ or the embedded template environment variables:
 | `CODEX_PROMPT_CACHE_KEY` | `codex` | Defaults to `{session_id}`; supports `{model}` and `{provider}` templates. |
 | `CODEX_REASONING_EFFORT` | `codex` | Defaults to `medium`. |
 | `CODEX_REASONING_SUMMARY` | `codex` | Defaults to `auto`. |
+| `CODEX_BINARY_PATH` | `codex-app` | Absolute path to the Codex CLI/binary. Takes precedence over `CODEX_COMMAND`. |
 | `CODEX_COMMAND` | `codex-app` | Local Codex CLI binary for `codex app-server`; defaults to `codex`. |
 | `CODEX_APPROVAL_POLICY` | `codex-app` | Defaults to `never`; applied to native app-server threads. |
 | `CODEX_SANDBOX` | `codex-app` | Native Codex sandbox mode such as `workspace-write` or `danger-full-access`. |

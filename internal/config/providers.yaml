@@ -258,25 +258,16 @@ providers:
     default_model: ${CODEX_MODEL:-gpt-5.5}
     context_window: 400000
     extra:
+      binary_path: ${CODEX_BINARY_PATH:-}
       command: ${CODEX_COMMAND:-codex}
       approval_policy: ${CODEX_APPROVAL_POLICY:-never}
       sandbox: ${CODEX_SANDBOX:-workspace-write}
       reasoning_effort: ${CODEX_REASONING_EFFORT:-medium}
       service_tier: ${CODEX_SERVICE_TIER:-}
       cwd: ${CODEX_CWD:-}
-      model_list: ${CODEX_MODEL_LIST:-static}
+      model_list: ${CODEX_MODEL_LIST:-native}
     models:
-      - id: gpt-5.5
-        name: GPT-5.5 (Codex app-server)
-        description: Current Codex app-server model
-      - id: gpt-5.4
-        name: GPT-5.4 (Codex app-server)
-      - id: gpt-5.3-codex
-        name: GPT-5.3 Codex (Codex app-server)
-      - id: gpt-5
-        name: GPT-5 (Codex app-server)
-      - id: gpt-5-mini
-        name: GPT-5 mini (Codex app-server)
+      - "*"
 
   # --------- Ollama (native /api/chat) -----------------------------------
   ollama:

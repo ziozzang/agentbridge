@@ -370,17 +370,19 @@ Codex app-server native runtime:
 
 ```bash
 AGENTBRIDGE_PROVIDER=codex-app \
+CODEX_BINARY_PATH=/home/me/.local/bin/codex \
 CODEX_COMMAND=codex \
 CODEX_MODEL=gpt-5.5 \
 CODEX_APPROVAL_POLICY=never \
 agentbridge
 ```
 
-By default, `codex-app` exposes `gpt-5*` Codex models only:
-`gpt-5.5`, `gpt-5.4`, `gpt-5.3-codex`, `gpt-5`, and `gpt-5-mini`.
-Set `CODEX_MODEL_LIST=native` to ask the local app-server for its own
-`model/list` response first; AgentBridge falls back to the static list above
-when the native list cannot be read.
+By default, `codex-app` is configured with `models: ["*"]`, so AgentBridge asks
+the local app-server for its own `model/list` response first. If the native
+list cannot be read quickly, it falls back to the static `gpt-5*` Codex list:
+`gpt-5.5`, `gpt-5.4`, `gpt-5.3-codex`, `gpt-5`, and `gpt-5-mini`. Set
+`CODEX_MODEL_LIST=static` only when startup-time model probing is undesirable
+in a constrained environment.
 
 `codex-app` does not send OpenAI-style `prompt_cache_*` hints upstream. Instead,
 it reuses the local Codex thread whenever `session_id` or `prompt_cache_key`

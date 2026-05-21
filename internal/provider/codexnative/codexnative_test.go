@@ -177,6 +177,38 @@ func TestAvailableModelsCanUseNativeModelList(t *testing.T) {
 	}
 }
 
+func TestWildcardModelsFallbackToGPT5StaticList(t *testing.T) {
+	client := New(provider.Config{
+		Name:          "codex-app",
+		Kind:          Kind,
+		DefaultModel:  "gpt-5.5",
+		ContextWindow: 400000,
+		Extra:         map[string]any{"model_list": "static"},
+		Models:        []provider.ModelInfo{{ModelID: "*"}},
+	})
+	models := client.AvailableModels()
+	if len(models) != 5 {
+		t.Fatalf("models = %+v", models)
+	}
+	if models[0].ModelID != "gpt-5.5" || models[4].ModelID != "gpt-5-mini" {
+		t.Fatalf("fallback models = %+v", models)
+	}
+}
+
+func TestBinaryPathTakesPrecedenceOverCommand(t *testing.T) {
+	client := New(provider.Config{Extra: map[string]any{
+		"binary_path": "/opt/codex/bin/codex",
+		"command":     "codex",
+	}})
+	command, args := client.commandAndArgs()
+	if command != "/opt/codex/bin/codex" {
+		t.Fatalf("command = %q", command)
+	}
+	if strings.Join(args, " ") != "app-server --listen stdio://" {
+		t.Fatalf("args = %v", args)
+	}
+}
+
 func TestCodexNativeHelperProcess(t *testing.T) {
 	if os.Getenv("GO_WANT_CODEX_HELPER") != "1" {
 		return

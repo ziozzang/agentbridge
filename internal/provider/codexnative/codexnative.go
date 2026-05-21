@@ -18,6 +18,7 @@ import (
 	"os/exec"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/ziozzang/agentbridge/internal/provider"
@@ -27,10 +28,10 @@ import (
 const Kind = "codex-app-server"
 
 const (
-	defaultModel         = "gpt-5"
+	defaultModel         = "gpt-5.5"
 	defaultContextWindow = 400_000
 	maxScannerBuffer     = 2 << 20
-	modelListTimeout     = 8 * time.Second
+	modelListTimeout     = 3 * time.Second
 )
 
 func init() {
@@ -75,7 +76,7 @@ func (c *Client) UsesNativeAgentLoop() bool { return true }
 
 func (c *Client) AvailableModels() []provider.ModelInfo {
 	c.modelsOnce.Do(func() {
-		staticModels := attachNativeAgentModelMetadata(cloneModels(c.cfg.Models))
+		staticModels := attachNativeAgentModelMetadata(staticModelFallback(c.cfg.Models, c.cfg.ContextWindow, c.cfg.Name))
 		if c.extraString("model_list") != "native" {
 			if len(staticModels) > 0 {
 				c.models = staticModels
@@ -108,6 +109,24 @@ func (c *Client) AvailableModels() []provider.ModelInfo {
 		}
 	})
 	return cloneModels(c.models)
+}
+
+func staticModelFallback(models []provider.ModelInfo, contextWindow int, providerName string) []provider.ModelInfo {
+	if !modelsAreWildcard(models) {
+		return cloneModels(models)
+	}
+	name := firstNonEmpty(providerName, "codex-app")
+	return []provider.ModelInfo{
+		{ModelID: "gpt-5.5", Name: "GPT-5.5 (Codex app-server)", Description: "Current Codex app-server model", Provider: name, ContextWindow: contextWindow},
+		{ModelID: "gpt-5.4", Name: "GPT-5.4 (Codex app-server)", Provider: name, ContextWindow: contextWindow},
+		{ModelID: "gpt-5.3-codex", Name: "GPT-5.3 Codex (Codex app-server)", Provider: name, ContextWindow: contextWindow},
+		{ModelID: "gpt-5", Name: "GPT-5 (Codex app-server)", Provider: name, ContextWindow: contextWindow},
+		{ModelID: "gpt-5-mini", Name: "GPT-5 mini (Codex app-server)", Provider: name, ContextWindow: contextWindow},
+	}
+}
+
+func modelsAreWildcard(models []provider.ModelInfo) bool {
+	return len(models) == 1 && strings.TrimSpace(models[0].ModelID) == "*"
 }
 
 func (c *Client) DefaultModel() string {
@@ -246,7 +265,7 @@ func (c *Client) CompactConversation(ctx context.Context, messages []provider.Me
 	if err != nil {
 		return nil, err
 	}
-	defer rpc.Close()
+	defer rpc.Kill()
 	if _, err := rpc.Request("thread/resume", map[string]any{"threadId": threadID}); err != nil {
 		return nil, err
 	}
@@ -266,7 +285,7 @@ func (c *Client) fetchModels(ctx context.Context) ([]provider.ModelInfo, error) 
 		return nil, err
 	}
 	defer rpc.Close()
-	resp, err := rpc.Request("model/list", map[string]any{"includeHidden": false})
+	resp, err := rpc.RequestContext(ctx, "model/list", map[string]any{"includeHidden": false})
 	if err != nil {
 		return nil, err
 	}
@@ -396,6 +415,13 @@ func (c *Client) startRPC(ctx context.Context) (*rpcClient, error) {
 	command, args := c.commandAndArgs()
 	cmd := exec.CommandContext(ctx, command, args...)
 	cmd.Env = os.Environ()
+	cmd.Env = append(cmd.Env,
+		"CI=1",
+		"NO_COLOR=1",
+		"CODEX_DISABLE_UPDATE_CHECK=1",
+		"CODEX_NO_UPDATE_CHECK=1",
+	)
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	for k, v := range c.cfg.Headers {
 		_ = k
 		_ = v
@@ -420,20 +446,22 @@ func (c *Client) startRPC(ctx context.Context) (*rpcClient, error) {
 		stderr: &stderr,
 		nextID: 1,
 	}
-	if _, err := rpc.Request("initialize", map[string]any{
+	if _, err := rpc.RequestContext(ctx, "initialize", map[string]any{
 		"clientInfo": map[string]any{
 			"name":    "agentbridge",
+			"title":   nil,
 			"version": "1.0.0",
 		},
 		"capabilities": map[string]any{
-			"experimentalApi": true,
+			"experimentalApi":    true,
+			"requestAttestation": false,
 		},
 	}); err != nil {
-		rpc.Close()
+		rpc.Kill()
 		return nil, err
 	}
-	if err := rpc.Notify("initialized", map[string]any{}); err != nil {
-		rpc.Close()
+	if err := rpc.Notify("initialized", nil); err != nil {
+		rpc.Kill()
 		return nil, err
 	}
 	return rpc, nil
@@ -443,7 +471,7 @@ func (c *Client) commandAndArgs() (string, []string) {
 	if argv := c.extraStringSlice("argv"); len(argv) > 0 {
 		return argv[0], append([]string(nil), argv[1:]...)
 	}
-	command := firstNonEmpty(c.extraString("command"), "codex")
+	command := firstNonEmpty(c.extraString("binary_path"), c.extraString("command"), "codex")
 	args := c.extraStringSlice("command_args")
 	if len(args) == 0 {
 		args = []string{"app-server", "--listen", "stdio://"}
@@ -533,11 +561,21 @@ func (c *rpcClient) Close() error {
 	return fmt.Errorf("codex app-server exited: %w: %s", err, strings.TrimSpace(c.stderr.String()))
 }
 
+func (c *rpcClient) Kill() {
+	if c == nil || c.cmd == nil || c.cmd.Process == nil {
+		return
+	}
+	_ = c.stdin.Close()
+	_ = syscall.Kill(-c.cmd.Process.Pid, syscall.SIGKILL)
+	_ = c.cmd.Process.Kill()
+}
+
 func (c *rpcClient) Notify(method string, params any) error {
-	return c.write(map[string]any{
-		"method": method,
-		"params": params,
-	})
+	msg := map[string]any{"method": method}
+	if params != nil {
+		msg["params"] = params
+	}
+	return c.write(msg)
 }
 
 func (c *rpcClient) Request(method string, params any) (map[string]any, error) {
@@ -586,6 +624,62 @@ func (c *rpcClient) Request(method string, params any) (map[string]any, error) {
 	}
 }
 
+func (c *rpcClient) RequestContext(ctx context.Context, method string, params any) (map[string]any, error) {
+	id := c.nextID
+	c.nextID++
+	if err := c.write(map[string]any{
+		"id":     id,
+		"method": method,
+		"params": params,
+	}); err != nil {
+		return nil, err
+	}
+	for seen := 0; seen < 128; seen++ {
+		select {
+		case <-ctx.Done():
+			c.Kill()
+			return nil, ctx.Err()
+		default:
+		}
+		msg, err := c.Next()
+		if err != nil {
+			c.Kill()
+			return nil, err
+		}
+		_, payload, kind, ok := splitRPCMessage(msg)
+		if !ok {
+			continue
+		}
+		switch kind {
+		case rpcKindResponse:
+			if intAt(msg, "id") != id {
+				continue
+			}
+			if errObj, ok := msg["error"].(map[string]any); ok {
+				return nil, fmt.Errorf("%s", firstNonEmpty(stringAt(errObj, "message"), "unknown app-server error"))
+			}
+			if result, ok := msg["result"].(map[string]any); ok {
+				return result, nil
+			}
+			if msg["result"] == nil {
+				return map[string]any{}, nil
+			}
+			return map[string]any{"value": msg["result"]}, nil
+		case rpcKindRequest:
+			if err := c.RespondToRequest(msg, defaultRequestResponse(stringAt(msg, "method"))); err != nil {
+				c.Kill()
+				return nil, err
+			}
+		case rpcKindNotification:
+			c.queue = append(c.queue, msg)
+		default:
+			_ = payload
+		}
+	}
+	c.Kill()
+	return nil, fmt.Errorf("codex app-server did not return response for %s", method)
+}
+
 func (c *rpcClient) RespondToRequest(req map[string]any, result any) error {
 	return c.write(map[string]any{
 		"id":     req["id"],
@@ -602,11 +696,11 @@ func (c *rpcClient) Next() (map[string]any, error) {
 	for c.stdout.Scan() {
 		line := strings.TrimSpace(c.stdout.Text())
 		if line == "" {
-			continue
+			return nil, fmt.Errorf("codex app-server emitted blank stdout while waiting for RPC response")
 		}
 		var msg map[string]any
 		if err := json.Unmarshal([]byte(line), &msg); err != nil {
-			continue
+			return nil, fmt.Errorf("codex app-server emitted non-json stdout while waiting for RPC response")
 		}
 		return msg, nil
 	}

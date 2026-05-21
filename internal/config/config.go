@@ -76,6 +76,20 @@ type rawModel struct {
 	Cost          map[string]any `yaml:"cost"`
 }
 
+func (m *rawModel) UnmarshalYAML(value *yaml.Node) error {
+	if value.Kind == yaml.ScalarNode {
+		m.ID = value.Value
+		return nil
+	}
+	type plain rawModel
+	var out plain
+	if err := value.Decode(&out); err != nil {
+		return err
+	}
+	*m = rawModel(out)
+	return nil
+}
+
 // Manifest is the parsed, post-expansion configuration.
 type Manifest struct {
 	Providers map[string]provider.Config
