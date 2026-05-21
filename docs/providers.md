@@ -12,6 +12,7 @@ interface. Select one with `AGENTBRIDGE_PROVIDER=<name>`.
 | `openai-responses` | `openai-responses` | OpenAI Responses API. |
 | `anthropic` | `anthropic` | Anthropic Messages API. |
 | `google` | `google` | Native Gemini Generative Language API with cachedContent prompt cache support. |
+| `amazon-bedrock` | `bedrock-converse` | Amazon Bedrock Converse with AWS SigV4 signing. |
 | `claude-code` | `claude-code-cli` | Claude Code CLI one-shot adapter. |
 | `ollama` | `ollama` | Native Ollama `/api/chat`. |
 | `openrouter` | `openai-chat` | OpenRouter Chat Completions. |
@@ -53,6 +54,11 @@ interface. Select one with `AGENTBRIDGE_PROVIDER=<name>`.
 | `sglang` | `openai-chat` | Local SGLang OpenAI-compatible server. |
 | `cloudflare-ai-gateway` | `openai-chat` | Cloudflare AI Gateway template. |
 | `microsoft-foundry` | `openai-chat` | Azure/Microsoft Foundry OpenAI-compatible inference endpoint. |
+| `byteplus`, `byteplus-plan` | `openai-chat` | BytePlus Ark standard and Coding Plan endpoints. |
+| `volcengine`, `volcengine-plan` | `openai-chat` | Volcano Engine Ark standard and Coding Plan endpoints. |
+| `modelstudio`, `qwencloud` | `openai-chat` | Qwen/ModelStudio endpoint aliases. |
+| `github-copilot` | `openai-responses` | GitHub Copilot API through GitHub-token exchange and Copilot headers. |
+| `minimax-portal` | `openai-chat` | MiniMax Portal/OAuth-token endpoint template. |
 | `ollama-cloud` | `openai-chat` | Ollama Cloud OpenAI-compatible API. |
 | `lmstudio` | `openai-chat` | Local LM Studio OpenAI-compatible server. |
 
@@ -101,10 +107,8 @@ are not enabled as default templates yet:
 | `google-gemini-cli` | Cloud Code Assist OAuth transport, not a plain HTTP base URL. |
 | `google-vertex`, `google-antigravity`, `anthropic-vertex` | Cloud/Vertex auth and endpoint signing. |
 | `copilot-acp` | External ACP process transport. |
-| `github-copilot` | Copilot token/catalog handling. |
-| `amazon-bedrock`, `amazon-bedrock-mantle` | AWS SigV4 and Bedrock Converse transport. |
-| `minimax-portal`, `minimax-oauth` | Portal/OAuth flow beyond API-key OpenAI-compatible MiniMax. |
-| `byteplus`, `byteplus-plan`, `volcengine`, `volcengine-plan`, `modelstudio`, `qwencloud` | Need endpoint/auth validation before default enablement. |
+| `amazon-bedrock-mantle` | Mantle-specific IAM token transport. |
+| `minimax-oauth` | Browser OAuth setup flow beyond using an existing `MINIMAX_OAUTH_TOKEN`. |
 | `fal`, `comfy`, `vydra` | Media-generation providers, not chat providers. |
 
 ## Provider API and Tool Matrix
@@ -120,6 +124,8 @@ tools can also be exposed directly through MCP `POST /mcp` and `/v1/mcp`.
 | `openai-responses` | `OPENAI_API_KEY` | OpenAI Responses | Hosted `web_search` when configured in provider `extra` |
 | `codex` | Codex OAuth from `~/.codex/auth.json` | ChatGPT Codex Responses backend | Codex hosted `web_search`, prompt cache metadata |
 | `google` | `GOOGLE_API_KEY` / `GEMINI_API_KEY` | Gemini native `streamGenerateContent` | Built-in agent tools; native cachedContent prompt cache |
+| `amazon-bedrock` | `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, optional `AWS_SESSION_TOKEN` | Bedrock Converse | Built-in agent tools |
+| `github-copilot` | `COPILOT_API_TOKEN`, or `COPILOT_GITHUB_TOKEN` / `GH_TOKEN` / `GITHUB_TOKEN` | Copilot Responses-compatible endpoint | Built-in agent tools |
 | `xai` | `XAI_API_KEY` | xAI Responses-compatible Grok | xAI hosted `x_search` when used through plugin |
 | `xai-oauth` | `~/.grok/auth.json`, fallback `~/.hermes/auth.json` | xAI Responses-compatible Grok | Same OAuth token can be reused by `xai` plugin |
 | `anthropic` | `ANTHROPIC_API_KEY` | Anthropic Messages | Built-in agent tools |
@@ -133,7 +139,7 @@ tools can also be exposed directly through MCP `POST /mcp` and `/v1/mcp`.
 | `alibaba`, `alibaba-coding-plan` | `DASHSCOPE_API_KEY`, `ALIBABA_CODING_PLAN_API_KEY` | OpenAI Chat Completions | Built-in agent tools |
 | `nvidia` | `NVIDIA_API_KEY` | OpenAI Chat Completions | Built-in agent tools |
 | `ai-gateway`, `opencode-zen`, `opencode-go`, `kilocode` | gateway-specific API key | OpenAI Chat Completions gateway | Built-in agent tools |
-| `huggingface`, `novita`, `arcee`, `gmi`, `xiaomi`, `tencent-tokenhub`, `mistral`, `groq`, `fireworks`, `together`, `cerebras`, `chutes`, `deepinfra`, `moonshot`, `minimax`, `qwen`, `qianfan`, `venice`, `cloudflare-ai-gateway`, `microsoft-foundry`, `ollama-cloud`, `lmstudio`, `vllm`, `sglang` | provider-specific API key or local key | OpenAI Chat Completions-compatible | Built-in agent tools |
+| `huggingface`, `novita`, `arcee`, `gmi`, `xiaomi`, `tencent-tokenhub`, `mistral`, `groq`, `fireworks`, `together`, `cerebras`, `chutes`, `deepinfra`, `moonshot`, `minimax`, `minimax-portal`, `qwen`, `qwencloud`, `modelstudio`, `qianfan`, `venice`, `byteplus`, `byteplus-plan`, `volcengine`, `volcengine-plan`, `cloudflare-ai-gateway`, `microsoft-foundry`, `ollama-cloud`, `lmstudio`, `vllm`, `sglang` | provider-specific API key or local key | OpenAI Chat Completions-compatible | Built-in agent tools |
 | `plugin:jina` | optional `JINA_API_KEY` | Jina Reader, Search, Embeddings, Rerank | `jina_reader`, `jina_search`, `jina_embed`, `jina_rerank`; HTTP `/v1/embeddings`, `/v1/rerank` |
 | `plugin:ollama_search` | `OLLAMA_API_KEY` | Ollama Cloud web search/fetch | `ollama_search`, `ollama_fetch` |
 | `plugin:xai` | xAI OAuth or `XAI_API_KEY` | xAI Responses `x_search`, Images generations/edits | `xai_x_search`, `xai_image_generate`, `xai_image_edit` |

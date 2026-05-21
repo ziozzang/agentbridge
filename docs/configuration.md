@@ -158,6 +158,8 @@ or the embedded template environment variables:
 | `CODEX_PROMPT_CACHE_KEY` | `codex` | Defaults to `{session_id}`; supports `{model}` and `{provider}` templates. |
 | `CODEX_REASONING_EFFORT` | `codex` | Defaults to `medium`. |
 | `CODEX_REASONING_SUMMARY` | `codex` | Defaults to `auto`. |
+| `COPILOT_API_TOKEN` | `github-copilot` | Uses a pre-exchanged Copilot API token. |
+| `COPILOT_GITHUB_TOKEN`, `GH_TOKEN`, `GITHUB_TOKEN` | `github-copilot` | Exchanged for a short-lived Copilot API token and cached. |
 | `XAI_PROMPT_CACHE_KEY` | `xai`, `xai-oauth` | Defaults to `{session_id}`. |
 | `XAI_REASONING_EFFORT` | `xai`, `xai-oauth` | Sent only to Grok models that accept `reasoning.effort`. |
 | `KIMI_REASONING_EFFORT`, `KIMI_CN_REASONING_EFFORT` | `kimi-coding`, `kimi-coding-cn` | Top-level Chat Completions `reasoning_effort`; defaults to `medium`. |
@@ -165,6 +167,7 @@ or the embedded template environment variables:
 | `TOGETHER_REASONING_EFFORT` | `together` | Maps to Together's `reasoning.enabled` payload. |
 | `TOKENHUB_REASONING_EFFORT`, `LM_REASONING_EFFORT` | `tencent-tokenhub`, `lmstudio` | Top-level Chat Completions `reasoning_effort`. |
 | `GOOGLE_CACHE_RETENTION` | `google` | `short` by default for Gemini 2.5/3; creates/refreshes native Google `cachedContents`. |
+| `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_SESSION_TOKEN`, `AWS_REGION` | `amazon-bedrock` | Bedrock Converse SigV4 credentials and region. |
 | `OPENAI_RESPONSES_SERVER_COMPACTION` | `openai-responses` | Enables OpenAI Responses `context_management` compaction hints. |
 | `OPENAI_RESPONSES_COMPACT_THRESHOLD` | `openai-responses` | Optional `context_management.compact_threshold`; defaults to 70% of context. |
 | `OPENAI_PROMPT_CACHE_KEY` | `openai-responses` | Defaults to `{session_id}`; supports `{model}` and `{provider}` templates. |

@@ -156,6 +156,8 @@ Hermes에서 가져온 provider별 knob는 provider `extra` 또는 내장 templa
 | `CODEX_PROMPT_CACHE_KEY` | `codex` | 기본값 `{session_id}`; `{model}`, `{provider}` template도 지원합니다. |
 | `CODEX_REASONING_EFFORT` | `codex` | 기본값 `medium`. |
 | `CODEX_REASONING_SUMMARY` | `codex` | 기본값 `auto`. |
+| `COPILOT_API_TOKEN` | `github-copilot` | 이미 교환된 Copilot API token을 사용합니다. |
+| `COPILOT_GITHUB_TOKEN`, `GH_TOKEN`, `GITHUB_TOKEN` | `github-copilot` | 짧은 수명의 Copilot API token으로 교환하고 캐시합니다. |
 | `XAI_PROMPT_CACHE_KEY` | `xai`, `xai-oauth` | 기본값 `{session_id}`. |
 | `XAI_REASONING_EFFORT` | `xai`, `xai-oauth` | `reasoning.effort`를 받는 Grok model에만 전송합니다. |
 | `KIMI_REASONING_EFFORT`, `KIMI_CN_REASONING_EFFORT` | `kimi-coding`, `kimi-coding-cn` | Chat Completions top-level `reasoning_effort`; 기본값 `medium`. |
@@ -163,6 +165,7 @@ Hermes에서 가져온 provider별 knob는 provider `extra` 또는 내장 templa
 | `TOGETHER_REASONING_EFFORT` | `together` | Together의 `reasoning.enabled` payload로 매핑합니다. |
 | `TOKENHUB_REASONING_EFFORT`, `LM_REASONING_EFFORT` | `tencent-tokenhub`, `lmstudio` | Chat Completions top-level `reasoning_effort`. |
 | `GOOGLE_CACHE_RETENTION` | `google` | Gemini 2.5/3에서 기본값 `short`; Google native `cachedContents`를 생성/갱신합니다. |
+| `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_SESSION_TOKEN`, `AWS_REGION` | `amazon-bedrock` | Bedrock Converse SigV4 credential과 region. |
 | `OPENAI_RESPONSES_SERVER_COMPACTION` | `openai-responses` | OpenAI Responses `context_management` compaction hint를 켭니다. |
 | `OPENAI_RESPONSES_COMPACT_THRESHOLD` | `openai-responses` | 선택적 `context_management.compact_threshold`; 기본값은 context의 70%. |
 | `OPENAI_PROMPT_CACHE_KEY` | `openai-responses` | 기본값 `{session_id}`; `{model}`, `{provider}` template도 지원합니다. |

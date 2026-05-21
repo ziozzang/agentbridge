@@ -21,6 +21,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	codexoauth "github.com/ziozzang/agentbridge/internal/oauth/codex"
+	copilotoauth "github.com/ziozzang/agentbridge/internal/oauth/copilot"
 	xaioauth "github.com/ziozzang/agentbridge/internal/oauth/xai"
 	"github.com/ziozzang/agentbridge/internal/provider"
 )
@@ -491,6 +492,24 @@ func resolveOAuthConfig(cfg *provider.Config) error {
 			return err
 		}
 		cfg.APIKey = tok.AccessToken
+		return nil
+	case "github-copilot", "copilot":
+		tok, baseURL, err := copilotoauth.New("").ResolveToken(context.Background())
+		if err != nil {
+			return err
+		}
+		cfg.APIKey = tok
+		if cfg.BaseURL == "" || cfg.BaseURL == copilotoauth.DefaultBaseURL {
+			cfg.BaseURL = baseURL
+		}
+		if cfg.Headers == nil {
+			cfg.Headers = map[string]string{}
+		}
+		for k, v := range copilotoauth.DefaultHeaders() {
+			if cfg.Headers[k] == "" {
+				cfg.Headers[k] = v
+			}
+		}
 		return nil
 	default:
 		return fmt.Errorf("oauth resolver for %q is not registered", flavour)

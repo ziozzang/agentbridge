@@ -20,6 +20,7 @@ import (
 	"github.com/ziozzang/agentbridge/internal/logger"
 	"github.com/ziozzang/agentbridge/internal/mcpconfig"
 	codexoauth "github.com/ziozzang/agentbridge/internal/oauth/codex"
+	copilotoauth "github.com/ziozzang/agentbridge/internal/oauth/copilot"
 	xaioauth "github.com/ziozzang/agentbridge/internal/oauth/xai"
 	"github.com/ziozzang/agentbridge/internal/plugins"
 	_ "github.com/ziozzang/agentbridge/internal/plugins/duckdb"
@@ -30,6 +31,7 @@ import (
 	_ "github.com/ziozzang/agentbridge/internal/plugins/xai"
 	"github.com/ziozzang/agentbridge/internal/provider"
 	_ "github.com/ziozzang/agentbridge/internal/provider/anthropic"
+	_ "github.com/ziozzang/agentbridge/internal/provider/bedrock"
 	_ "github.com/ziozzang/agentbridge/internal/provider/claudecode"
 	_ "github.com/ziozzang/agentbridge/internal/provider/glm/preset"
 	_ "github.com/ziozzang/agentbridge/internal/provider/google"
@@ -971,6 +973,12 @@ func resolveOAuthKey(key string) (string, string, error) {
 			return "", "", err
 		}
 		return tok.AccessToken, "", nil
+	case "github-copilot", "copilot":
+		tok, _, err := copilotoauth.New("").ResolveToken(context.Background())
+		if err != nil {
+			return "", "", err
+		}
+		return tok, "", nil
 	default:
 		return "", "", fmt.Errorf("oauth resolver for %q is not registered", flavour)
 	}

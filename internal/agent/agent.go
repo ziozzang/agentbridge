@@ -23,6 +23,7 @@ import (
 	"github.com/ziozzang/agentbridge/internal/logger"
 	"github.com/ziozzang/agentbridge/internal/mcpconfig"
 	codexoauth "github.com/ziozzang/agentbridge/internal/oauth/codex"
+	copilotoauth "github.com/ziozzang/agentbridge/internal/oauth/copilot"
 	xaioauth "github.com/ziozzang/agentbridge/internal/oauth/xai"
 	"github.com/ziozzang/agentbridge/internal/plugins"
 	_ "github.com/ziozzang/agentbridge/internal/plugins/duckdb" // register duckdb stub
@@ -36,6 +37,7 @@ import (
 	"github.com/ziozzang/agentbridge/internal/protocol/systemprompt"
 	"github.com/ziozzang/agentbridge/internal/provider"
 	_ "github.com/ziozzang/agentbridge/internal/provider/anthropic"  // register anthropic
+	_ "github.com/ziozzang/agentbridge/internal/provider/bedrock"    // register bedrock-converse
 	_ "github.com/ziozzang/agentbridge/internal/provider/claudecode" // register claude-code-cli
 	"github.com/ziozzang/agentbridge/internal/provider/glm"
 	_ "github.com/ziozzang/agentbridge/internal/provider/glm/preset" // register glm kind
@@ -875,6 +877,24 @@ var resolveOAuthConfig = func(cfg *provider.Config) error {
 			return err
 		}
 		cfg.APIKey = tok.AccessToken
+		return nil
+	case "github-copilot", "copilot":
+		tok, baseURL, err := copilotoauth.New("").ResolveToken(context.Background())
+		if err != nil {
+			return err
+		}
+		cfg.APIKey = tok
+		if cfg.BaseURL == "" || cfg.BaseURL == copilotoauth.DefaultBaseURL {
+			cfg.BaseURL = baseURL
+		}
+		if cfg.Headers == nil {
+			cfg.Headers = map[string]string{}
+		}
+		for k, v := range copilotoauth.DefaultHeaders() {
+			if cfg.Headers[k] == "" {
+				cfg.Headers[k] = v
+			}
+		}
 		return nil
 	default:
 		return fmt.Errorf("oauth resolver for %q is not registered", flavour)

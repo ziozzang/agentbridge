@@ -123,6 +123,27 @@ providers:
       - id: gemini-2.5-flash
         name: Gemini 2.5 Flash
 
+  # --------- Amazon Bedrock Converse (SigV4) -----------------------------
+  amazon-bedrock:
+    kind: bedrock-converse
+    base_url: ${AWS_BEDROCK_BASE_URL:-}
+    api_key: ${AWS_ACCESS_KEY_ID:-}
+    default_model: ${AWS_BEDROCK_MODEL:-anthropic.claude-sonnet-4-5-20250929-v1:0}
+    max_tokens: 8192
+    context_window: 200000
+    extra:
+      region: ${AWS_REGION:-${AWS_DEFAULT_REGION:-us-east-1}}
+      aws_access_key_id: ${AWS_ACCESS_KEY_ID:-}
+      aws_secret_access_key: ${AWS_SECRET_ACCESS_KEY:-}
+      aws_session_token: ${AWS_SESSION_TOKEN:-}
+    models:
+      - id: anthropic.claude-sonnet-4-5-20250929-v1:0
+        name: Claude Sonnet 4.5 (Bedrock)
+      - id: anthropic.claude-opus-4-5-20251101-v1:0
+        name: Claude Opus 4.5 (Bedrock)
+      - id: amazon.nova-pro-v1:0
+        name: Amazon Nova Pro
+
   # --------- Claude Code CLI ---------------------------------------------
   claude-code:
     kind: claude-code-cli
@@ -506,6 +527,66 @@ providers:
         name: Hunyuan 3 Preview
 
   # --------- OpenClaw-derived OpenAI-compatible provider templates --------
+  byteplus:
+    kind: openai-chat
+    base_url: ${BYTEPLUS_BASE_URL:-https://ark.ap-southeast.bytepluses.com/api/v3}
+    api_key: ${BYTEPLUS_API_KEY:-${AGENTBRIDGE_API_KEY:-${ACP_HARNESS_API_KEY}}}
+    default_model: ${BYTEPLUS_MODEL:-seed-1-8-251228}
+    max_tokens: 4096
+    context_window: 256000
+    models:
+      - id: seed-1-8-251228
+        name: Seed 1.8
+      - id: kimi-k2-5-260127
+        name: Kimi K2.5
+      - id: glm-4-7-251222
+        name: GLM 4.7
+
+  byteplus-plan:
+    kind: openai-chat
+    base_url: ${BYTEPLUS_PLAN_BASE_URL:-https://ark.ap-southeast.bytepluses.com/api/coding/v3}
+    api_key: ${BYTEPLUS_API_KEY:-${BYTEPLUS_PLAN_API_KEY:-${AGENTBRIDGE_API_KEY:-${ACP_HARNESS_API_KEY}}}}
+    default_model: ${BYTEPLUS_PLAN_MODEL:-ark-code-latest}
+    max_tokens: 4096
+    context_window: 256000
+    models:
+      - id: ark-code-latest
+        name: Ark Coding Plan
+      - id: doubao-seed-code
+        name: Doubao Seed Code
+      - id: kimi-k2-thinking
+        name: Kimi K2 Thinking
+
+  volcengine:
+    kind: openai-chat
+    base_url: ${VOLCENGINE_BASE_URL:-https://ark.cn-beijing.volces.com/api/v3}
+    api_key: ${VOLCANO_ENGINE_API_KEY:-${VOLCENGINE_API_KEY:-${AGENTBRIDGE_API_KEY:-${ACP_HARNESS_API_KEY}}}}
+    default_model: ${VOLCENGINE_MODEL:-doubao-seed-code-preview-251028}
+    max_tokens: 4096
+    context_window: 256000
+    models:
+      - id: doubao-seed-code-preview-251028
+        name: Doubao Seed Code Preview
+      - id: doubao-seed-1-8-251228
+        name: Doubao Seed 1.8
+      - id: deepseek-v3-2-251201
+        name: DeepSeek V3.2
+
+  volcengine-plan:
+    kind: openai-chat
+    base_url: ${VOLCENGINE_PLAN_BASE_URL:-https://ark.cn-beijing.volces.com/api/coding/v3}
+    api_key: ${VOLCANO_ENGINE_API_KEY:-${VOLCENGINE_API_KEY:-${VOLCENGINE_PLAN_API_KEY:-${AGENTBRIDGE_API_KEY:-${ACP_HARNESS_API_KEY}}}}}
+    default_model: ${VOLCENGINE_PLAN_MODEL:-ark-code-latest}
+    max_tokens: 4096
+    context_window: 256000
+    models:
+      - id: ark-code-latest
+        name: Ark Coding Plan
+      - id: doubao-seed-code
+        name: Doubao Seed Code
+      - id: kimi-k2-thinking
+        name: Kimi K2 Thinking
+
   mistral:
     kind: openai-chat
     base_url: ${MISTRAL_BASE_URL:-https://api.mistral.ai/v1}
@@ -651,6 +732,34 @@ providers:
       - id: qwen3-plus
         name: Qwen3 Plus
 
+  qwencloud:
+    kind: openai-chat
+    base_url: ${QWENCLOUD_BASE_URL:-https://coding-intl.dashscope.aliyuncs.com/v1}
+    api_key: ${QWENCLOUD_API_KEY:-${QWEN_API_KEY:-${MODELSTUDIO_API_KEY:-${DASHSCOPE_API_KEY:-${AGENTBRIDGE_API_KEY:-${ACP_HARNESS_API_KEY}}}}}}
+    default_model: ${QWENCLOUD_MODEL:-qwen3-coder-plus}
+    max_tokens: 8192
+    context_window: 128000
+    models:
+      - id: qwen3-coder-plus
+        name: Qwen3 Coder Plus
+      - id: qwen3.6-plus
+        name: Qwen 3.6 Plus
+
+  modelstudio:
+    kind: openai-chat
+    base_url: ${MODELSTUDIO_BASE_URL:-https://dashscope-intl.aliyuncs.com/compatible-mode/v1}
+    api_key: ${MODELSTUDIO_API_KEY:-${QWEN_API_KEY:-${DASHSCOPE_API_KEY:-${AGENTBRIDGE_API_KEY:-${ACP_HARNESS_API_KEY}}}}}
+    default_model: ${MODELSTUDIO_MODEL:-qwen3.6-plus}
+    max_tokens: 8192
+    context_window: 128000
+    models:
+      - id: qwen3.6-plus
+        name: Qwen 3.6 Plus
+      - id: qwen3.5-plus
+        name: Qwen 3.5 Plus
+      - id: qwen3-coder-plus
+        name: Qwen3 Coder Plus
+
   qianfan:
     kind: openai-chat
     base_url: ${QIANFAN_BASE_URL:-https://qianfan.baidubce.com/v2}
@@ -718,6 +827,54 @@ providers:
         name: GPT-4.1
       - id: mistral-large-2411
         name: Mistral Large 2411
+
+  github-copilot:
+    kind: openai-responses
+    base_url: ${GITHUB_COPILOT_BASE_URL:-https://api.individual.githubcopilot.com}
+    api_key: oauth:github-copilot
+    default_model: ${GITHUB_COPILOT_MODEL:-gpt-5.5}
+    max_tokens: 8192
+    context_window: 400000
+    headers:
+      Accept-Encoding: identity
+      Editor-Version: ${GITHUB_COPILOT_EDITOR_VERSION:-vscode/1.107.0}
+      Editor-Plugin-Version: ${GITHUB_COPILOT_EDITOR_PLUGIN_VERSION:-copilot-chat/0.35.0}
+      User-Agent: ${GITHUB_COPILOT_USER_AGENT:-GitHubCopilotChat/0.35.0}
+      Copilot-Integration-Id: ${GITHUB_COPILOT_INTEGRATION_ID:-vscode-chat}
+      Openai-Organization: github-copilot
+      x-initiator: user
+    extra:
+      responses_path: ${GITHUB_COPILOT_RESPONSES_PATH:-/responses}
+      prompt_cache_key: ${GITHUB_COPILOT_PROMPT_CACHE_KEY:-{session_id}}
+      reasoning_effort: ${GITHUB_COPILOT_REASONING_EFFORT:-medium}
+      include_reasoning_encrypted: true
+      omit_max_output_tokens: true
+    models:
+      - id: gpt-5.5
+        name: GPT-5.5
+      - id: gpt-5.4
+        name: GPT-5.4
+      - id: gpt-5.3-codex
+        name: GPT-5.3 Codex
+      - id: claude-sonnet-4.6
+        name: Claude Sonnet 4.6
+      - id: gemini-3-flash
+        name: Gemini 3 Flash
+      - id: grok-code-fast-1
+        name: Grok Code Fast 1
+
+  minimax-portal:
+    kind: openai-chat
+    base_url: ${MINIMAX_PORTAL_BASE_URL:-https://api.minimax.io/v1}
+    api_key: ${MINIMAX_OAUTH_TOKEN:-${MINIMAX_API_KEY:-${AGENTBRIDGE_API_KEY:-${ACP_HARNESS_API_KEY}}}}
+    default_model: ${MINIMAX_PORTAL_MODEL:-MiniMax-M2}
+    max_tokens: 8192
+    context_window: 200000
+    models:
+      - id: MiniMax-M2
+        name: MiniMax M2
+      - id: MiniMax-M2.7
+        name: MiniMax M2.7
 
   ollama-cloud:
     kind: openai-chat
