@@ -102,6 +102,21 @@ func TestTranslateMessagesMapsToolResponseToFunctionName(t *testing.T) {
 	}
 }
 
+func TestStreamURLUsesVertexPath(t *testing.T) {
+	c := New(provider.Config{
+		BaseURL: "https://aiplatform.googleapis.com",
+		Extra: map[string]any{
+			"vertex_project_id": "proj",
+			"vertex_region":     "us-central1",
+		},
+	})
+	got := c.streamURL("gemini-3-flash")
+	want := "https://aiplatform.googleapis.com/v1/projects/proj/locations/us-central1/publishers/google/models/gemini-3-flash:streamGenerateContent?alt=sse"
+	if got != want {
+		t.Fatalf("url = %q want %q", got, want)
+	}
+}
+
 func syncMapForTest() sync.Map {
 	return sync.Map{}
 }

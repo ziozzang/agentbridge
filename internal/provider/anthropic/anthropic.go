@@ -58,8 +58,14 @@ func New(cfg provider.Config) *Client {
 	if cfg.AuthHeader == "" {
 		cfg.AuthHeader = "x-api-key"
 	}
-	// Anthropic does NOT use Bearer.
-	cfg.AuthPrefix = ""
+	if strings.EqualFold(cfg.AuthHeader, "Authorization") {
+		if cfg.AuthPrefix == "" {
+			cfg.AuthPrefix = "Bearer "
+		}
+	} else {
+		// Anthropic direct API does NOT use Bearer.
+		cfg.AuthPrefix = ""
+	}
 	if cfg.MaxTokens <= 0 {
 		cfg.MaxTokens = 4096
 	}
@@ -233,7 +239,7 @@ func (c *Client) StreamChat(ctx context.Context, messages []provider.Message, op
 		httpReq.Header.Set("Accept", "text/event-stream")
 		httpReq.Header.Set("anthropic-version", c.APIVersion)
 		if c.cfg.APIKey != "" {
-			httpReq.Header.Set(c.cfg.AuthHeader, c.cfg.APIKey)
+			httpReq.Header.Set(c.cfg.AuthHeader, c.cfg.AuthPrefix+c.cfg.APIKey)
 		}
 		for k, v := range c.cfg.Headers {
 			httpReq.Header.Set(k, v)

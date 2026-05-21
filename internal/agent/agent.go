@@ -24,6 +24,7 @@ import (
 	"github.com/ziozzang/agentbridge/internal/mcpconfig"
 	codexoauth "github.com/ziozzang/agentbridge/internal/oauth/codex"
 	copilotoauth "github.com/ziozzang/agentbridge/internal/oauth/copilot"
+	googleoauth "github.com/ziozzang/agentbridge/internal/oauth/google"
 	xaioauth "github.com/ziozzang/agentbridge/internal/oauth/xai"
 	"github.com/ziozzang/agentbridge/internal/plugins"
 	_ "github.com/ziozzang/agentbridge/internal/plugins/duckdb" // register duckdb stub
@@ -894,6 +895,19 @@ var resolveOAuthConfig = func(cfg *provider.Config) error {
 			if cfg.Headers[k] == "" {
 				cfg.Headers[k] = v
 			}
+		}
+		return nil
+	case "google", "google-vertex", "vertex":
+		tok, err := googleoauth.New().Resolve(context.Background())
+		if err != nil {
+			return err
+		}
+		cfg.APIKey = tok
+		if cfg.AuthHeader == "" {
+			cfg.AuthHeader = "Authorization"
+		}
+		if cfg.AuthPrefix == "" {
+			cfg.AuthPrefix = "Bearer "
 		}
 		return nil
 	default:

@@ -167,6 +167,7 @@ or the embedded template environment variables:
 | `TOGETHER_REASONING_EFFORT` | `together` | Maps to Together's `reasoning.enabled` payload. |
 | `TOKENHUB_REASONING_EFFORT`, `LM_REASONING_EFFORT` | `tencent-tokenhub`, `lmstudio` | Top-level Chat Completions `reasoning_effort`. |
 | `GOOGLE_CACHE_RETENTION` | `google` | `short` by default for Gemini 2.5/3; creates/refreshes native Google `cachedContents`. |
+| `GOOGLE_OAUTH_ACCESS_TOKEN`, `GOOGLE_VERTEX_ACCESS_TOKEN`, `GOOGLE_CLOUD_PROJECT`, `GOOGLE_CLOUD_LOCATION` | `google-vertex`, `google-antigravity` | Vertex Gemini auth/project/region. If no token env is set, AgentBridge tries `gcloud auth application-default print-access-token`. |
 | `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_SESSION_TOKEN`, `AWS_REGION` | `amazon-bedrock` | Bedrock Converse SigV4 credentials and region. |
 | `OPENAI_RESPONSES_SERVER_COMPACTION` | `openai-responses` | Enables OpenAI Responses `context_management` compaction hints. |
 | `OPENAI_RESPONSES_COMPACT_THRESHOLD` | `openai-responses` | Optional `context_management.compact_threshold`; defaults to 70% of context. |

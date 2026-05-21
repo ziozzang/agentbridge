@@ -12,7 +12,9 @@ interface. Select one with `AGENTBRIDGE_PROVIDER=<name>`.
 | `openai-responses` | `openai-responses` | OpenAI Responses API. |
 | `anthropic` | `anthropic` | Anthropic Messages API. |
 | `google` | `google` | Native Gemini Generative Language API with cachedContent prompt cache support. |
+| `google-vertex`, `google-antigravity` | `google` | Gemini over Vertex AI with Google OAuth access token resolution. |
 | `amazon-bedrock` | `bedrock-converse` | Amazon Bedrock Converse with AWS SigV4 signing. |
+| `amazon-bedrock-mantle` | `anthropic` | Bedrock Mantle Anthropic-compatible endpoint with bearer auth. |
 | `claude-code` | `claude-code-cli` | Claude Code CLI one-shot adapter. |
 | `ollama` | `ollama` | Native Ollama `/api/chat`. |
 | `openrouter` | `openai-chat` | OpenRouter Chat Completions. |
@@ -105,9 +107,8 @@ are not enabled as default templates yet:
 | `nous` | Device-code OAuth and scoped inference token minting. |
 | `qwen-oauth` | Qwen OAuth token refresh/store integration. |
 | `google-gemini-cli` | Cloud Code Assist OAuth transport, not a plain HTTP base URL. |
-| `google-vertex`, `google-antigravity`, `anthropic-vertex` | Cloud/Vertex auth and endpoint signing. |
+| `anthropic-vertex` | Anthropic Vertex SDK transport and ADC project/region handling. |
 | `copilot-acp` | External ACP process transport. |
-| `amazon-bedrock-mantle` | Mantle-specific IAM token transport. |
 | `minimax-oauth` | Browser OAuth setup flow beyond using an existing `MINIMAX_OAUTH_TOKEN`. |
 | `fal`, `comfy`, `vydra` | Media-generation providers, not chat providers. |
 
@@ -124,7 +125,9 @@ tools can also be exposed directly through MCP `POST /mcp` and `/v1/mcp`.
 | `openai-responses` | `OPENAI_API_KEY` | OpenAI Responses | Hosted `web_search` when configured in provider `extra` |
 | `codex` | Codex OAuth from `~/.codex/auth.json` | ChatGPT Codex Responses backend | Codex hosted `web_search`, prompt cache metadata |
 | `google` | `GOOGLE_API_KEY` / `GEMINI_API_KEY` | Gemini native `streamGenerateContent` | Built-in agent tools; native cachedContent prompt cache |
+| `google-vertex`, `google-antigravity` | `GOOGLE_OAUTH_ACCESS_TOKEN` or authenticated `gcloud`, plus `GOOGLE_CLOUD_PROJECT` | Vertex Gemini `streamGenerateContent` | Built-in agent tools |
 | `amazon-bedrock` | `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, optional `AWS_SESSION_TOKEN` | Bedrock Converse | Built-in agent tools |
+| `amazon-bedrock-mantle` | `BEDROCK_MANTLE_API_KEY` | Mantle Anthropic-compatible endpoint | Built-in agent tools |
 | `github-copilot` | `COPILOT_API_TOKEN`, or `COPILOT_GITHUB_TOKEN` / `GH_TOKEN` / `GITHUB_TOKEN` | Copilot Responses-compatible endpoint | Built-in agent tools |
 | `xai` | `XAI_API_KEY` | xAI Responses-compatible Grok | xAI hosted `x_search` when used through plugin |
 | `xai-oauth` | `~/.grok/auth.json`, fallback `~/.hermes/auth.json` | xAI Responses-compatible Grok | Same OAuth token can be reused by `xai` plugin |

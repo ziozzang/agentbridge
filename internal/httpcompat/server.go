@@ -21,6 +21,7 @@ import (
 	"github.com/ziozzang/agentbridge/internal/mcpconfig"
 	codexoauth "github.com/ziozzang/agentbridge/internal/oauth/codex"
 	copilotoauth "github.com/ziozzang/agentbridge/internal/oauth/copilot"
+	googleoauth "github.com/ziozzang/agentbridge/internal/oauth/google"
 	xaioauth "github.com/ziozzang/agentbridge/internal/oauth/xai"
 	"github.com/ziozzang/agentbridge/internal/plugins"
 	_ "github.com/ziozzang/agentbridge/internal/plugins/duckdb"
@@ -975,6 +976,12 @@ func resolveOAuthKey(key string) (string, string, error) {
 		return tok.AccessToken, "", nil
 	case "github-copilot", "copilot":
 		tok, _, err := copilotoauth.New("").ResolveToken(context.Background())
+		if err != nil {
+			return "", "", err
+		}
+		return tok, "", nil
+	case "google", "google-vertex", "vertex":
+		tok, err := googleoauth.New().Resolve(context.Background())
 		if err != nil {
 			return "", "", err
 		}

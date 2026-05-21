@@ -262,6 +262,17 @@ func (c *Client) StreamChat(ctx context.Context, messages []provider.Message, op
 }
 
 func (c *Client) streamURL(model string) string {
+	if project := c.extraString("vertex_project_id"); project != "" {
+		base := strings.TrimRight(c.cfg.BaseURL, "/")
+		if base == "" {
+			base = "https://" + firstNonEmpty(c.extraString("vertex_region"), "global") + "-aiplatform.googleapis.com"
+		}
+		if !strings.HasSuffix(base, "/v1") {
+			base += "/v1"
+		}
+		region := firstNonEmpty(c.extraString("vertex_region"), "global")
+		return base + "/projects/" + url.PathEscape(project) + "/locations/" + url.PathEscape(region) + "/publishers/google/models/" + url.PathEscape(model) + ":streamGenerateContent?alt=sse"
+	}
 	base := strings.TrimRight(c.cfg.BaseURL, "/")
 	if !strings.HasSuffix(base, "/v1beta") && !strings.HasSuffix(base, "/v1") {
 		base += "/v1beta"

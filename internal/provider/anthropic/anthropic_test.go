@@ -108,6 +108,27 @@ func TestAnthropicContextOverflow(t *testing.T) {
 	}
 }
 
+func TestAnthropicAuthorizationBearerHeader(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if got := r.Header.Get("Authorization"); got != "Bearer mantle-token" {
+			t.Fatalf("authorization = %q", got)
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		fmt.Fprint(w, `data: {"type":"message_stop"}`+"\n\n")
+	}))
+	defer srv.Close()
+	c := New(provider.Config{
+		BaseURL: srv.URL, APIKey: "mantle-token", AuthHeader: "Authorization",
+	})
+	c.HTTPClient = srv.Client()
+	chunks, errs := c.StreamChat(context.Background(), []provider.Message{{Role: "user", Content: "hi"}}, provider.StreamOptions{Model: "m"})
+	for range chunks {
+	}
+	if err := <-errs; err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestPromptCacheControlMarksSystemAndLastThreeMessages(t *testing.T) {
 	var body map[string]any
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
