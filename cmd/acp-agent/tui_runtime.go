@@ -6,12 +6,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/spinner"
-	"github.com/charmbracelet/bubbles/textinput"
-	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
 )
 
 func runBubbleTUI(ctx context.Context, c *client) error {
@@ -19,32 +15,7 @@ func runBubbleTUI(ctx context.Context, c *client) error {
 	c.stream = nil
 	c.emitState()
 
-	input := textinput.New()
-	input.Placeholder = "Type a message or /help"
-	input.Prompt = " › "
-	input.Focus()
-	input.CharLimit = 0
-	input.ShowSuggestions = true
-	input.SetSuggestions(slashCommandSuggestions)
-	input.CompletionStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
-	input.KeyMap.NextSuggestion = key.NewBinding(key.WithKeys("ctrl+n"))
-	input.KeyMap.PrevSuggestion = key.NewBinding(key.WithKeys("ctrl+p"))
-
-	sp := spinner.New()
-	sp.Spinner = spinner.Line
-
-	m := tuiModel{
-		ctx:        ctx,
-		client:     c,
-		events:     c.events,
-		state:      c.state,
-		opts:       c.opts,
-		viewport:   viewport.New(80, 20),
-		autoFollow: true,
-		input:      input,
-		spinner:    sp,
-		now:        time.Now(),
-	}
+	m := newTUIModel(ctx, c)
 	p := tea.NewProgram(m, tea.WithAltScreen())
 	_, err := p.Run()
 	return err

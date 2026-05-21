@@ -26,6 +26,33 @@ func TestTUIStatusLinePrioritizesState(t *testing.T) {
 	}
 }
 
+func TestTUIComponentFactoryInitializesShellParts(t *testing.T) {
+	c := &client{
+		events: make(chan uiEvent),
+		state:  clientState{Cwd: "/tmp/project", SessionID: "s1", Model: "glm-5.1"},
+		opts:   clientOptions{Permission: "prompt"},
+	}
+	m := newTUIModel(context.Background(), c)
+	if m.client != c || m.events != c.events {
+		t.Fatalf("model did not keep client/event wiring")
+	}
+	if !m.autoFollow {
+		t.Fatalf("new model should follow transcript bottom")
+	}
+	if !m.input.Focused() || !m.input.ShowSuggestions {
+		t.Fatalf("composer should be focused with suggestions enabled")
+	}
+	if got := m.input.Placeholder; got == "" {
+		t.Fatalf("composer placeholder missing")
+	}
+	if m.viewport.Width != 80 || m.viewport.Height != 20 {
+		t.Fatalf("viewport default size = %dx%d", m.viewport.Width, m.viewport.Height)
+	}
+	if m.spinner.Spinner.FPS == 0 {
+		t.Fatalf("spinner should be configured")
+	}
+}
+
 func TestTUIThinkingDeltasCoalesce(t *testing.T) {
 	m := tuiModel{}
 	m.applyEvent(uiThinkingDeltaEvent{Text: "useful"})

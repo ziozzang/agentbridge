@@ -35,6 +35,9 @@ The broader ownership and permission rules are documented in
 - Transport updates are normalized into `uiEvent` values.
 - The Bubble Tea model owns the viewport, composer, status surface, permission
   overlay, and transcript cells.
+- TUI component construction lives outside the runtime update loop, so the
+  composer, spinner, viewport, and initial model state can be tested without
+  launching a terminal program.
 - Keyboard handling is split into a small key layer: global interrupt/exit keys
   win first, overlays own selection keys, the transcript viewport owns scroll
   keys, and the composer keeps normal text navigation keys.
