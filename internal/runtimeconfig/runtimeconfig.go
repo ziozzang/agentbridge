@@ -12,6 +12,10 @@ import (
 type Config struct {
 	Server     Server     `yaml:"server"`
 	Compaction Compaction `yaml:"compaction"`
+	PII        PII        `yaml:"pii"`
+	Sanitize   Sanitize   `yaml:"sanitize"`
+	Cache      Cache      `yaml:"cache"`
+	Inject     []Inject   `yaml:"inject"`
 }
 
 type Server struct {
@@ -34,6 +38,56 @@ type Compaction struct {
 	PreserveTurns     int      `yaml:"preserve_turns"`
 	KeepRecentTokens  int      `yaml:"keep_recent_tokens"`
 	ReserveTokens     int      `yaml:"reserve_tokens"`
+}
+
+type PII struct {
+	Enabled         bool         `yaml:"enabled"`
+	Mask            *bool        `yaml:"mask"`
+	DisableDefaults bool         `yaml:"disable_defaults"`
+	Patterns        []PIIPattern `yaml:"patterns"`
+	Routing         PIIRouting   `yaml:"routing"`
+}
+
+type PIIPattern struct {
+	Name  string `yaml:"name"`
+	Regex string `yaml:"regex"`
+	Mask  string `yaml:"mask"`
+}
+
+type PIIRouting struct {
+	RouteTo       string `yaml:"route_to"`
+	Reject        bool   `yaml:"reject"`
+	RejectMessage string `yaml:"reject_message"`
+}
+
+type Sanitize struct {
+	StripThinkTags bool     `yaml:"strip_think_tags"`
+	Tags           []string `yaml:"tags"`
+}
+
+type Cache struct {
+	Enabled bool     `yaml:"enabled"`
+	TTL     string   `yaml:"ttl"`
+	MaxSize int      `yaml:"max_size"`
+	Models  []string `yaml:"models_to_cache"`
+}
+
+type Inject struct {
+	When             string              `yaml:"when"`
+	Set              map[string]any      `yaml:"set"`
+	Prepend          []map[string]string `yaml:"prepend_messages"`
+	SystemPrompt     string              `yaml:"system_prompt"`
+	SystemPromptMode string              `yaml:"system_prompt_mode"`
+	UserPrefix       string              `yaml:"user_prefix"`
+	UserSuffix       string              `yaml:"user_suffix"`
+	Remove           []string            `yaml:"remove"`
+	RequestRegex     []RegexEdit         `yaml:"request_regex"`
+}
+
+type RegexEdit struct {
+	Pattern string   `yaml:"pattern"`
+	Replace string   `yaml:"replace"`
+	Roles   []string `yaml:"roles"`
 }
 
 func Defaults() Config {
