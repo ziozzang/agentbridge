@@ -32,8 +32,9 @@ variables and on-disk paths are still accepted where practical.
   client with streaming output, context/status bars, numeric permission
   overlays, history cells for messages/tools/status, Lua orchestration, local
   goals, attachments, checkpoints, prompt queueing, and Ctrl-C prompt
-  cancellation. `--json-events` exposes the same UI event stream as NDJSON for
-  protocol-style debugging without the Bubble Tea renderer.
+  cancellation. `--json-events`/`--json` exposes the same UI event stream as
+  NDJSON for protocol-style debugging without the Bubble Tea renderer, and `-p`
+  is available for one-shot prompts.
 - **Backwards compatibility**: `ACP_HARNESS_*`, `ACP_GLM_*`,
   `Z_AI_API_KEY`, and old credential/session paths remain supported.
 

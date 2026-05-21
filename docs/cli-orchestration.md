@@ -40,6 +40,8 @@ The broader ownership and permission rules are documented in
 - Status and notice rendering is also a dedicated surface. It derives running
   activity, token progress, queue/subagent/tool counts, scroll state, context,
   quota, permission mode, and session identity separately from the frame layout.
+- Permission approval overlays are a dedicated surface for rendering choice
+  lists and mapping number/arrow/yes/no keys to ACP permission replies.
 - TUI component construction lives outside the runtime update loop, so the
   composer, spinner, viewport, and initial model state can be tested without
   launching a terminal program.

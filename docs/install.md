@@ -75,16 +75,18 @@ with `/queue`. Shell execution remains a client-owned tool.
 Use `--plain` to run the minimal line-oriented fallback. This bypasses Bubble
 Tea and prints plain text for minimal terminals and debugging.
 
-Use `--json-events` when you need protocol-style debugging. It disables the
-Bubble Tea renderer and prints the same normalized UI events as newline-delimited
-JSON, including user input, assistant deltas, thinking deltas, tool lifecycle
-updates, permission requests, status updates, and Lua orchestration events.
+Use `--json-events` or `--json` when you need protocol-style debugging. It
+disables the Bubble Tea renderer, reads one prompt or slash command per stdin
+line, and prints the same normalized UI events as newline-delimited JSON,
+including user input, assistant deltas, thinking deltas, tool lifecycle updates,
+permission requests, status updates, and Lua orchestration events. This is the
+stdio-friendly path for reproducing TUI behavior without terminal rendering.
 
 One-shot prompt:
 
 ```bash
 acp-agent --addr 127.0.0.1:8765 --model codex-agent \
-  --prompt "Inspect the current directory and summarize it."
+  -p "Inspect the current directory and summarize it."
 ```
 
 Useful flags:
@@ -97,12 +99,13 @@ Useful flags:
   `session/request_permission`.
 - `--yolo`: shorthand for `--mode bypass_permissions --permission allow`.
 - `--read-only`: shorthand for `--mode default --permission reject`.
+- `-p, --prompt TEXT`: send a single prompt and exit.
 - `--show-thinking`: print ACP `agent_thought_chunk` updates to stderr. Hidden
   by default.
 - `--plain`: disable the Bubble Tea UI and use the minimal line-oriented
   fallback.
-- `--json-events`: disable the Bubble Tea UI and print normalized UI events as
-  newline-delimited JSON.
+- `--json-events`, `--json`: disable the Bubble Tea UI and print normalized UI
+  events as newline-delimited JSON.
 
 Interactive commands:
 

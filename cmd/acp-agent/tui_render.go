@@ -1,7 +1,6 @@
 package main
 
 import (
-	"fmt"
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
@@ -32,7 +31,7 @@ func (m tuiModel) View() string {
 	}
 	transcript := m.viewport.View()
 	if m.overlay != nil {
-		transcript = overlayBlock(m.width, m.height, transcript, m.renderOverlay())
+		transcript = overlayBlock(m.width, m.height, transcript, m.overlaySurface().View())
 	}
 	statusSurface := m.statusSurface()
 	notice := tuiNoticeStyle.Width(m.width).Render(statusSurface.Notice())
@@ -115,35 +114,6 @@ func compactSlashHint(value string, matches []string) string {
 	return root + " " + strings.Join(args, "|")
 }
 
-func (m tuiModel) renderOverlay() string {
-	if m.overlay == nil {
-		return ""
-	}
-	var b strings.Builder
-	b.WriteString(tuiToolStyle.Render(m.overlay.Title))
-	if strings.TrimSpace(m.overlay.Detail) != "" {
-		b.WriteString("\n")
-		b.WriteString(m.overlay.Detail)
-	}
-	if help := m.overlayHelp(); help != "" {
-		b.WriteString("\n")
-		b.WriteString(tuiThinkingStyle.Render(help))
-	}
-	for i, opt := range m.overlay.Options {
-		key := opt.Key
-		if key == "" {
-			key = fmt.Sprintf("%d", i+1)
-		}
-		prefix := "  "
-		if i == m.choice {
-			prefix = "› "
-		}
-		b.WriteString("\n")
-		b.WriteString(fmt.Sprintf("%s%s. %s", prefix, key, opt.Label))
-	}
-	return tuiOverlayStyle.Width(minInt(72, maxInt(36, m.width-4))).Render(b.String())
-}
-
 func (m tuiModel) statusLine() string {
 	return m.statusSurface().Status()
 }
@@ -160,24 +130,6 @@ func indentLines(s, prefix string) string {
 	lines := splitDisplayLines(s)
 	for i, line := range lines {
 		lines[i] = prefix + line
-	}
-	return strings.Join(lines, "\n")
-}
-
-func overlayBlock(width, height int, base, overlay string) string {
-	if overlay == "" || width <= 0 || height <= 0 {
-		return base
-	}
-	lines := strings.Split(base, "\n")
-	overlayLines := strings.Split(overlay, "\n")
-	start := maxInt(0, (len(lines)-len(overlayLines))/2)
-	for i, line := range overlayLines {
-		idx := start + i
-		if idx >= len(lines) {
-			lines = append(lines, "")
-		}
-		pad := maxInt(0, (width-lipgloss.Width(line))/2)
-		lines[idx] = strings.Repeat(" ", pad) + line
 	}
 	return strings.Join(lines, "\n")
 }

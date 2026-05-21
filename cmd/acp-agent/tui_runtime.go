@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"fmt"
 	"strings"
 	"time"
 
@@ -162,13 +161,16 @@ func (m tuiModel) updateOverlay(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m *tuiModel) handleOverlayActionKey(keyName string) {
+	surface := m.overlaySurface()
 	switch {
 	case isOverlayCancelKey(keyName):
 		m.cancelOverlay()
 	case isOverlaySubmitKey(keyName):
 		m.replyOverlayChoice(m.choice)
-	case m.hasOverlayChoiceKey(keyName):
-		m.chooseOverlayKey(keyName)
+	default:
+		if reply, ok := surface.ReplyForKey(keyName); ok {
+			m.replyOverlay(reply)
+		}
 	}
 }
 
@@ -180,58 +182,22 @@ func (m tuiModel) overlayHelp() string {
 }
 
 func (m *tuiModel) cancelOverlay() {
-	if m.overlay == nil {
-		return
-	}
-	m.overlay.Reply <- "3"
-	m.overlay = nil
-}
-
-func (m *tuiModel) chooseOverlayKey(key string) {
-	if m.overlay == nil {
-		return
-	}
-	switch key {
-	case "y":
-		m.overlay.Reply <- "1"
-	case "n":
-		m.overlay.Reply <- "3"
-	default:
-		if approvalChoiceKeys[key] {
-			m.overlay.Reply <- key
-		} else {
-			return
-		}
-	}
-	m.overlay = nil
-}
-
-func (m tuiModel) hasOverlayChoiceKey(key string) bool {
-	if m.overlay == nil {
-		return false
-	}
-	for i, opt := range m.overlay.Options {
-		optKey := opt.Key
-		if optKey == "" {
-			optKey = fmt.Sprintf("%d", i+1)
-		}
-		if key == optKey {
-			return true
-		}
-	}
-	return key == "0" || key == "y" || key == "n"
+	m.replyOverlay("3")
 }
 
 func (m *tuiModel) replyOverlayChoice(idx int) {
 	if m.overlay == nil {
 		return
 	}
-	if idx < 0 || idx >= len(m.overlay.Options) {
-		idx = 0
+	m.replyOverlay(tuiOverlaySurface{req: m.overlay, choice: idx, width: m.width}.ReplyForChoice())
+}
+
+func (m *tuiModel) replyOverlay(key string) {
+	if m.overlay == nil {
+		return
 	}
-	key := m.overlay.Options[idx].Key
 	if key == "" {
-		key = fmt.Sprintf("%d", idx+1)
+		key = "1"
 	}
 	m.overlay.Reply <- key
 	m.overlay = nil

@@ -30,7 +30,7 @@ const usage = `acp-agent - terminal ACP client for AgentBridge
 
 Usage:
   acp-agent --addr 127.0.0.1:8765 --model glm-5.1
-  acp-agent --addr 127.0.0.1:8765 --model codex-agent --prompt "inspect this repo"
+  acp-agent --addr 127.0.0.1:8765 --model codex-agent -p "inspect this repo"
   acp-agent --addr 127.0.0.1:8765 "list files in the current directory"
 
 Flags:
@@ -38,7 +38,7 @@ Flags:
   --cwd DIR            session working directory (default current directory)
   --model MODEL        model/profile id to select after session creation
   --mode MODE          session mode: default, accept_edits, bypass_permissions
-  --prompt TEXT        send one prompt and exit
+  -p, --prompt TEXT    send one prompt and exit
   --permission MODE    permission handling: prompt, allow, reject, cancel (default prompt)
   --yolo               shorthand for --mode bypass_permissions --permission allow
   --read-only          shorthand for --mode default --permission reject
@@ -47,6 +47,7 @@ Flags:
   --raw-updates        print raw non-text session/update payloads to stderr
   --plain              use the minimal line-oriented fallback
   --json-events        print ACP UI events as newline-delimited JSON for debugging
+  --json               alias for --json-events
   --version            print version and exit
 
 Interactive commands:
@@ -85,6 +86,7 @@ func main() {
 	model := flag.String("model", "", "model/profile id")
 	mode := flag.String("mode", "", "session mode")
 	prompt := flag.String("prompt", "", "send one prompt and exit")
+	promptShort := flag.String("p", "", "send one prompt and exit")
 	permission := flag.String("permission", "prompt", "permission handling: prompt, allow, reject, cancel")
 	yolo := flag.Bool("yolo", false, "allow edits and commands without prompting")
 	readOnly := flag.Bool("read-only", false, "reject edit and command permission requests")
@@ -93,6 +95,7 @@ func main() {
 	rawUpdates := flag.Bool("raw-updates", false, "print raw non-text session/update payloads")
 	plain := flag.Bool("plain", false, "use the minimal line-oriented fallback")
 	jsonEvents := flag.Bool("json-events", false, "print ACP UI events as newline-delimited JSON")
+	jsonEventsAlias := flag.Bool("json", false, "alias for --json-events")
 	version := flag.Bool("version", false, "print version and exit")
 	help := flag.Bool("help", false, "show help")
 	flag.Usage = func() { fmt.Fprint(os.Stderr, usage) }
@@ -120,10 +123,14 @@ func main() {
 		}
 	}
 	text := strings.TrimSpace(*prompt)
+	if text == "" {
+		text = strings.TrimSpace(*promptShort)
+	}
 	if text == "" && flag.NArg() > 0 {
 		text = strings.Join(flag.Args(), " ")
 	}
-	interactiveTUI := text == "" && !*plain && !*jsonEvents && isTerminalWriter(os.Stderr)
+	debugJSON := *jsonEvents || *jsonEventsAlias
+	interactiveTUI := text == "" && !*plain && !debugJSON && isTerminalWriter(os.Stderr)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -135,7 +142,7 @@ func main() {
 		ShowThinking: *showThinking || interactiveTUI,
 		ShowTools:    !*hideTools,
 		RawUpdates:   *rawUpdates,
-		LegacyUI:     !interactiveTUI && !*jsonEvents,
+		LegacyUI:     !interactiveTUI && !debugJSON,
 	})
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "connect failed:", err)
@@ -143,7 +150,7 @@ func main() {
 	}
 	defer cli.Close()
 	var jsonSink *jsonEventSink
-	if *jsonEvents {
+	if debugJSON {
 		jsonSink = startJSONEventSink(cli, os.Stdout)
 		defer jsonSink.Close()
 	}
@@ -203,7 +210,7 @@ func main() {
 		}
 		return
 	}
-	if *jsonEvents {
+	if debugJSON {
 		if err := jsonEventRepl(ctx, cli); err != nil {
 			fmt.Fprintln(os.Stderr, "json repl failed:", err)
 			os.Exit(1)

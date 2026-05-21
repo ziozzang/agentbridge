@@ -175,6 +175,33 @@ func TestTUIPermissionOverlayNumericChoice(t *testing.T) {
 	}
 }
 
+func TestTUIOverlaySurfaceMapsChoicesAndRenders(t *testing.T) {
+	surface := tuiOverlaySurface{
+		width: 120,
+		req: &uiPermissionRequest{
+			Title:   "tool permission",
+			Detail:  "command: date",
+			Options: []choiceOption{{Key: "1", Label: "yes"}, {Key: "3", Label: "no"}},
+		},
+		choice: 1,
+	}
+	view := stripANSI(surface.View())
+	for _, want := range []string{"tool permission", "command: date", "1. yes", "3. no", "enter: choose"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("overlay view missing %q: %q", want, view)
+		}
+	}
+	if got := surface.ReplyForChoice(); got != "3" {
+		t.Fatalf("choice reply=%q", got)
+	}
+	if got, ok := surface.ReplyForKey("y"); !ok || got != "1" {
+		t.Fatalf("yes key = %q %v", got, ok)
+	}
+	if got, ok := surface.ReplyForKey("n"); !ok || got != "3" {
+		t.Fatalf("no key = %q %v", got, ok)
+	}
+}
+
 func TestTUIInterruptKeysBypassOverlay(t *testing.T) {
 	m := tuiModel{ctx: context.Background(), state: clientState{Busy: true}, overlay: &uiPermissionRequest{
 		Options: []choiceOption{{Key: "1", Label: "yes"}},
