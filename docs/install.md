@@ -1,6 +1,7 @@
 # Installation
 
 AgentBridge builds as a single Go binary.
+The repository also includes `acp-agent`, a separate terminal ACP client.
 
 ## Prerequisites
 
@@ -13,6 +14,7 @@ AgentBridge builds as a single Go binary.
 git clone https://github.com/ziozzang/agentbridge
 cd agentbridge
 go build -o agentbridge ./cmd/agentbridge
+go build -o acp-agent ./cmd/acp-agent
 ```
 
 ## Container
@@ -48,6 +50,40 @@ agentbridge --server --listen 127.0.0.1:8765 --pool-size 6 --wait-size 3
 Each TCP connection is an independent ACP JSON-RPC stream. `--pool-size`
 limits active connections. `--wait-size` limits queued connections and
 defaults to half of `--pool-size`.
+
+## Terminal ACP Client
+
+`acp-agent` connects to the TCP ACP server and gives a Claude CLI-like terminal
+session. It is a separate component from the AgentBridge server.
+
+```bash
+agentbridge --server --listen 127.0.0.1:8765
+acp-agent --addr 127.0.0.1:8765 --model glm-5.1
+```
+
+One-shot prompt:
+
+```bash
+acp-agent --addr 127.0.0.1:8765 --model codex-agent \
+  --prompt "Inspect the current directory and summarize it."
+```
+
+Useful flags:
+
+- `--cwd DIR`: working directory for the ACP session.
+- `--model MODEL`: model or agent profile selected through `session/set_model`.
+- `--mode MODE`: ACP permission mode such as `default`, `accept_edits`, or
+  `bypass_permissions`.
+- `--permission prompt|allow|reject|cancel`: how the terminal answers
+  `session/request_permission`.
+- `--yolo`: shorthand for `--mode bypass_permissions --permission allow`.
+- `--read-only`: shorthand for `--mode default --permission reject`.
+
+Interactive commands:
+
+- `/model MODEL`
+- `/mode MODE`
+- `/exit`
 
 ## HTTP Compatibility Server
 

@@ -1,6 +1,7 @@
 # 설치
 
-AgentBridge는 단일 Go 바이너리로 빌드됩니다.
+AgentBridge는 단일 Go 바이너리로 빌드됩니다. 저장소에는 별도 터미널 ACP
+client인 `acp-agent`도 포함됩니다.
 
 ## 요구 사항
 
@@ -13,6 +14,7 @@ AgentBridge는 단일 Go 바이너리로 빌드됩니다.
 git clone https://github.com/ziozzang/agentbridge
 cd agentbridge
 go build -o agentbridge ./cmd/agentbridge
+go build -o acp-agent ./cmd/acp-agent
 ```
 
 ## 컨테이너
@@ -46,6 +48,40 @@ agentbridge --server --listen 127.0.0.1:8765 --pool-size 6 --wait-size 3
 
 각 TCP 연결은 독립적인 ACP JSON-RPC stream입니다. `--pool-size`는 활성 연결
 수, `--wait-size`는 대기 연결 수를 제한합니다.
+
+## 터미널 ACP Client
+
+`acp-agent`는 TCP ACP server에 접속해서 Claude CLI 같은 터미널 세션을
+제공합니다. AgentBridge server와는 별도 컴포넌트입니다.
+
+```bash
+agentbridge --server --listen 127.0.0.1:8765
+acp-agent --addr 127.0.0.1:8765 --model glm-5.1
+```
+
+단발 prompt:
+
+```bash
+acp-agent --addr 127.0.0.1:8765 --model codex-agent \
+  --prompt "Inspect the current directory and summarize it."
+```
+
+주요 flag:
+
+- `--cwd DIR`: ACP session 작업 디렉터리.
+- `--model MODEL`: `session/set_model`로 선택할 model 또는 agent profile.
+- `--mode MODE`: `default`, `accept_edits`, `bypass_permissions` 같은 ACP
+  permission mode.
+- `--permission prompt|allow|reject|cancel`: `session/request_permission`에
+  terminal client가 응답하는 방식.
+- `--yolo`: `--mode bypass_permissions --permission allow` 축약.
+- `--read-only`: `--mode default --permission reject` 축약.
+
+대화형 command:
+
+- `/model MODEL`
+- `/mode MODE`
+- `/exit`
 
 ## HTTP 호환 서버
 
