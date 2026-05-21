@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 )
 
 type tuiStatusSurface struct {
@@ -107,9 +108,16 @@ func (s tuiStatusSurface) Status() string {
 	parts = append(parts, agentVersionShort(), shortSession(state.SessionID))
 	line := strings.Join(nonEmpty(parts), " · ")
 	if lipgloss.Width(line) > m.width && m.width > 0 {
-		return lipgloss.NewStyle().MaxWidth(m.width).Render(line)
+		return truncateStatusLine(line, m.width)
 	}
 	return line
+}
+
+func truncateStatusLine(line string, width int) string {
+	if width <= 0 {
+		return ""
+	}
+	return ansi.Truncate(line, width, "…")
 }
 
 func (s tuiStatusSurface) scrollLabel() string {

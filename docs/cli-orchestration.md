@@ -40,6 +40,9 @@ The broader ownership and permission rules are documented in
 - Status and notice rendering is also a dedicated surface. It derives running
   activity, token progress, queue/subagent/tool counts, scroll state, context,
   quota, permission mode, and session identity separately from the frame layout.
+- The status surface is a single fixed bottom line. Long status content is
+  ANSI-aware truncated instead of wrapped, preserving the transcript/composer
+  layout even on narrow terminals.
 - Permission approval overlays are a dedicated surface for rendering choice
   lists and mapping number/arrow/yes/no keys to ACP permission replies.
 - Approval replies close the overlay in the same key event; the next frame

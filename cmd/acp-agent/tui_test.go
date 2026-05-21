@@ -8,6 +8,7 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 )
 
 func TestTUIStatusLinePrioritizesState(t *testing.T) {
@@ -123,6 +124,44 @@ func TestTUIStatusSurfaceSeparatesNoticeProgressAndStatus(t *testing.T) {
 		if !strings.Contains(check.got, check.want) {
 			t.Fatalf("%s missing %q: %q", check.name, check.want, check.got)
 		}
+	}
+}
+
+func TestTUIStatusSurfaceTruncatesToSingleFixedLine(t *testing.T) {
+	m := tuiModel{
+		width:    48,
+		activity: "tool: Very long provider tool activity that should not wrap",
+		turnAt:   time.Date(2026, 5, 22, 1, 2, 3, 0, time.UTC),
+		now:      time.Date(2026, 5, 22, 1, 2, 8, 0, time.UTC),
+		state: clientState{
+			Busy:      true,
+			Cwd:       "/very/long/path/that/should/not/expand/the/status/row",
+			SessionID: "abcdef1234567890",
+			Model:     "glm-5.1-with-a-long-display-name",
+			Mode:      "bypass_permissions",
+			Context:   contextState{Tokens: 120000, Window: 200000, UsedPercent: 60, LeftPercent: 40},
+			Limits:    limitState{FiveHourPercent: 94, WeeklyPercent: 84, MonthlyPercent: 77},
+			QueueLen:  9,
+			Tools:     3,
+			Subagents: 2,
+		},
+		opts: clientOptions{Permission: "allow"},
+	}
+	got := m.statusLine()
+	if strings.Contains(got, "\n") {
+		t.Fatalf("status line wrapped: %q", got)
+	}
+	if width := lipgloss.Width(got); width > m.width {
+		t.Fatalf("status width=%d want <= %d: %q", width, m.width, got)
+	}
+}
+
+func TestTruncateStatusLineHandlesTinyWidth(t *testing.T) {
+	if got := truncateStatusLine("abcdef", 0); got != "" {
+		t.Fatalf("zero width=%q", got)
+	}
+	if got := truncateStatusLine("abcdef", 1); lipgloss.Width(got) > 1 {
+		t.Fatalf("tiny width result too wide: %q", got)
 	}
 }
 
