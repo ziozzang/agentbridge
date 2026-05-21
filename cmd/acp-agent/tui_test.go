@@ -601,6 +601,42 @@ func TestTUIReflowReservesNoticeComposerStatusRows(t *testing.T) {
 	}
 }
 
+func TestTUIWindowSizeUpdateReflowsFrameAndComposer(t *testing.T) {
+	m := newTUIModel(context.Background(), &client{events: make(chan uiEvent)})
+	m.appendCell(tuiCell{Kind: "assistant", Title: "assistant", Body: strings.Repeat("wide ", 20)})
+	next, cmd := m.Update(tea.WindowSizeMsg{Width: 72, Height: 9})
+	if cmd != nil {
+		t.Fatalf("window resize should not launch command")
+	}
+	m = next.(tuiModel)
+	if m.width != 72 || m.height != 9 {
+		t.Fatalf("size=%dx%d", m.width, m.height)
+	}
+	if m.viewport.Width != 72 || m.viewport.Height != 6 {
+		t.Fatalf("viewport=%dx%d", m.viewport.Width, m.viewport.Height)
+	}
+	if m.input.Width != 69 {
+		t.Fatalf("input width=%d", m.input.Width)
+	}
+	got := stripANSI(m.View())
+	for _, want := range []string{"assistant", "Ctrl-D: exit", "Type a message or /help", "Ready"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("resized frame missing %q: %q", want, got)
+		}
+	}
+}
+
+func TestTUIReflowClampsTinyComposerAndViewport(t *testing.T) {
+	m := tuiModel{width: 2, height: 2, autoFollow: true, input: newTUIComposer()}
+	m.reflow()
+	if m.input.Width != 1 {
+		t.Fatalf("tiny input width=%d", m.input.Width)
+	}
+	if m.viewport.Width != 2 || m.viewport.Height != 1 {
+		t.Fatalf("tiny viewport=%dx%d", m.viewport.Width, m.viewport.Height)
+	}
+}
+
 func TestTUIScrollPositionIsPreservedWhenNotFollowing(t *testing.T) {
 	m := tuiModel{width: 80, height: 8, autoFollow: true}
 	for i := 0; i < 20; i++ {

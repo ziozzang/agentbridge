@@ -110,7 +110,7 @@ func (m *tuiModel) reflow() {
 	if m.width <= 0 || m.height <= 0 {
 		return
 	}
-	m.input.Width = m.width - 3
+	m.input.Width = maxInt(1, m.width-3)
 	m.viewport.Width = m.width
 	m.viewport.Height = maxInt(1, m.height-3)
 	m.refreshViewport()

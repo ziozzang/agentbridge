@@ -62,6 +62,8 @@ The broader ownership and permission rules are documented in
   resize, key routing, ACP UI events, command completion, spinner ticks, and
   composer updates. This keeps the runtime event loop testable without starting
   a terminal program.
+- Terminal resize events reflow the viewport and composer through the same
+  update loop, with tiny terminal dimensions clamped to valid component sizes.
 - Stop requests append an immediate transcript cell and refresh the viewport in
   the same key event, so interrupt feedback is visible before the next provider
   event arrives.
