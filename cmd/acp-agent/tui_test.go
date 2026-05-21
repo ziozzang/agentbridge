@@ -237,6 +237,22 @@ func TestTUISubmitKeysIncludeLineFeedAndCarriageReturn(t *testing.T) {
 	}
 }
 
+func TestTUIKeyLayersKeepComposerNavigationOutOfViewport(t *testing.T) {
+	for _, keyName := range []string{"home", "end", "left", "right", "ctrl+d"} {
+		if isViewportKey(keyName) {
+			t.Fatalf("%s should not be captured by transcript viewport", keyName)
+		}
+	}
+	for _, keyName := range []string{"up", "down", "pgup", "pgdown"} {
+		if !isViewportKey(keyName) {
+			t.Fatalf("%s should scroll transcript viewport", keyName)
+		}
+	}
+	if !isGlobalExitKey("ctrl+d") {
+		t.Fatalf("ctrl+d should remain a global exit key")
+	}
+}
+
 func TestTUIReflowReservesNoticeComposerStatusRows(t *testing.T) {
 	m := tuiModel{width: 100, height: 30, autoFollow: true}
 	m.reflow()
@@ -263,6 +279,10 @@ func TestTUIScrollPositionIsPreservedWhenNotFollowing(t *testing.T) {
 	m.applyEvent(uiAssistantDeltaEvent{Text: "new content"})
 	if m.viewport.YOffset != offset {
 		t.Fatalf("viewport offset changed from %d to %d", offset, m.viewport.YOffset)
+	}
+	m.width = 220
+	if got := stripANSI(m.statusLine()); !strings.Contains(got, "Scroll") {
+		t.Fatalf("status should expose non-following scroll state: %q", got)
 	}
 }
 

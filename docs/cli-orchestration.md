@@ -35,6 +35,9 @@ The broader ownership and permission rules are documented in
 - Transport updates are normalized into `uiEvent` values.
 - The Bubble Tea model owns the viewport, composer, status surface, permission
   overlay, and transcript cells.
+- Keyboard handling is split into a small key layer: global interrupt/exit keys
+  win first, overlays own selection keys, the transcript viewport owns scroll
+  keys, and the composer keeps normal text navigation keys.
 - A minimal line-oriented fallback remains available behind `--plain` for
   debugging and minimal terminals. It does not own terminal layout.
 

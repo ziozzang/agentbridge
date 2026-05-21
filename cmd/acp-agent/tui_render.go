@@ -263,12 +263,22 @@ func (m tuiModel) statusLine() string {
 	if state.Tools > 0 {
 		parts = append(parts, fmt.Sprintf("Tools %d", state.Tools))
 	}
+	if scroll := m.scrollLabel(); scroll != "" {
+		parts = append(parts, scroll)
+	}
 	parts = append(parts, agentVersionShort(), shortSession(state.SessionID))
 	line := strings.Join(nonEmpty(parts), " · ")
 	if lipgloss.Width(line) > m.width && m.width > 0 {
 		return lipgloss.NewStyle().MaxWidth(m.width).Render(line)
 	}
 	return line
+}
+
+func (m tuiModel) scrollLabel() string {
+	if m.autoFollow || m.viewport.AtBottom() {
+		return ""
+	}
+	return fmt.Sprintf("Scroll %.0f%%", m.viewport.ScrollPercent()*100)
 }
 
 func (m tuiModel) turnElapsed() string {

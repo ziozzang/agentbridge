@@ -34,6 +34,9 @@ shell script를 실행하지 않습니다.
 - Transport update는 `uiEvent` 값으로 정규화됩니다.
 - Bubble Tea model은 viewport, composer, status surface, permission overlay,
   transcript cell을 소유합니다.
+- Keyboard handling은 작은 key layer로 분리합니다. Global interrupt/exit key가
+  가장 먼저 처리되고, overlay는 selection key를, transcript viewport는 scroll key를,
+  composer는 일반 text navigation key를 소유합니다.
 - 최소 line-oriented fallback은 `--plain` 뒤에 debugging/minimal terminal용으로
   남깁니다. 이 경로는 terminal layout을 소유하지 않습니다.
 

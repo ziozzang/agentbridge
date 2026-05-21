@@ -72,11 +72,11 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.height = msg.Height
 		m.reflow()
 	case tea.KeyMsg:
-		keyName := msg.String()
+		keyName := tuiKeyName(msg)
 		switch {
-		case keyName == "ctrl+c":
+		case isGlobalInterruptKey(keyName):
 			return m.handleCtrlC()
-		case keyName == "ctrl+d":
+		case isGlobalExitKey(keyName):
 			return m, tea.Quit
 		}
 		if m.overlay != nil {
@@ -89,8 +89,6 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.submitInput(cmds)
 		case isViewportKey(keyName):
 			return m.updateViewport(msg)
-		}
-		switch keyName {
 		}
 	case tuiEventMsg:
 		m.applyEvent(msg.Event)
@@ -110,24 +108,6 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	cmds = append(cmds, cmd)
 	m.refreshViewport()
 	return m, tea.Batch(cmds...)
-}
-
-func isSubmitKey(keyName string) bool {
-	switch keyName {
-	case "enter", "ctrl+j", "ctrl+m":
-		return true
-	default:
-		return false
-	}
-}
-
-func isViewportKey(keyName string) bool {
-	switch keyName {
-	case "up", "down", "pgup", "pgdown", "home", "end", "ctrl+u", "ctrl+d":
-		return true
-	default:
-		return false
-	}
 }
 
 func (m tuiModel) updateViewport(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -194,7 +174,8 @@ func (m tuiModel) updateOverlay(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if m.overlay == nil {
 		return m, nil
 	}
-	switch msg.String() {
+	keyName := tuiKeyName(msg)
+	switch keyName {
 	case "up", "k":
 		if m.choice > 0 {
 			m.choice--
@@ -203,16 +184,21 @@ func (m tuiModel) updateOverlay(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if m.choice < len(m.overlay.Options)-1 {
 			m.choice++
 		}
-	case "esc":
-		m.cancelOverlay()
-	case "enter", "ctrl+j", "ctrl+m":
-		m.replyOverlayChoice(m.choice)
 	default:
-		if m.hasOverlayChoiceKey(msg.String()) {
-			m.chooseOverlayKey(msg.String())
-		}
+		m.handleOverlayActionKey(keyName)
 	}
 	return m, nil
+}
+
+func (m *tuiModel) handleOverlayActionKey(keyName string) {
+	switch {
+	case isOverlayCancelKey(keyName):
+		m.cancelOverlay()
+	case isOverlaySubmitKey(keyName):
+		m.replyOverlayChoice(m.choice)
+	case m.hasOverlayChoiceKey(keyName):
+		m.chooseOverlayKey(keyName)
+	}
 }
 
 func (m tuiModel) overlayHelp() string {
