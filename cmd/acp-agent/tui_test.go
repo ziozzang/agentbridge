@@ -33,8 +33,23 @@ func TestTUIThinkingDeltasCoalesce(t *testing.T) {
 	if len(m.cells) != 1 {
 		t.Fatalf("cells=%d", len(m.cells))
 	}
-	if m.cells[0].Kind != "thinking" || m.cells[0].Body != "useful things" {
+	if m.cells[0].Kind != "thinking" || m.cells[0].Title != "reasoning" || m.cells[0].Body != "useful things" {
 		t.Fatalf("thinking cell=%#v", m.cells[0])
+	}
+}
+
+func TestTUIProgressTracksStreamingEvents(t *testing.T) {
+	start := time.Date(2026, 5, 22, 1, 2, 3, 0, time.UTC)
+	m := tuiModel{width: 180, state: clientState{Busy: true}, turnAt: start, now: start}
+	m.applyEvent(uiAssistantDeltaEvent{Text: "pong"})
+	m.applyEvent(uiThinkingDeltaEvent{Text: "think"})
+	m.applyEvent(uiToolEvent{Status: "in_progress", Title: "Read file", Detail: "path: README.md"})
+	m.now = m.lastEventAt.Add(2 * time.Second)
+	line := stripANSI(m.noticeLine())
+	for _, want := range []string{"answer 4 chars", "reasoning 5 chars", "tool events 1", "tool 2s ago"} {
+		if !strings.Contains(line, want) {
+			t.Fatalf("notice missing %q: %q", want, line)
+		}
 	}
 }
 
@@ -69,6 +84,25 @@ func TestTUIPermissionOverlayNumericChoice(t *testing.T) {
 	}
 	if got := <-reply; got != "2" {
 		t.Fatalf("reply=%q", got)
+	}
+}
+
+func TestTUIInterruptKeysBypassOverlay(t *testing.T) {
+	m := tuiModel{ctx: context.Background(), state: clientState{Busy: true}, overlay: &uiPermissionRequest{
+		Options: []choiceOption{{Key: "1", Label: "yes"}},
+		Reply:   make(chan string, 1),
+	}}
+	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyCtrlC})
+	m = next.(tuiModel)
+	if cmd != nil {
+		t.Fatalf("first ctrl-c should stop, not quit")
+	}
+	if !m.ctrlCArmed {
+		t.Fatalf("ctrl-c was swallowed by overlay")
+	}
+	_, cmd = m.Update(tea.KeyMsg{Type: tea.KeyCtrlD})
+	if cmd == nil {
+		t.Fatalf("ctrl-d should quit even when overlay is active")
 	}
 }
 
@@ -173,6 +207,17 @@ func TestTUITurnElapsedFormatting(t *testing.T) {
 	}
 	if got := compactDuration(3*time.Hour + 2*time.Minute); got != "3h02m" {
 		t.Fatalf("duration=%q", got)
+	}
+}
+
+func TestTUISubmitKeysIncludeLineFeedAndCarriageReturn(t *testing.T) {
+	for _, keyName := range []string{"enter", "ctrl+j", "ctrl+m"} {
+		if !isSubmitKey(keyName) {
+			t.Fatalf("%s should submit input", keyName)
+		}
+	}
+	if isSubmitKey("space") {
+		t.Fatalf("space should not submit input")
 	}
 }
 

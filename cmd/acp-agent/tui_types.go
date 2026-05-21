@@ -20,25 +20,30 @@ type tuiCell struct {
 }
 
 type tuiModel struct {
-	ctx        context.Context
-	client     *client
-	events     <-chan uiEvent
-	state      clientState
-	opts       clientOptions
-	width      int
-	height     int
-	viewport   viewport.Model
-	input      textinput.Model
-	spinner    spinner.Model
-	cells      []tuiCell
-	overlay    *uiPermissionRequest
-	choice     int
-	activity   string
-	turnAt     time.Time
-	now        time.Time
-	escArmed   bool
-	ctrlCArmed bool
-	err        string
+	ctx           context.Context
+	client        *client
+	events        <-chan uiEvent
+	state         clientState
+	opts          clientOptions
+	width         int
+	height        int
+	viewport      viewport.Model
+	input         textinput.Model
+	spinner       spinner.Model
+	cells         []tuiCell
+	overlay       *uiPermissionRequest
+	choice        int
+	activity      string
+	answerRunes   int
+	thinkingRunes int
+	toolEvents    int
+	lastEventAt   time.Time
+	lastEventKind string
+	turnAt        time.Time
+	now           time.Time
+	escArmed      bool
+	ctrlCArmed    bool
+	err           string
 }
 
 var slashCommandSuggestions = []string{

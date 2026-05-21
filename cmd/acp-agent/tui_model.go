@@ -17,6 +17,11 @@ func (m *tuiModel) applyEvent(ev uiEvent) {
 			m.now = m.turnAt
 			m.escArmed = false
 			m.ctrlCArmed = false
+			m.answerRunes = 0
+			m.thinkingRunes = 0
+			m.toolEvents = 0
+			m.lastEventAt = time.Time{}
+			m.lastEventKind = ""
 		case !ev.State.Busy:
 			m.activity = ""
 			m.turnAt = time.Time{}
@@ -24,17 +29,24 @@ func (m *tuiModel) applyEvent(ev uiEvent) {
 			m.ctrlCArmed = false
 		}
 	case uiUserEvent:
-		m.activity = "prompt queued"
+		m.activity = "waiting for model"
 		m.appendCell(tuiCell{Kind: "user", Title: "user", Body: ev.Text})
 	case uiAssistantDeltaEvent:
 		m.activity = "answering"
+		m.answerRunes += len([]rune(ev.Text))
+		m.markEvent("answer")
 		m.appendDelta("assistant", "assistant", ev.Text)
 	case uiThinkingDeltaEvent:
-		m.activity = "thinking"
-		m.appendDelta("thinking", "thinking", ev.Text)
+		m.activity = "reasoning"
+		m.thinkingRunes += len([]rune(ev.Text))
+		m.markEvent("reasoning")
+		m.appendDelta("thinking", "reasoning", ev.Text)
 	case uiToolEvent:
-		m.activity = "tool: " + strings.TrimSpace(firstNonEmpty(ev.Title, ev.Status))
-		m.appendCell(tuiCell{Kind: "tool", Title: firstNonEmpty(ev.Status, "tool") + " " + ev.Title, Body: ev.Detail})
+		m.toolEvents++
+		title := strings.TrimSpace(firstNonEmpty(ev.Title, ev.Status))
+		m.activity = "tool: " + title
+		m.markEvent("tool")
+		m.appendCell(tuiCell{Kind: "tool", Title: toolCellTitle(ev.Status, ev.Title), Body: ev.Detail})
 	case uiInfoEvent:
 		if ev.Title != "" {
 			m.activity = ev.Title
@@ -47,6 +59,30 @@ func (m *tuiModel) applyEvent(ev uiEvent) {
 		m.choice = 0
 	}
 	m.refreshViewport()
+}
+
+func (m *tuiModel) markEvent(kind string) {
+	now := time.Now()
+	m.lastEventAt = now
+	m.lastEventKind = kind
+	if m.now.IsZero() || now.After(m.now) {
+		m.now = now
+	}
+}
+
+func toolCellTitle(status, title string) string {
+	status = strings.TrimSpace(status)
+	title = strings.TrimSpace(title)
+	switch {
+	case title == "" && status == "":
+		return "tool"
+	case title == "":
+		return "tool " + status
+	case status == "":
+		return "tool " + title
+	default:
+		return "tool " + status + " · " + title
+	}
 }
 
 func (m *tuiModel) appendDelta(kind, title, text string) {

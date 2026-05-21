@@ -130,7 +130,7 @@ func main() {
 	defer signal.Stop(sigCh)
 	cli, err := dialClient(ctx, *addr, os.Stdin, os.Stdout, os.Stderr, clientOptions{
 		Permission:   strings.ToLower(strings.TrimSpace(*permission)),
-		ShowThinking: *showThinking,
+		ShowThinking: *showThinking || interactiveTUI,
 		ShowTools:    !*hideTools,
 		RawUpdates:   *rawUpdates,
 		LegacyUI:     !interactiveTUI,

@@ -56,6 +56,9 @@ func (m tuiModel) noticeLine() string {
 		if strings.TrimSpace(m.activity) != "" {
 			parts = append(parts, m.activity)
 		}
+		if progress := m.progressLine(); progress != "" {
+			parts = append(parts, progress)
+		}
 		parts = append(parts, "ESC: confirm stop", "Ctrl-C: stop", "Ctrl-D: exit")
 		return strings.Join(parts, " · ")
 	}
@@ -63,6 +66,28 @@ func (m tuiModel) noticeLine() string {
 		return tuiHintStyle.Render(hint)
 	}
 	return "Ctrl-D: exit · /help"
+}
+
+func (m tuiModel) progressLine() string {
+	var parts []string
+	if m.answerRunes > 0 {
+		parts = append(parts, fmt.Sprintf("answer %d chars", m.answerRunes))
+	}
+	if m.thinkingRunes > 0 {
+		parts = append(parts, fmt.Sprintf("reasoning %d chars", m.thinkingRunes))
+	}
+	if m.toolEvents > 0 {
+		parts = append(parts, fmt.Sprintf("tool events %d", m.toolEvents))
+	}
+	if !m.lastEventAt.IsZero() {
+		age := m.now.Sub(m.lastEventAt)
+		if age < 0 {
+			age = 0
+		}
+		label := firstNonEmpty(m.lastEventKind, "event")
+		parts = append(parts, fmt.Sprintf("%s %s ago", label, compactDuration(age)))
+	}
+	return strings.Join(parts, " · ")
 }
 
 func (m tuiModel) completionHint() string {
@@ -212,6 +237,9 @@ func (m tuiModel) statusLine() string {
 	}
 	if state.Busy {
 		status += " · " + m.turnElapsed()
+		if progress := m.progressLine(); progress != "" {
+			status += " · " + progress
+		}
 	}
 	parts := []string{
 		tuiStateStyle.Render(status),

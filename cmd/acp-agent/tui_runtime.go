@@ -71,28 +71,23 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.height = msg.Height
 		m.reflow()
 	case tea.KeyMsg:
+		keyName := msg.String()
+		switch {
+		case keyName == "ctrl+c":
+			return m.handleCtrlC()
+		case keyName == "ctrl+d":
+			return m, tea.Quit
+		case keyName == "esc":
+			return m.handleEsc()
+		}
 		if m.overlay != nil {
 			return m.updateOverlay(msg)
 		}
-		switch msg.String() {
-		case "ctrl+c":
-			return m.handleCtrlC()
-		case "ctrl+d":
-			return m, tea.Quit
-		case "esc":
-			return m.handleEsc()
-		case "enter":
-			m.escArmed = false
-			m.ctrlCArmed = false
-			line := strings.TrimSpace(m.input.Value())
-			m.input.Reset()
-			if line == "" {
-				return m, nil
-			}
-			if line == "/exit" || line == "/quit" {
-				return m, tea.Quit
-			}
-			cmds = append(cmds, m.runLine(line))
+		switch {
+		case isSubmitKey(keyName):
+			return m.submitInput(cmds)
+		}
+		switch keyName {
 		}
 	case tuiEventMsg:
 		m.applyEvent(msg.Event)
@@ -110,6 +105,31 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
 	m.input, cmd = m.input.Update(msg)
 	cmds = append(cmds, cmd)
+	m.refreshViewport()
+	return m, tea.Batch(cmds...)
+}
+
+func isSubmitKey(keyName string) bool {
+	switch keyName {
+	case "enter", "ctrl+j", "ctrl+m":
+		return true
+	default:
+		return false
+	}
+}
+
+func (m tuiModel) submitInput(cmds []tea.Cmd) (tea.Model, tea.Cmd) {
+	m.escArmed = false
+	m.ctrlCArmed = false
+	line := strings.TrimSpace(m.input.Value())
+	m.input.Reset()
+	if line == "" {
+		return m, nil
+	}
+	if line == "/exit" || line == "/quit" {
+		return m, tea.Quit
+	}
+	cmds = append(cmds, m.runLine(line))
 	m.refreshViewport()
 	return m, tea.Batch(cmds...)
 }
