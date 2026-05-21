@@ -35,6 +35,8 @@ The broader ownership and permission rules are documented in
 - Transport updates are normalized into `uiEvent` values.
 - The Bubble Tea model owns the viewport, composer, status surface, permission
   overlay, and transcript cells.
+- Transcript rendering is a dedicated surface: history cells are normalized
+  before rendering, and the viewport consumes the rendered transcript string.
 - TUI component construction lives outside the runtime update loop, so the
   composer, spinner, viewport, and initial model state can be tested without
   launching a terminal program.

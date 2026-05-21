@@ -65,6 +65,22 @@ func TestTUIThinkingDeltasCoalesce(t *testing.T) {
 	}
 }
 
+func TestTUITranscriptSurfaceRendersCellKinds(t *testing.T) {
+	tr := tuiTranscript{cells: []tuiCell{
+		{Kind: "user", Title: "user", Body: "hello"},
+		{Kind: "assistant", Title: "assistant", Body: "world"},
+		{Kind: "thinking", Title: "reasoning", Body: "step"},
+		{Kind: "tool", Title: "tool in_progress", Body: "path: README.md"},
+		{Kind: "error", Title: "error", Body: "boom"},
+	}}
+	got := stripANSI(tr.View())
+	for _, want := range []string{"user", "  > hello", "assistant", "world", "reasoning", "  step", "tool in_progress", "path: README.md", "error", "boom"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("transcript missing %q: %q", want, got)
+		}
+	}
+}
+
 func TestTUIProgressTracksStreamingEvents(t *testing.T) {
 	start := time.Date(2026, 5, 22, 1, 2, 3, 0, time.UTC)
 	m := tuiModel{width: 180, state: clientState{Busy: true}, turnAt: start, now: start}

@@ -34,6 +34,8 @@ shell script를 실행하지 않습니다.
 - Transport update는 `uiEvent` 값으로 정규화됩니다.
 - Bubble Tea model은 viewport, composer, status surface, permission overlay,
   transcript cell을 소유합니다.
+- Transcript rendering은 별도 surface입니다. History cell을 정규화한 뒤 렌더링하고,
+  viewport는 렌더링된 transcript string을 소비합니다.
 - TUI component construction은 runtime update loop 밖에 둡니다. 그래서 composer,
   spinner, viewport, 초기 model state를 terminal program 실행 없이 테스트할 수 있습니다.
 - Keyboard handling은 작은 key layer로 분리합니다. Global interrupt/exit key가
