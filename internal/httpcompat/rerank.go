@@ -74,6 +74,10 @@ func rerankHTTPModels(active *plugins.Active) []provider.ModelInfo {
 		Name:        model,
 		Description: "Jina reranker model via AgentBridge",
 		Provider:    "jina",
+		API:         "rerank",
+		Input:       []string{"text"},
+		Tags:        []string{"reranker"},
+		Compat:      map[string]any{"endpoint": "/v1/rerank"},
 	}}
 }
 

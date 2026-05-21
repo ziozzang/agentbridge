@@ -142,6 +142,10 @@ func embeddingHTTPModels(active *plugins.Active) []provider.ModelInfo {
 				Name:        model,
 				Description: "Jina embedding model via AgentBridge",
 				Provider:    "jina",
+				API:         "embeddings",
+				Input:       []string{"text"},
+				Tags:        []string{"embedding"},
+				Compat:      map[string]any{"endpoint": "/v1/embeddings"},
 			})
 		}
 	}
@@ -186,6 +190,10 @@ func openAIEmbeddingModelInfosFromEnv() []provider.ModelInfo {
 			Name:        model,
 			Description: desc,
 			Provider:    owner,
+			API:         "embeddings",
+			Input:       []string{"text"},
+			Tags:        []string{"embedding"},
+			Compat:      map[string]any{"endpoint": "/v1/embeddings"},
 		})
 	}
 	if mf, ok := configuredEmbeddingMap(); ok {

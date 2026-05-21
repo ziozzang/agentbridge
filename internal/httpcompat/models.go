@@ -2,6 +2,7 @@ package httpcompat
 
 import (
 	"net/http"
+	"strings"
 
 	"github.com/ziozzang/agentbridge/internal/agentprofiles"
 	"github.com/ziozzang/agentbridge/internal/provider"
@@ -75,7 +76,57 @@ func modelMetadata(m provider.ModelInfo) map[string]any {
 	set("tags", m.Tags)
 	set("compat", m.Compat)
 	set("cost", m.Cost)
+	kind := inferModelKind(m)
+	if kind != "" {
+		meta["kind"] = kind
+		meta["capabilities"] = inferModelCapabilities(kind)
+		meta["modalities"] = inferModelModalities(kind, m.Input)
+	}
 	return meta
+}
+
+func inferModelKind(m provider.ModelInfo) string {
+	haystack := strings.ToLower(strings.Join(append([]string{m.ModelID, m.Name, m.Description, m.Provider}, m.Tags...), " "))
+	if strings.Contains(haystack, "rerank") || strings.Contains(haystack, "reranker") {
+		return "reranker"
+	}
+	if strings.Contains(haystack, "embedding") || strings.Contains(haystack, "embed") || m.Provider == "openai_embed" {
+		return "embedding"
+	}
+	if strings.Contains(haystack, "agent profile") || strings.Contains(m.ModelID, "agent") {
+		return "agent"
+	}
+	if mode, ok := m.Compat["agent_loop"].(string); ok && mode == "provider_native" {
+		return "agent"
+	}
+	return "llm"
+}
+
+func inferModelCapabilities(kind string) []string {
+	switch kind {
+	case "embedding":
+		return []string{"embeddings"}
+	case "reranker":
+		return []string{"rerank"}
+	case "agent":
+		return []string{"chat", "agent"}
+	default:
+		return []string{"chat"}
+	}
+}
+
+func inferModelModalities(kind string, input []string) map[string]any {
+	if len(input) == 0 {
+		input = []string{"text"}
+	}
+	switch kind {
+	case "embedding":
+		return map[string]any{"input": input, "output": []string{"embedding"}}
+	case "reranker":
+		return map[string]any{"input": input, "output": []string{"ranking"}}
+	default:
+		return map[string]any{"input": input, "output": []string{"text"}}
+	}
 }
 
 func (h *handler) availableHTTPModels() ([]provider.ModelInfo, error) {

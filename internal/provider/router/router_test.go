@@ -327,6 +327,47 @@ func TestRouterWildcardProviderModelsFallBackToDefaultModel(t *testing.T) {
 	}
 }
 
+func TestRouterExactRouteDoesNotExposeAllProviderModels(t *testing.T) {
+	c, err := New(provider.Config{
+		Name: "router", Kind: Kind,
+		Extra: map[string]any{
+			"_providers": map[string]provider.Config{
+				"codex-app": {
+					Name: "codex-app", Kind: "codex-app-server",
+					Models: []provider.ModelInfo{{ModelID: "gpt-5.5", Name: "GPT-5.5"}},
+				},
+				"codex": {
+					Name: "codex", Kind: "openai-responses",
+					Models: []provider.ModelInfo{{ModelID: "gpt-5.5", Name: "GPT-5.5"}},
+				},
+			},
+			"routes": []any{
+				map[string]any{
+					"model":        "codex-agent",
+					"provider":     "codex-app",
+					"target_model": "gpt-5.5",
+				},
+				map[string]any{
+					"match":        "gpt-*",
+					"provider":     "codex",
+					"target_model": "$model",
+				},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	models := c.AvailableModels()
+	owners := map[string]string{}
+	for _, m := range models {
+		owners[m.ModelID] = m.Provider
+	}
+	if owners["codex-agent"] != "codex-app" || owners["gpt-5.5"] != "codex" {
+		t.Fatalf("models = %+v", models)
+	}
+}
+
 func TestGlobMatch(t *testing.T) {
 	cases := []struct {
 		pat, model string

@@ -253,6 +253,12 @@ The template must contain `{name}`. For example,
 `ollama:gpt-oss:120b`, and a request for `model=ollama:gpt-oss:120b` is sent
 upstream as `gpt-oss:120b` when `target_model: "$model"` is used.
 
+`/v1/models` includes normalized metadata so clients can separate chat models,
+provider-native agents, embeddings, and rerankers. The metadata includes
+`kind` (`llm`, `agent`, `embedding`, or `reranker`), `capabilities`, and
+`modalities`; embedding and rerank models also include their HTTP endpoint in
+`metadata.compat.endpoint`.
+
 Routes can also live in `$XDG_CONFIG_HOME/agentbridge/router.yaml`,
 `router.json`, or a file selected by `AGENTBRIDGE_ROUTER_FILE`:
 

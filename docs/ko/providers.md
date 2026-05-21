@@ -253,6 +253,12 @@ Provider model id가 `/v1/models`에서 서로 겹칠 수 있으면
 `target_model: "$model"`을 쓰는 경우 `model=ollama:gpt-oss:120b` 요청은
 upstream에는 다시 `gpt-oss:120b`로 전달됩니다.
 
+`/v1/models`는 client가 chat model, provider-native agent, embedding,
+reranker를 구분할 수 있도록 정규화된 metadata를 포함합니다. metadata에는
+`kind`(`llm`, `agent`, `embedding`, `reranker`), `capabilities`,
+`modalities`가 들어가며, embedding/rerank 모델은
+`metadata.compat.endpoint`에 HTTP endpoint도 포함합니다.
+
 Route는 `$XDG_CONFIG_HOME/agentbridge/router.yaml`, `router.json`, 또는
 `AGENTBRIDGE_ROUTER_FILE`로 지정한 외부 JSON/YAML 파일로도 분리할 수
 있습니다.

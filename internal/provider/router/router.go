@@ -116,7 +116,7 @@ func (c *Client) AvailableModels() []provider.ModelInfo {
 		}
 	}
 	for _, r := range c.routes {
-		if cfg, ok := c.providers[r.Provider]; ok {
+		if cfg, ok := c.providers[r.Provider]; ok && routeExposesProviderModels(r) {
 			for _, m := range providerModels(cfg) {
 				if m.ModelID == "" {
 					continue
@@ -149,6 +149,18 @@ func (c *Client) AvailableModels() []provider.ModelInfo {
 		out = append(out, provider.ModelInfo{ModelID: id, Name: id, Provider: firstNonEmpty(r.Provider, Kind)})
 	}
 	return out
+}
+
+func routeExposesProviderModels(r route) bool {
+	if strings.Contains(r.primaryPattern(), "*") {
+		return true
+	}
+	for _, model := range r.Models {
+		if strings.Contains(model, "*") {
+			return true
+		}
+	}
+	return false
 }
 
 func providerModels(cfg provider.Config) []provider.ModelInfo {

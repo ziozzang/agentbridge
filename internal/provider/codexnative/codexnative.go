@@ -166,7 +166,16 @@ func (c *Client) StreamChat(ctx context.Context, messages []provider.Message, op
 			errs <- err
 			return
 		}
-		defer rpc.Close()
+		done := make(chan struct{})
+		defer close(done)
+		defer rpc.Kill()
+		go func() {
+			select {
+			case <-ctx.Done():
+				rpc.Kill()
+			case <-done:
+			}
+		}()
 
 		sessionKey := sessionKeyFor(opts)
 		threadID, prompt, seen, err := c.prepareTurn(ctx, rpc, sessionKey, messages, opts)
@@ -175,7 +184,7 @@ func (c *Client) StreamChat(ctx context.Context, messages []provider.Message, op
 			return
 		}
 
-		started, err := rpc.Request("turn/start", c.turnStartParams(threadID, prompt, opts))
+		started, err := rpc.RequestContext(ctx, "turn/start", c.turnStartParams(threadID, prompt, opts))
 		if err != nil {
 			errs <- normalizeCodexError(err, opts.Model)
 			return
@@ -267,10 +276,10 @@ func (c *Client) CompactConversation(ctx context.Context, messages []provider.Me
 		return nil, err
 	}
 	defer rpc.Kill()
-	if _, err := rpc.Request("thread/resume", map[string]any{"threadId": threadID}); err != nil {
+	if _, err := rpc.RequestContext(ctx, "thread/resume", map[string]any{"threadId": threadID}); err != nil {
 		return nil, err
 	}
-	if _, err := rpc.Request("thread/compact/start", map[string]any{"threadId": threadID}); err != nil {
+	if _, err := rpc.RequestContext(ctx, "thread/compact/start", map[string]any{"threadId": threadID}); err != nil {
 		return nil, err
 	}
 	out := makeLocalCheckpoint(messages, opts.Reason)
@@ -334,7 +343,7 @@ func (c *Client) prepareTurn(ctx context.Context, rpc *rpcClient, sessionKey str
 	prompt := formatTranscript(messages)
 	if prev.ThreadID != "" && len(prev.Seen) > 0 {
 		if delta, ok := incrementalTranscript(prev.Seen, seenNow, messages); ok && delta != "" {
-			if _, err := rpc.Request("thread/resume", map[string]any{"threadId": prev.ThreadID}); err == nil {
+			if _, err := rpc.RequestContext(ctx, "thread/resume", map[string]any{"threadId": prev.ThreadID}); err == nil {
 				return prev.ThreadID, delta, seenNow, nil
 			}
 		}
@@ -352,7 +361,7 @@ func (c *Client) prepareTurn(ctx context.Context, rpc *rpcClient, sessionKey str
 }
 
 func (c *Client) startThread(ctx context.Context, rpc *rpcClient, model string, opts provider.StreamOptions) (string, error) {
-	resp, err := rpc.Request("thread/start", c.threadStartParams(model, opts))
+	resp, err := rpc.RequestContext(ctx, "thread/start", c.threadStartParams(model, opts))
 	if err != nil {
 		return "", err
 	}
@@ -635,7 +644,7 @@ func (c *rpcClient) RequestContext(ctx context.Context, method string, params an
 	}); err != nil {
 		return nil, err
 	}
-	for seen := 0; seen < 128; seen++ {
+	for {
 		select {
 		case <-ctx.Done():
 			c.Kill()
@@ -677,8 +686,6 @@ func (c *rpcClient) RequestContext(ctx context.Context, method string, params an
 			_ = payload
 		}
 	}
-	c.Kill()
-	return nil, fmt.Errorf("codex app-server did not return response for %s", method)
 }
 
 func (c *rpcClient) RespondToRequest(req map[string]any, result any) error {

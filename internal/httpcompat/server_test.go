@@ -583,6 +583,9 @@ func TestModelsExposeProviderMetadata(t *testing.T) {
 	if !strings.Contains(text, `"reasoning":true`) || !strings.Contains(text, `"context_window":256000`) || !strings.Contains(text, `"aliases":["grok"]`) {
 		t.Fatalf("model metadata missing: %s", text)
 	}
+	if !strings.Contains(text, `"kind":"llm"`) || !strings.Contains(text, `"capabilities":["chat"]`) || !strings.Contains(text, `"modalities":{"input":["text","image"],"output":["text"]}`) {
+		t.Fatalf("model capability metadata missing: %s", text)
+	}
 }
 
 func TestLlamaCppProviderOmitsModelByDefault(t *testing.T) {
@@ -704,6 +707,9 @@ func TestEmbeddingsEndpointUsesActiveJinaPlugin(t *testing.T) {
 	if !strings.Contains(string(body), `"id":"jina-embeddings-v3"`) || !strings.Contains(string(body), `"owned_by":"jina"`) {
 		t.Fatalf("embedding model not exposed: %q", string(body))
 	}
+	if !strings.Contains(string(body), `"kind":"embedding"`) || !strings.Contains(string(body), `"capabilities":["embeddings"]`) || !strings.Contains(string(body), `"output":["embedding"]`) {
+		t.Fatalf("embedding metadata not exposed: %q", string(body))
+	}
 }
 
 func TestRouterEmbeddingMappingExposesProviderOwners(t *testing.T) {
@@ -744,6 +750,9 @@ func TestRouterEmbeddingMappingExposesProviderOwners(t *testing.T) {
 	text := string(body)
 	if !strings.Contains(text, `"id":"router-embed"`) || !strings.Contains(text, `"owned_by":"router-local"`) {
 		t.Fatalf("router embedding model not exposed correctly: %s", text)
+	}
+	if !strings.Contains(text, `"kind":"embedding"`) || !strings.Contains(text, `"endpoint":"/v1/embeddings"`) {
+		t.Fatalf("router embedding metadata missing: %s", text)
 	}
 	if strings.Contains(text, `upstream-router-embed`) {
 		t.Fatalf("upstream model should not be exposed as public id: %s", text)
@@ -792,6 +801,9 @@ func TestRerankEndpointUsesActiveJinaPlugin(t *testing.T) {
 	body, _ = io.ReadAll(resp.Body)
 	if !strings.Contains(string(body), `"id":"jina-reranker-v3"`) || !strings.Contains(string(body), `"owned_by":"jina"`) {
 		t.Fatalf("rerank model not exposed: %q", string(body))
+	}
+	if !strings.Contains(string(body), `"kind":"reranker"`) || !strings.Contains(string(body), `"capabilities":["rerank"]`) || !strings.Contains(string(body), `"output":["ranking"]`) {
+		t.Fatalf("rerank metadata not exposed: %q", string(body))
 	}
 }
 
