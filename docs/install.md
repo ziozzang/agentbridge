@@ -83,9 +83,17 @@ Useful flags:
 
 Interactive commands:
 
-- `/model MODEL`
-- `/mode MODE`
-- `/exit`
+- `/status`: show address, session id, cwd, model, mode, permission handling,
+  thinking display, tool display, and raw update display.
+- `/model [MODEL]`: show or switch model.
+- `/mode [MODE]`: show or switch ACP mode.
+- `/permission [prompt|allow|reject|cancel]`: show or change permission
+  handling.
+- `/thinking [on|off|toggle]`: show or change thinking display.
+- `/tools [on|off|toggle]`: show or change tool status display.
+- `/raw [on|off|toggle]`: show or change raw update display.
+- `/help`
+- `/exit` or `/quit`
 
 ## HTTP Compatibility Server
 

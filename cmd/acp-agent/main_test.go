@@ -82,6 +82,38 @@ func TestPrintUpdateShowsThinkingWhenRequested(t *testing.T) {
 	}
 }
 
+func TestPrintUpdateSeparatesToolStatus(t *testing.T) {
+	var stderr bytes.Buffer
+	c := &client{stdout: ioDiscard{}, stderr: &stderr, opts: clientOptions{ShowTools: true}}
+	c.printUpdate(acp.SessionUpdateParams{Update: map[string]any{
+		"sessionUpdate": "tool_call",
+		"title":         "Read file: README.md",
+		"status":        "in_progress",
+	}})
+	if !strings.Contains(stderr.String(), "[tool:in_progress] Read file: README.md") {
+		t.Fatalf("tool status not separated: %q", stderr.String())
+	}
+}
+
+func TestCommandsUpdateLocalState(t *testing.T) {
+	var stderr bytes.Buffer
+	c := &client{
+		stderr: &stderr,
+		opts:   clientOptions{Permission: "prompt", ShowTools: true},
+		state:  clientState{Addr: "127.0.0.1:8765", Cwd: "/tmp/x", SessionID: "s1", Model: "m1", Mode: "default"},
+	}
+	c.commandPermission("reject")
+	c.commandBool("thinking", "on", &c.opts.ShowThinking)
+	c.commandBool("tools", "off", &c.opts.ShowTools)
+	c.printStatus()
+	got := stderr.String()
+	for _, want := range []string{"permission reject", "thinking true", "tools false", "model=m1", "mode=default"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("status missing %q in:\n%s", want, got)
+		}
+	}
+}
+
 type ioDiscard struct{}
 
 func (ioDiscard) Write(p []byte) (int, error) { return len(p), nil }

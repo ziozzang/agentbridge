@@ -39,13 +39,20 @@ Flags:
   --yolo               shorthand for --mode bypass_permissions --permission allow
   --read-only          shorthand for --mode default --permission reject
   --show-thinking      print ACP agent_thought_chunk updates to stderr
+  --hide-tools         hide ACP tool_call/tool_call_update status messages
   --raw-updates        print raw non-text session/update payloads to stderr
   --version            print version and exit
 
 Interactive commands:
+  /help                show commands
+  /status              show current connection/session settings
   /exit, /quit         leave the session
-  /model MODEL         switch model with session/set_model
-  /mode MODE           switch mode with session/set_mode
+  /model [MODEL]       show or switch model with session/set_model
+  /mode [MODE]         show or switch mode with session/set_mode
+  /permission [MODE]   show or set permission handling
+  /thinking [on|off]   show or toggle thinking display
+  /tools [on|off]      show or toggle tool status display
+  /raw [on|off]        show or toggle raw update display
 `
 
 func main() {
@@ -58,6 +65,7 @@ func main() {
 	yolo := flag.Bool("yolo", false, "allow edits and commands without prompting")
 	readOnly := flag.Bool("read-only", false, "reject edit and command permission requests")
 	showThinking := flag.Bool("show-thinking", false, "print agent_thought_chunk updates")
+	hideTools := flag.Bool("hide-tools", false, "hide tool_call/tool_call_update status messages")
 	rawUpdates := flag.Bool("raw-updates", false, "print raw non-text session/update payloads")
 	version := flag.Bool("version", false, "print version and exit")
 	help := flag.Bool("help", false, "show help")
@@ -95,6 +103,7 @@ func main() {
 	cli, err := dialClient(ctx, *addr, os.Stdin, os.Stdout, os.Stderr, clientOptions{
 		Permission:   strings.ToLower(strings.TrimSpace(*permission)),
 		ShowThinking: *showThinking,
+		ShowTools:    !*hideTools,
 		RawUpdates:   *rawUpdates,
 	})
 	if err != nil {
@@ -107,11 +116,13 @@ func main() {
 		fmt.Fprintln(os.Stderr, "initialize failed:", err)
 		os.Exit(1)
 	}
-	sessionID, err := cli.NewSession(ctx, *cwd)
+	session, err := cli.NewSession(ctx, *cwd)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "session/new failed:", err)
 		os.Exit(1)
 	}
+	sessionID := session.SessionID
+	cli.setSessionState(*addr, *cwd, session)
 	fmt.Fprintf(os.Stderr, "session %s cwd=%s\n", sessionID, *cwd)
 	if *model != "" {
 		if err := cli.SetModel(ctx, sessionID, *model); err != nil {
@@ -159,7 +170,16 @@ type pendingResponse struct {
 type clientOptions struct {
 	Permission   string
 	ShowThinking bool
+	ShowTools    bool
 	RawUpdates   bool
+}
+
+type clientState struct {
+	Addr      string
+	Cwd       string
+	SessionID string
+	Model     string
+	Mode      string
 }
 
 type client struct {
@@ -169,6 +189,7 @@ type client struct {
 	stdout io.Writer
 	stderr io.Writer
 	opts   clientOptions
+	state  clientState
 
 	writeMu sync.Mutex
 	nextID  atomic.Int64
@@ -212,22 +233,34 @@ func (c *client) Initialize(ctx context.Context) error {
 	}, &out)
 }
 
-func (c *client) NewSession(ctx context.Context, cwd string) (string, error) {
+func (c *client) NewSession(ctx context.Context, cwd string) (acp.NewSessionResponse, error) {
 	var out acp.NewSessionResponse
 	if err := c.Call(ctx, "session/new", acp.NewSessionParams{Cwd: cwd}, &out); err != nil {
-		return "", err
+		return acp.NewSessionResponse{}, err
 	}
-	return out.SessionID, nil
+	return out, nil
 }
 
 func (c *client) SetModel(ctx context.Context, sessionID, model string) error {
 	var out any
-	return c.Call(ctx, "session/set_model", acp.SetModelParams{SessionID: sessionID, ModelID: model}, &out)
+	if err := c.Call(ctx, "session/set_model", acp.SetModelParams{SessionID: sessionID, ModelID: model}, &out); err != nil {
+		return err
+	}
+	c.mu.Lock()
+	c.state.Model = model
+	c.mu.Unlock()
+	return nil
 }
 
 func (c *client) SetMode(ctx context.Context, sessionID, mode string) error {
 	var out any
-	return c.Call(ctx, "session/set_mode", acp.SetModeParams{SessionID: sessionID, ModeID: mode}, &out)
+	if err := c.Call(ctx, "session/set_mode", acp.SetModeParams{SessionID: sessionID, ModeID: mode}, &out); err != nil {
+		return err
+	}
+	c.mu.Lock()
+	c.state.Mode = mode
+	c.mu.Unlock()
+	return nil
 }
 
 func (c *client) Prompt(ctx context.Context, sessionID, text string) error {
@@ -245,6 +278,19 @@ func (c *client) Prompt(ctx context.Context, sessionID, text string) error {
 		fmt.Fprintf(c.stderr, "stop: %s\n", out.StopReason)
 	}
 	return nil
+}
+
+func (c *client) setSessionState(addr, cwd string, session acp.NewSessionResponse) {
+	state := clientState{Addr: addr, Cwd: cwd, SessionID: session.SessionID}
+	if session.Models != nil {
+		state.Model = session.Models.CurrentModelID
+	}
+	if session.Modes != nil {
+		state.Mode = session.Modes.CurrentModeID
+	}
+	c.mu.Lock()
+	c.state = state
+	c.mu.Unlock()
 }
 
 func (c *client) Call(ctx context.Context, method string, params any, result any) error {
@@ -380,7 +426,9 @@ func (c *client) permission(p acp.RequestPermissionParams) (acp.RequestPermissio
 	if title == "" {
 		title = "tool permission"
 	}
+	c.mu.Lock()
 	mode := c.opts.Permission
+	c.mu.Unlock()
 	switch mode {
 	case "", "prompt":
 		fmt.Fprintf(c.stderr, "\npermission requested: %s\n", title)
@@ -414,29 +462,47 @@ func (c *client) printUpdate(p acp.SessionUpdateParams) {
 			flush(c.stdout)
 		}
 	case "agent_thought_chunk":
-		if c.opts.ShowThinking {
+		c.mu.Lock()
+		show := c.opts.ShowThinking
+		c.mu.Unlock()
+		if show {
 			if text := updateText(update); text != "" {
 				fmt.Fprintf(c.stderr, "\n[thinking] %s\n", text)
 				flush(c.stderr)
 			}
 		}
 	case "tool_call":
+		c.mu.Lock()
+		show := c.opts.ShowTools
+		c.mu.Unlock()
+		if !show {
+			return
+		}
 		title, _ := update["title"].(string)
 		status, _ := update["status"].(string)
 		if title != "" {
-			fmt.Fprintf(c.stderr, "\n[%s] %s\n", firstNonEmpty(status, "tool"), title)
+			fmt.Fprintf(c.stderr, "\n[tool:%s] %s\n", firstNonEmpty(status, "start"), title)
 			flush(c.stderr)
 		}
 	case "tool_call_update":
+		c.mu.Lock()
+		show := c.opts.ShowTools
+		c.mu.Unlock()
+		if !show {
+			return
+		}
 		status, _ := update["status"].(string)
 		if status != "" {
-			fmt.Fprintf(c.stderr, "[tool] %s\n", status)
+			fmt.Fprintf(c.stderr, "[tool:%s]\n", status)
 			flush(c.stderr)
 		}
 	case "session_info_update":
 		return
 	default:
-		if c.opts.RawUpdates {
+		c.mu.Lock()
+		rawUpdates := c.opts.RawUpdates
+		c.mu.Unlock()
+		if rawUpdates {
 			raw, _ := json.Marshal(update)
 			fmt.Fprintf(c.stderr, "\n[update] %s\n", raw)
 			flush(c.stderr)
@@ -481,28 +547,124 @@ func repl(ctx context.Context, c *client, sessionID string) error {
 			continue
 		}
 		switch {
+		case line == "/help":
+			c.printHelp()
+		case line == "/status":
+			c.printStatus()
 		case line == "/exit" || line == "/quit":
 			return nil
-		case strings.HasPrefix(line, "/model "):
-			model := strings.TrimSpace(strings.TrimPrefix(line, "/model "))
-			if err := c.SetModel(ctx, sessionID, model); err != nil {
-				fmt.Fprintln(c.stderr, "set model failed:", err)
-			} else {
-				fmt.Fprintln(c.stderr, "model", model)
-			}
-		case strings.HasPrefix(line, "/mode "):
-			mode := strings.TrimSpace(strings.TrimPrefix(line, "/mode "))
-			if err := c.SetMode(ctx, sessionID, mode); err != nil {
-				fmt.Fprintln(c.stderr, "set mode failed:", err)
-			} else {
-				fmt.Fprintln(c.stderr, "mode", mode)
-			}
+		case line == "/model" || strings.HasPrefix(line, "/model "):
+			c.commandModel(ctx, sessionID, strings.TrimSpace(strings.TrimPrefix(line, "/model")))
+		case line == "/mode" || strings.HasPrefix(line, "/mode "):
+			c.commandMode(ctx, sessionID, strings.TrimSpace(strings.TrimPrefix(line, "/mode")))
+		case line == "/permission" || strings.HasPrefix(line, "/permission "):
+			c.commandPermission(strings.TrimSpace(strings.TrimPrefix(line, "/permission")))
+		case line == "/thinking" || strings.HasPrefix(line, "/thinking "):
+			c.commandBool("thinking", strings.TrimSpace(strings.TrimPrefix(line, "/thinking")), &c.opts.ShowThinking)
+		case line == "/tools" || strings.HasPrefix(line, "/tools "):
+			c.commandBool("tools", strings.TrimSpace(strings.TrimPrefix(line, "/tools")), &c.opts.ShowTools)
+		case line == "/raw" || strings.HasPrefix(line, "/raw "):
+			c.commandBool("raw", strings.TrimSpace(strings.TrimPrefix(line, "/raw")), &c.opts.RawUpdates)
 		default:
 			if err := c.Prompt(ctx, sessionID, line); err != nil {
 				return err
 			}
 		}
 	}
+}
+
+func (c *client) printHelp() {
+	fmt.Fprint(c.stderr, `commands:
+  /status
+  /model [MODEL]
+  /mode [MODE]
+  /permission [prompt|allow|reject|cancel]
+  /thinking [on|off]
+  /tools [on|off]
+  /raw [on|off]
+  /quit
+`)
+}
+
+func (c *client) printStatus() {
+	c.mu.Lock()
+	state := c.state
+	opts := c.opts
+	c.mu.Unlock()
+	fmt.Fprintf(c.stderr, "addr=%s\nsession=%s\ncwd=%s\nmodel=%s\nmode=%s\npermission=%s\nthinking=%v\ntools=%v\nraw=%v\n",
+		state.Addr, state.SessionID, state.Cwd, state.Model, state.Mode,
+		firstNonEmpty(opts.Permission, "prompt"), opts.ShowThinking, opts.ShowTools, opts.RawUpdates)
+}
+
+func (c *client) commandModel(ctx context.Context, sessionID, model string) {
+	if model == "" {
+		c.mu.Lock()
+		cur := c.state.Model
+		c.mu.Unlock()
+		fmt.Fprintln(c.stderr, "model", cur)
+		return
+	}
+	if err := c.SetModel(ctx, sessionID, model); err != nil {
+		fmt.Fprintln(c.stderr, "set model failed:", err)
+		return
+	}
+	fmt.Fprintln(c.stderr, "model", model)
+}
+
+func (c *client) commandMode(ctx context.Context, sessionID, mode string) {
+	if mode == "" {
+		c.mu.Lock()
+		cur := c.state.Mode
+		c.mu.Unlock()
+		fmt.Fprintln(c.stderr, "mode", cur)
+		return
+	}
+	if err := c.SetMode(ctx, sessionID, mode); err != nil {
+		fmt.Fprintln(c.stderr, "set mode failed:", err)
+		return
+	}
+	fmt.Fprintln(c.stderr, "mode", mode)
+}
+
+func (c *client) commandPermission(mode string) {
+	if mode == "" {
+		c.mu.Lock()
+		permission := c.opts.Permission
+		c.mu.Unlock()
+		fmt.Fprintln(c.stderr, "permission", firstNonEmpty(permission, "prompt"))
+		return
+	}
+	switch strings.ToLower(mode) {
+	case "prompt", "allow", "reject", "cancel", "cancelled":
+		c.mu.Lock()
+		c.opts.Permission = strings.ToLower(mode)
+		permission := c.opts.Permission
+		c.mu.Unlock()
+		fmt.Fprintln(c.stderr, "permission", permission)
+	default:
+		fmt.Fprintln(c.stderr, "permission must be prompt, allow, reject, or cancel")
+	}
+}
+
+func (c *client) commandBool(name, value string, target *bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if value == "" {
+		fmt.Fprintf(c.stderr, "%s %v\n", name, *target)
+		return
+	}
+	switch strings.ToLower(value) {
+	case "on", "true", "1", "yes":
+		*target = true
+	case "off", "false", "0", "no":
+		*target = false
+	case "toggle":
+		*target = !*target
+	default:
+		fmt.Fprintf(c.stderr, "%s must be on, off, or toggle\n", name)
+		return
+	}
+	fmt.Fprintf(c.stderr, "%s %v\n", name, *target)
 }
 
 func firstNonEmpty(vals ...string) string {

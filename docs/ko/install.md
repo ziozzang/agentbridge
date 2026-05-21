@@ -81,9 +81,17 @@ acp-agent --addr 127.0.0.1:8765 --model codex-agent \
 
 대화형 command:
 
-- `/model MODEL`
-- `/mode MODE`
-- `/exit`
+- `/status`: 주소, session id, cwd, model, mode, permission 처리 방식,
+  thinking 표시, tool 표시, raw update 표시 상태를 보여줍니다.
+- `/model [MODEL]`: model 확인 또는 변경.
+- `/mode [MODE]`: ACP mode 확인 또는 변경.
+- `/permission [prompt|allow|reject|cancel]`: permission 처리 방식 확인 또는
+  변경.
+- `/thinking [on|off|toggle]`: thinking 표시 확인 또는 변경.
+- `/tools [on|off|toggle]`: tool status 표시 확인 또는 변경.
+- `/raw [on|off|toggle]`: raw update 표시 확인 또는 변경.
+- `/help`
+- `/exit` 또는 `/quit`
 
 ## HTTP 호환 서버
 
