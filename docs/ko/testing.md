@@ -119,6 +119,13 @@ curl -N -sS http://127.0.0.1:8766/v1/chat/completions \
   -d '{"model":"agent:glm-5.1","stream":true,"metadata":{"cwd":"'$PWD'","max_turns":3},"messages":[{"role":"user","content":"Use list_files on . and answer with the first three names."}]}'
 ```
 
+Permission smoke:
+
+Runtime config에 `agent.yolo_mode: false`를 설정한 뒤 HTTP agent loop에 파일
+쓰기를 요청합니다. Stream에는 `session/request_permission`, failed tool status가
+나와야 하고 실제 파일은 생성되지 않아야 합니다. `yolo_mode: true` 또는 기존처럼
+설정을 생략한 경우 write/execute tool은 permission prompt를 bypass합니다.
+
 회귀 테스트 원칙:
 
 - 변경한 package 근처에 테스트를 추가합니다.

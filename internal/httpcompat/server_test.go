@@ -15,6 +15,15 @@ import (
 	"time"
 )
 
+func writeRuntimeConfig(t *testing.T, content string) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
 func TestCompatibilityEndpoints(t *testing.T) {
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/chat/completions" {
@@ -41,6 +50,7 @@ func TestCompatibilityEndpoints(t *testing.T) {
 	t.Setenv("ACP_HARNESS_MODEL", "")
 	t.Setenv("ACP_HARNESS_API_KEY", "")
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(t.TempDir(), "missing"))
+	t.Setenv("AGENTBRIDGE_CONFIG_FILE", writeRuntimeConfig(t, ""))
 
 	srv := httptest.NewServer(NewHandler())
 	defer srv.Close()
@@ -113,6 +123,7 @@ func TestChatCompletionsStreamingFlushesUpstreamChunks(t *testing.T) {
 	t.Setenv("ACP_HARNESS_MODEL", "")
 	t.Setenv("ACP_HARNESS_API_KEY", "")
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(t.TempDir(), "missing"))
+	t.Setenv("AGENTBRIDGE_CONFIG_FILE", writeRuntimeConfig(t, ""))
 
 	srv := httptest.NewServer(NewHandler())
 	defer srv.Close()
@@ -335,6 +346,7 @@ func TestChatCompletionsAgentModelRunsToolLoop(t *testing.T) {
 	t.Setenv("ACP_HARNESS_MODEL", "")
 	t.Setenv("ACP_HARNESS_API_KEY", "")
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(t.TempDir(), "missing"))
+	t.Setenv("AGENTBRIDGE_CONFIG_FILE", writeRuntimeConfig(t, ""))
 
 	srv := httptest.NewServer(NewHandler())
 	defer srv.Close()
@@ -398,6 +410,7 @@ func TestChatCompletionsAgentStreamEmitsIntermediateEvents(t *testing.T) {
 	t.Setenv("ACP_HARNESS_MODEL", "")
 	t.Setenv("ACP_HARNESS_API_KEY", "")
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(t.TempDir(), "missing"))
+	t.Setenv("AGENTBRIDGE_CONFIG_FILE", writeRuntimeConfig(t, ""))
 
 	srv := httptest.NewServer(NewHandler())
 	defer srv.Close()
@@ -425,6 +438,139 @@ func TestChatCompletionsAgentStreamEmitsIntermediateEvents(t *testing.T) {
 		}
 	}
 	for _, forbidden := range []string{`"rawOutput"`, `"rawInput"`} {
+		if strings.Contains(got, forbidden) {
+			t.Fatalf("agent event leaked %s: %s", forbidden, got)
+		}
+	}
+}
+
+func TestChatCompletionsAgentDefaultBypassesWritePermission(t *testing.T) {
+	tmp := t.TempDir()
+	var requests []string
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		requests = append(requests, string(body))
+		w.Header().Set("Content-Type", "text/event-stream")
+		if len(requests) == 1 {
+			fmt.Fprint(w, `data: {"choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"tc1","type":"function","function":{"name":"write_file","arguments":"{\"path\":\"out.txt\",\"content\":\"created\"}"}}]},"finish_reason":"tool_calls"}]}`+"\n\n")
+			fmt.Fprint(w, "data: [DONE]\n\n")
+			return
+		}
+		if !strings.Contains(requests[1], "File written successfully") {
+			t.Fatalf("write result was not fed back to upstream:\n%s", requests[1])
+		}
+		fmt.Fprint(w, `data: {"choices":[{"index":0,"delta":{"content":"write ok"},"finish_reason":"stop"}]}`+"\n\n")
+		fmt.Fprint(w, "data: [DONE]\n\n")
+	}))
+	defer upstream.Close()
+
+	cfg := filepath.Join(t.TempDir(), "providers.yaml")
+	if err := os.WriteFile(cfg, []byte(`providers:
+  test-http:
+    kind: openai-chat
+    base_url: `+upstream.URL+`
+    api_key: test-key
+    default_model: test-model
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("ACP_HARNESS_PROVIDERS_FILE", cfg)
+	t.Setenv("ACP_HARNESS_PROVIDER", "test-http")
+	t.Setenv("ACP_HARNESS_MODEL", "")
+	t.Setenv("ACP_HARNESS_API_KEY", "")
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(t.TempDir(), "missing"))
+	t.Setenv("AGENTBRIDGE_CONFIG_FILE", writeRuntimeConfig(t, ""))
+
+	srv := httptest.NewServer(NewHandler())
+	defer srv.Close()
+
+	body := `{"model":"agent:test-model","metadata":{"cwd":` + strconv.Quote(tmp) + `},"messages":[{"role":"user","content":"write out.txt"}]}`
+	resp, err := http.Post(srv.URL+"/v1/chat/completions", "application/json", strings.NewReader(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	out, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status=%d body=%s", resp.StatusCode, string(out))
+	}
+	data, err := os.ReadFile(filepath.Join(tmp, "out.txt"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != "created" {
+		t.Fatalf("file content = %q", string(data))
+	}
+	if !strings.Contains(string(out), "write ok") {
+		t.Fatalf("bad response: %s", string(out))
+	}
+}
+
+func TestChatCompletionsAgentYoloModeFalseRejectsWriteAndStreamsPermissionEvents(t *testing.T) {
+	tmp := t.TempDir()
+	var requests []string
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		requests = append(requests, string(body))
+		w.Header().Set("Content-Type", "text/event-stream")
+		if len(requests) == 1 {
+			fmt.Fprint(w, `data: {"choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"tc1","type":"function","function":{"name":"write_file","arguments":"{\"path\":\"out.txt\",\"content\":\"secret-ish\"}"}}]},"finish_reason":"tool_calls"}]}`+"\n\n")
+			fmt.Fprint(w, "data: [DONE]\n\n")
+			return
+		}
+		if !strings.Contains(requests[1], "Write rejected by user.") {
+			t.Fatalf("rejected write result was not fed back to upstream:\n%s", requests[1])
+		}
+		fmt.Fprint(w, `data: {"choices":[{"index":0,"delta":{"content":"write rejected"},"finish_reason":"stop"}]}`+"\n\n")
+		fmt.Fprint(w, "data: [DONE]\n\n")
+	}))
+	defer upstream.Close()
+
+	cfg := filepath.Join(t.TempDir(), "providers.yaml")
+	if err := os.WriteFile(cfg, []byte(`providers:
+  test-http:
+    kind: openai-chat
+    base_url: `+upstream.URL+`
+    api_key: test-key
+    default_model: test-model
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("ACP_HARNESS_PROVIDERS_FILE", cfg)
+	t.Setenv("ACP_HARNESS_PROVIDER", "test-http")
+	t.Setenv("ACP_HARNESS_MODEL", "")
+	t.Setenv("ACP_HARNESS_API_KEY", "")
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(t.TempDir(), "missing"))
+	t.Setenv("AGENTBRIDGE_CONFIG_FILE", writeRuntimeConfig(t, "agent:\n  yolo_mode: false\n"))
+
+	srv := httptest.NewServer(NewHandler())
+	defer srv.Close()
+
+	body := `{"stream":true,"model":"agent:test-model","metadata":{"cwd":` + strconv.Quote(tmp) + `},"messages":[{"role":"user","content":"try write"}]}`
+	resp, err := http.Post(srv.URL+"/v1/chat/completions", "application/json", strings.NewReader(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	out, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status=%d body=%s", resp.StatusCode, string(out))
+	}
+	if _, err := os.Stat(filepath.Join(tmp, "out.txt")); !os.IsNotExist(err) {
+		t.Fatalf("file should not have been written, stat err=%v", err)
+	}
+	got := string(out)
+	for _, want := range []string{
+		`"type":"session/request_permission"`,
+		`"status":"failed"`,
+		`"type":"tool_result"`,
+		`"content":"write rejected"`,
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("stream missing %s:\n%s", want, got)
+		}
+	}
+	for _, forbidden := range []string{`"rawInput"`, `"rawOutput"`, `secret-ish`} {
 		if strings.Contains(got, forbidden) {
 			t.Fatalf("agent event leaked %s: %s", forbidden, got)
 		}

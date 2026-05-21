@@ -107,7 +107,15 @@ AgentBridge는 assistant text delta와 loop 진행 상태를 함께 스트리밍
 Tool call, tool status notification, tool completion summary, usage, stop
 reason, turn boundary는 `agent_event` field가 있는 chunk object로 내려갑니다.
 Raw tool input/output payload는 이런 중간 event에 포함하지 않습니다. Tool
-result 자체는 내부 model loop에는 계속 전달됩니다.
+result 자체는 내부 model loop에는 계속 전달됩니다. Tool-call arguments도
+user-provided secret을 포함할 수 있으므로 `agent_event` payload에서는
+생략합니다.
+
+HTTP agent-loop permission policy는 runtime config에서 옵니다.
+`agent.yolo_mode: true`는 executor `bypass_permissions`로 매핑되고,
+`agent.yolo_mode: false`는 write/execute permission request를 reject하는
+non-interactive read-only posture로 매핑됩니다. 설정을 생략하면 기존 호환성을
+위해 bypass 기본값을 유지합니다.
 
 A2A streaming과 AG-UI도 같은 agent-loop emitter를 사용합니다. A2A는 assistant
 text를 `artifactUpdate`, loop 진행 상태를 `agentUpdate`로 내리고, AG-UI는

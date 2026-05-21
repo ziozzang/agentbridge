@@ -119,6 +119,13 @@ curl -N -sS http://127.0.0.1:8766/v1/chat/completions \
   -d '{"model":"agent:glm-5.1","stream":true,"metadata":{"cwd":"'$PWD'","max_turns":3},"messages":[{"role":"user","content":"Use list_files on . and answer with the first three names."}]}'
 ```
 
+Permission smoke:
+
+Set runtime config `agent.yolo_mode: false`, then ask the HTTP agent loop to
+write a file. The stream should include `session/request_permission`, a failed
+tool status, and no file should be created. With `yolo_mode: true` or the
+legacy omitted setting, write/execute tools bypass permission prompts.
+
 Regression policy:
 
 - Add tests beside the package you change.

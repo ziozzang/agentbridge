@@ -33,6 +33,8 @@ type httpAgentOptions struct {
 	PromptCacheRetention string
 	ServiceTier          string
 	ReasoningEffort      string
+	PermissionMode       string
+	PermissionDecision   string
 }
 
 type compactHTTPResult struct {
@@ -41,17 +43,6 @@ type compactHTTPResult struct {
 	Compacted    bool
 	TokensBefore int
 	TokensAfter  int
-}
-
-type noopAgentConn struct{}
-
-func (noopAgentConn) SendNotification(string, any) error { return nil }
-
-func (noopAgentConn) Call(_ context.Context, _ string, _ any, result any) error {
-	if resp, ok := result.(*acp.RequestPermissionResponse); ok {
-		resp.Outcome = acp.PermissionOutcome{Outcome: "selected", OptionID: "allow"}
-	}
-	return nil
 }
 
 type httpAgentEvent struct {
@@ -68,7 +59,8 @@ type httpAgentEvent struct {
 type httpAgentEmitter func(httpAgentEvent)
 
 type eventAgentConn struct {
-	emit httpAgentEmitter
+	emit     httpAgentEmitter
+	decision string
 }
 
 func (c eventAgentConn) SendNotification(method string, params any) error {
@@ -78,9 +70,19 @@ func (c eventAgentConn) SendNotification(method string, params any) error {
 	return nil
 }
 
-func (c eventAgentConn) Call(_ context.Context, _ string, _ any, result any) error {
+func (c eventAgentConn) Call(_ context.Context, method string, params any, result any) error {
+	if c.emit != nil {
+		c.emit(httpAgentEvent{Type: method, Data: safeAgentEventData(params)})
+	}
 	if resp, ok := result.(*acp.RequestPermissionResponse); ok {
-		resp.Outcome = acp.PermissionOutcome{Outcome: "selected", OptionID: "allow"}
+		switch strings.ToLower(strings.TrimSpace(c.decision)) {
+		case "reject", "deny", "skip":
+			resp.Outcome = acp.PermissionOutcome{Outcome: "selected", OptionID: "reject"}
+		case "cancel", "cancelled":
+			resp.Outcome = acp.PermissionOutcome{Outcome: "cancelled"}
+		default:
+			resp.Outcome = acp.PermissionOutcome{Outcome: "selected", OptionID: "allow"}
+		}
 	}
 	return nil
 }
@@ -192,13 +194,13 @@ func (h *handler) runAgentProviderWithEvents(ctx context.Context, opts httpAgent
 	})
 	loopMessages := append([]provider.Message{{Role: "system", Content: system}}, messages...)
 	exec := &executor.Executor{
-		Conn:       noopAgentConn{},
+		Conn:       eventAgentConn{decision: opts.PermissionDecision},
 		SessionID:  "http-agent",
 		SessionCwd: cwd,
-		Mode:       "bypass_permissions",
+		Mode:       firstNonEmpty(opts.PermissionMode, "bypass_permissions"),
 	}
 	if emit != nil {
-		exec.Conn = eventAgentConn{emit: emit}
+		exec.Conn = eventAgentConn{emit: emit, decision: opts.PermissionDecision}
 	}
 	if h != nil {
 		exec.Plugins = h.plugins
@@ -514,7 +516,7 @@ func loadHTTPCompactionSettings() contextcompact.Settings {
 }
 
 func httpAgentOptionsFrom(model string, maps ...map[string]any) httpAgentOptions {
-	opts := httpAgentOptions{Model: model}
+	opts := loadHTTPAgentDefaults(model)
 	if strings.HasPrefix(strings.TrimSpace(model), httpAgentModelPrefix) {
 		opts.Enabled = true
 		opts.Model = strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(model), httpAgentModelPrefix))
@@ -562,8 +564,58 @@ func httpAgentOptionsFrom(model string, maps ...map[string]any) httpAgentOptions
 		if v := stringMeta(m, "reasoning_effort"); v != "" {
 			opts.ReasoningEffort = v
 		}
+		if v := stringMeta(m, "permission_mode"); v != "" {
+			opts.PermissionMode, opts.PermissionDecision = normalizeHTTPPermissionMode(v, opts.PermissionDecision)
+		} else if v := stringMeta(m, "mode"); v != "" {
+			opts.PermissionMode, opts.PermissionDecision = normalizeHTTPPermissionMode(v, opts.PermissionDecision)
+		}
+		if v := stringMeta(m, "permission_decision"); v != "" {
+			opts.PermissionDecision = v
+		}
 	}
 	return opts
+}
+
+func loadHTTPAgentDefaults(model string) httpAgentOptions {
+	opts := httpAgentOptions{Model: model, PermissionMode: "bypass_permissions"}
+	rc, err := runtimeconfig.Load()
+	if err != nil {
+		return opts
+	}
+	if rc.Agent.YoloMode != nil {
+		if *rc.Agent.YoloMode {
+			opts.PermissionMode = "bypass_permissions"
+			opts.PermissionDecision = ""
+		} else {
+			opts.PermissionMode = "default"
+			opts.PermissionDecision = "reject"
+		}
+	}
+	if rc.Agent.PermissionMode != "" {
+		opts.PermissionMode, opts.PermissionDecision = normalizeHTTPPermissionMode(rc.Agent.PermissionMode, opts.PermissionDecision)
+	}
+	if rc.Agent.PermissionDecision != "" {
+		opts.PermissionDecision = rc.Agent.PermissionDecision
+	}
+	return opts
+}
+
+func normalizeHTTPPermissionMode(mode, decision string) (string, string) {
+	switch strings.ToLower(strings.TrimSpace(mode)) {
+	case "", "bypass", "bypass_permissions":
+		return "bypass_permissions", decision
+	case "accept_edits":
+		return "accept_edits", decision
+	case "default", "prompt":
+		return "default", decision
+	case "read_only", "readonly", "deny":
+		if decision == "" {
+			decision = "reject"
+		}
+		return "default", decision
+	default:
+		return mode, decision
+	}
 }
 
 func truthyMeta(m map[string]any, key string) bool {

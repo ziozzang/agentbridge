@@ -74,6 +74,29 @@ func TestLoadCompactionConfig(t *testing.T) {
 	}
 }
 
+func TestLoadAgentYoloModeConfig(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(path, []byte(`agent:
+  yolo_mode: false
+  permission_mode: read_only
+  permission_decision: reject
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("AGENTBRIDGE_CONFIG_FILE", path)
+
+	got, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Agent.YoloMode == nil || *got.Agent.YoloMode {
+		t.Fatalf("agent.yolo_mode=%v", got.Agent.YoloMode)
+	}
+	if got.Agent.PermissionMode != "read_only" || got.Agent.PermissionDecision != "reject" {
+		t.Fatalf("agent=%#v", got.Agent)
+	}
+}
+
 func TestLoadPIIEnvConfig(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.yaml")
 	if err := os.WriteFile(path, []byte(`pii:

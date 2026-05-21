@@ -112,7 +112,13 @@ progress. Tool calls, tool status notifications, tool completion summaries,
 usage, stop reasons, and turn boundaries are emitted as chunk objects with an
 `agent_event` field. Raw tool input/output payloads are not included in these
 intermediate events; tool results are still fed back into the internal model
-loop.
+loop. Tool-call arguments are also omitted from `agent_event` payloads because
+they may contain user-provided secrets.
+
+HTTP agent-loop permission policy comes from runtime config. `agent.yolo_mode:
+true` maps to executor `bypass_permissions`; `agent.yolo_mode: false` maps to a
+non-interactive read-only posture that rejects write/execute permission
+requests. Omitting the setting keeps the legacy bypass default.
 
 A2A streaming and AG-UI use the same agent-loop emitter. A2A sends assistant
 text as `artifactUpdate` events and loop progress as `agentUpdate`; AG-UI sends

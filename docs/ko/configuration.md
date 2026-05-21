@@ -310,6 +310,33 @@ Chat provider의 `models:` entry에는 `GET /v1/models`로 내려갈 metadata도
 `aliases`, `tags`, `compat`, `cost`입니다. 이렇게 하면 `grok` 같은 generic
 pseudo-model 대신 실제 `grok-4`가 `owned_by: xai`로 노출됩니다.
 
+## Agent Runtime Controls
+
+HTTP agent-loop의 destructive tool 정책은 runtime config에서 제어합니다.
+
+```yaml
+agent:
+  yolo_mode: false
+```
+
+`yolo_mode`가 `true`이면 write/command tool은 `bypass_permissions` mode로
+실행됩니다. 명시적으로 `false`이면 non-interactive HTTP agent loop는
+write/execute permission request를 기본 reject하고, `read_file`,
+`list_files` 같은 read-only tool은 계속 실행합니다. `yolo_mode`를 생략하면
+기존 호환성을 위해 permission bypass 기본값을 유지합니다.
+
+고급 override:
+
+```yaml
+agent:
+  permission_mode: accept_edits   # default, accept_edits, bypass_permissions, read_only
+  permission_decision: reject     # allow, reject, cancel
+```
+
+Request metadata에서도 단일 HTTP agent-loop turn에 대해 `permission_mode` /
+`permission_decision`을 지정할 수 있습니다. Request-level override는 trusted
+client control로 보고, 배포 정책은 runtime config에 두는 것을 권장합니다.
+
 ## Agent Profiles
 
 Agent profile은 virtual model입니다. ACP에서 profile 이름을 선택하면 지정한

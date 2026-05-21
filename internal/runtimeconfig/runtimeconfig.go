@@ -12,6 +12,7 @@ import (
 type Config struct {
 	Server     Server     `yaml:"server"`
 	Compaction Compaction `yaml:"compaction"`
+	Agent      Agent      `yaml:"agent"`
 	PII        PII        `yaml:"pii"`
 	Sanitize   Sanitize   `yaml:"sanitize"`
 	Cache      Cache      `yaml:"cache"`
@@ -25,6 +26,16 @@ type Server struct {
 	WaitSize   *int   `yaml:"wait_size"`
 	HTTPListen string `yaml:"http_listen"`
 	GRPCListen string `yaml:"grpc_listen"`
+}
+
+type Agent struct {
+	// YoloMode lets non-interactive agent loops run write/execute tools without
+	// permission prompts. If explicitly false, HTTP agent loops reject
+	// destructive tool permissions unless a narrower permission setting
+	// overrides it.
+	YoloMode           *bool  `yaml:"yolo_mode"`
+	PermissionMode     string `yaml:"permission_mode"`
+	PermissionDecision string `yaml:"permission_decision"`
 }
 
 type Compaction struct {

@@ -314,6 +314,33 @@ Chat provider `models:` entries can also include metadata returned in
 `compat`, and `cost`. This keeps aliases such as `grok-4` owned by `xai`
 instead of exposing generic pseudo-models such as `grok`.
 
+## Agent Runtime Controls
+
+HTTP agent-loop destructive tool policy is controlled by runtime config:
+
+```yaml
+agent:
+  yolo_mode: false
+```
+
+When `yolo_mode` is `true`, write and command tools run in
+`bypass_permissions` mode. When explicitly `false`, non-interactive HTTP agent
+loops reject write/execute permission requests by default, while read-only
+tools such as `read_file` and `list_files` still run. If `yolo_mode` is omitted,
+AgentBridge keeps the legacy default of bypassing permissions for compatibility.
+
+Advanced overrides:
+
+```yaml
+agent:
+  permission_mode: accept_edits   # default, accept_edits, bypass_permissions, read_only
+  permission_decision: reject     # allow, reject, cancel
+```
+
+Request metadata may also set `permission_mode` / `permission_decision` for a
+single HTTP agent-loop turn. Treat request-level overrides as trusted-client
+controls; deployment policy should live in the runtime config.
+
 ## Agent Profiles
 
 Agent profiles are virtual models: selecting the profile name in ACP uses a

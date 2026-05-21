@@ -1357,9 +1357,8 @@ func agentEventPayload(ev httpAgentEvent) map[string]any {
 	}
 	if ev.ToolCall != nil {
 		out["tool_call"] = map[string]any{
-			"id":        ev.ToolCall.ID,
-			"name":      ev.ToolCall.Name,
-			"arguments": ev.ToolCall.Arguments,
+			"id":   ev.ToolCall.ID,
+			"name": ev.ToolCall.Name,
 		}
 	}
 	if ev.ToolResult != "" {
