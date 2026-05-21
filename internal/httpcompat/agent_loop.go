@@ -54,9 +54,74 @@ func (noopAgentConn) Call(_ context.Context, _ string, _ any, result any) error 
 	return nil
 }
 
+type httpAgentEvent struct {
+	Type       string
+	Turn       int
+	Text       string
+	ToolCall   *provider.ToolCall
+	ToolResult string
+	Data       any
+	Usage      *provider.Usage
+	StopReason string
+}
+
+type httpAgentEmitter func(httpAgentEvent)
+
+type eventAgentConn struct {
+	emit httpAgentEmitter
+}
+
+func (c eventAgentConn) SendNotification(method string, params any) error {
+	if c.emit != nil {
+		c.emit(httpAgentEvent{Type: method, Data: safeAgentEventData(params)})
+	}
+	return nil
+}
+
+func (c eventAgentConn) Call(_ context.Context, _ string, _ any, result any) error {
+	if resp, ok := result.(*acp.RequestPermissionResponse); ok {
+		resp.Outcome = acp.PermissionOutcome{Outcome: "selected", OptionID: "allow"}
+	}
+	return nil
+}
+
+func safeAgentEventData(v any) any {
+	switch x := v.(type) {
+	case map[string]any:
+		out := make(map[string]any, len(x))
+		for k, value := range x {
+			switch k {
+			case "rawInput", "rawOutput", "content":
+				continue
+			default:
+				out[k] = safeAgentEventData(value)
+			}
+		}
+		return out
+	case []any:
+		out := make([]any, 0, len(x))
+		for _, item := range x {
+			out = append(out, safeAgentEventData(item))
+		}
+		return out
+	case nil, string, bool, float64, float32, int, int64, int32, uint, uint64, uint32:
+		return v
+	default:
+		raw, err := json.Marshal(v)
+		if err != nil {
+			return v
+		}
+		var decoded any
+		if err := json.Unmarshal(raw, &decoded); err != nil {
+			return v
+		}
+		return safeAgentEventData(decoded)
+	}
+}
+
 func (h *handler) runProvider(ctx context.Context, model string, messages []provider.Message, agentOpts httpAgentOptions) (string, provider.Usage, string, error) {
 	if agentOpts.Enabled {
-		return h.runAgentProvider(ctx, agentOpts, messages)
+		return h.runAgentProviderWithEvents(ctx, agentOpts, messages, nil)
 	}
 	chunks, errs, err := StreamProviderWithOptions(ctx, model, messages, provider.StreamOptions{
 		SessionID:            agentOpts.SessionID,
@@ -87,6 +152,10 @@ func (h *handler) runProvider(ctx context.Context, model string, messages []prov
 }
 
 func (h *handler) runAgentProvider(ctx context.Context, opts httpAgentOptions, messages []provider.Message) (string, provider.Usage, string, error) {
+	return h.runAgentProviderWithEvents(ctx, opts, messages, nil)
+}
+
+func (h *handler) runAgentProviderWithEvents(ctx context.Context, opts httpAgentOptions, messages []provider.Message, emit httpAgentEmitter) (string, provider.Usage, string, error) {
 	p, err := buildProvider()
 	if err != nil {
 		return "", provider.Usage{}, "", err
@@ -128,6 +197,9 @@ func (h *handler) runAgentProvider(ctx context.Context, opts httpAgentOptions, m
 		SessionCwd: cwd,
 		Mode:       "bypass_permissions",
 	}
+	if emit != nil {
+		exec.Conn = eventAgentConn{emit: emit}
+	}
 	if h != nil {
 		exec.Plugins = h.plugins
 		exec.SessionMCP = h.externalMCP
@@ -142,11 +214,17 @@ func (h *handler) runAgentProvider(ctx context.Context, opts httpAgentOptions, m
 		if ctx.Err() != nil {
 			return finalText.String(), usage, "cancelled", ctx.Err()
 		}
+		if emit != nil {
+			emit(httpAgentEvent{Type: "turn_start", Turn: i + 1})
+		}
 		window := p.ContextWindow(model)
 		if compactSettings.Enabled && contextcompact.EstimateTokens(loopMessages) > compactSettings.ProactiveThreshold(window) {
 			compacted, ok := compactHTTPMessages(ctx, p, loopMessages, model, tools, compactSettings, compactSettings.TargetTokens(window), "http agent proactive context compaction")
 			if ok {
 				loopMessages = compacted
+				if emit != nil {
+					emit(httpAgentEvent{Type: "compaction", Turn: i + 1})
+				}
 			}
 		}
 		streamOpts := provider.PrepareStreamOptions(p, provider.StreamOptions{
@@ -165,15 +243,29 @@ func (h *handler) runAgentProvider(ctx context.Context, opts httpAgentOptions, m
 		for ch := range chunks {
 			if ch.Text != "" {
 				assistantText.WriteString(ch.Text)
+				if emit != nil {
+					emit(httpAgentEvent{Type: "text_delta", Turn: i + 1, Text: ch.Text})
+				}
 			}
 			if ch.ToolCall != nil {
 				toolCalls = append(toolCalls, *ch.ToolCall)
+				if emit != nil {
+					tc := *ch.ToolCall
+					emit(httpAgentEvent{Type: "tool_call", Turn: i + 1, ToolCall: &tc})
+				}
 			}
 			if ch.Usage != nil {
 				usage = *ch.Usage
+				if emit != nil {
+					u := *ch.Usage
+					emit(httpAgentEvent{Type: "usage", Turn: i + 1, Usage: &u})
+				}
 			}
 			if ch.StopReason != "" {
 				streamStop = ch.StopReason
+				if emit != nil {
+					emit(httpAgentEvent{Type: "stop_reason", Turn: i + 1, StopReason: ch.StopReason})
+				}
 			}
 		}
 		if err := <-errs; err != nil {
@@ -218,6 +310,9 @@ func (h *handler) runAgentProvider(ctx context.Context, opts httpAgentOptions, m
 		for _, tc := range toolCalls {
 			toolCallID := firstNonEmpty(tc.ID, "toolcall")
 			res := exec.Execute(ctx, toolCallID, tc.Name, tc.Arguments)
+			if emit != nil {
+				emit(httpAgentEvent{Type: "tool_result", Turn: i + 1, ToolCall: &tc, ToolResult: res.Content})
+			}
 			loopMessages = append(loopMessages, provider.Message{Role: "tool", ToolCallID: toolCallID, Content: res.Content})
 		}
 	}

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -25,7 +26,7 @@ func TestXSearchPostsResponsesTool(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	p := New(Config{APIKey: "test-key", BaseURL: srv.URL, SearchModel: "grok-4.3", HTTPClient: srv.Client()})
+	p := New(Config{APIKey: "test-key", BaseURL: srv.URL, SearchModel: "grok-4.3", OAuthPath: filepath.Join(t.TempDir(), "missing.json"), HTTPClient: srv.Client()})
 	out, err := p.Call(context.Background(), "xai_x_search", json.RawMessage(`{"query":"xAI news","allowed_x_handles":["xai"],"enable_image_understanding":true}`))
 	if err != nil {
 		t.Fatal(err)

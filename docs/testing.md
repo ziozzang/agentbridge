@@ -107,6 +107,18 @@ curl -sS -X POST http://127.0.0.1:8766/v1/chat/completions \
   -d '{"model":"agent:grok-4.3","metadata":{"cwd":"'$PWD'","max_turns":6},"messages":[{"role":"user","content":"Use list_files and run_command to inspect the current directory and summarize the environment."}]}'
 ```
 
+Streaming smoke:
+
+Use `curl -N` to verify token flush. For agent-loop streaming, inspect
+`agent_event` chunks for `turn_start`, `tool_call`, `session/update`, and
+`tool_result`. These events intentionally omit raw tool input/output.
+
+```bash
+curl -N -sS http://127.0.0.1:8766/v1/chat/completions \
+  -H 'Content-Type: application/json' \
+  -d '{"model":"agent:glm-5.1","stream":true,"metadata":{"cwd":"'$PWD'","max_turns":3},"messages":[{"role":"user","content":"Use list_files on . and answer with the first three names."}]}'
+```
+
 Regression policy:
 
 - Add tests beside the package you change.

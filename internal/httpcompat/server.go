@@ -388,6 +388,14 @@ func (h *handler) chatCompletions(w http.ResponseWriter, r *http.Request) {
 	if agentOpts.SessionID == "" {
 		agentOpts.SessionID = meta.RequestID
 	}
+	if req.Stream {
+		if agentOpts.Enabled {
+			h.streamAgentChatCompletions(w, r, req, meta, agentOpts)
+			return
+		}
+		h.streamChatCompletions(w, r, req, meta, agentOpts)
+		return
+	}
 	text, usage, stop, err := h.runProvider(r.Context(), req.Model, req.Messages, agentOpts)
 	if err != nil {
 		writeError(w, http.StatusBadGateway, err)
@@ -414,6 +422,126 @@ func (h *handler) chatCompletions(w http.ResponseWriter, r *http.Request) {
 		"usage":    openAIUsage(usage),
 		"metadata": meta,
 	})
+}
+
+func (h *handler) streamChatCompletions(w http.ResponseWriter, r *http.Request, req chatRequest, meta requestMeta, agentOpts httpAgentOptions) {
+	chunks, errs, err := StreamProviderWithOptions(r.Context(), req.Model, req.Messages, provider.StreamOptions{
+		SessionID:            agentOpts.SessionID,
+		PromptCacheKey:       agentOpts.PromptCacheKey,
+		PromptCacheRetention: agentOpts.PromptCacheRetention,
+		ServiceTier:          agentOpts.ServiceTier,
+		ReasoningEffort:      agentOpts.ReasoningEffort,
+	})
+	if err != nil {
+		writeError(w, http.StatusBadGateway, err)
+		return
+	}
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("X-Accel-Buffering", "no")
+	w.WriteHeader(http.StatusOK)
+
+	id := responseID("chatcmpl", meta.RequestID)
+	model := firstNonEmpty(req.Model, defaultModel())
+	created := time.Now().Unix()
+	writeChatCompletionSSE(w, map[string]any{
+		"id":      id,
+		"object":  "chat.completion.chunk",
+		"created": created,
+		"model":   model,
+		"choices": []map[string]any{{"index": 0, "delta": map[string]any{"role": "assistant"}}},
+	})
+	var usage provider.Usage
+	stop := "stop"
+	for ch := range chunks {
+		if ch.Usage != nil {
+			usage = *ch.Usage
+		}
+		if ch.StopReason != "" {
+			stop = ch.StopReason
+		}
+		if ch.Text != "" {
+			writeChatCompletionSSE(w, map[string]any{
+				"id":      id,
+				"object":  "chat.completion.chunk",
+				"created": created,
+				"model":   model,
+				"choices": []map[string]any{{"index": 0, "delta": map[string]any{"content": ch.Text}}},
+			})
+		}
+	}
+	if err := <-errs; err != nil {
+		writeChatCompletionSSE(w, map[string]any{"error": map[string]any{"message": err.Error()}})
+		writeSSEDone(w)
+		return
+	}
+	writeChatCompletionSSE(w, map[string]any{
+		"id":      id,
+		"object":  "chat.completion.chunk",
+		"created": created,
+		"model":   model,
+		"choices": []map[string]any{{"index": 0, "delta": map[string]any{}, "finish_reason": stopReason(stop)}},
+		"usage":   openAIUsage(usage),
+	})
+	writeSSEDone(w)
+}
+
+func (h *handler) streamAgentChatCompletions(w http.ResponseWriter, r *http.Request, req chatRequest, meta requestMeta, agentOpts httpAgentOptions) {
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("X-Accel-Buffering", "no")
+	w.WriteHeader(http.StatusOK)
+
+	id := responseID("chatcmpl", meta.RequestID)
+	model := firstNonEmpty(req.Model, defaultModel())
+	created := time.Now().Unix()
+	writeChatCompletionSSE(w, map[string]any{
+		"id":      id,
+		"object":  "chat.completion.chunk",
+		"created": created,
+		"model":   model,
+		"choices": []map[string]any{{"index": 0, "delta": map[string]any{"role": "assistant"}}},
+	})
+
+	emit := func(ev httpAgentEvent) {
+		switch ev.Type {
+		case "text_delta":
+			if ev.Text == "" {
+				return
+			}
+			writeChatCompletionSSE(w, map[string]any{
+				"id":      id,
+				"object":  "chat.completion.chunk",
+				"created": created,
+				"model":   model,
+				"choices": []map[string]any{{"index": 0, "delta": map[string]any{"content": ev.Text}}},
+			})
+		default:
+			writeChatCompletionSSE(w, map[string]any{
+				"id":          id,
+				"object":      "chat.completion.chunk",
+				"created":     created,
+				"model":       model,
+				"choices":     []map[string]any{{"index": 0, "delta": map[string]any{}}},
+				"agent_event": agentEventPayload(ev),
+			})
+		}
+	}
+	_, usage, stop, err := h.runAgentProviderWithEvents(r.Context(), agentOpts, req.Messages, emit)
+	if err != nil {
+		writeChatCompletionSSE(w, map[string]any{"error": map[string]any{"message": err.Error()}})
+		writeSSEDone(w)
+		return
+	}
+	writeChatCompletionSSE(w, map[string]any{
+		"id":      id,
+		"object":  "chat.completion.chunk",
+		"created": created,
+		"model":   model,
+		"choices": []map[string]any{{"index": 0, "delta": map[string]any{}, "finish_reason": stopReason(stop)}},
+		"usage":   openAIUsage(usage),
+	})
+	writeSSEDone(w)
 }
 
 func (h *handler) responses(w http.ResponseWriter, r *http.Request) {
@@ -693,7 +821,29 @@ func (h *handler) a2aSendStreamingMessage(w http.ResponseWriter, r *http.Request
 		agentOpts.SessionID = firstNonEmpty(task.ContextID, task.TaskID)
 	}
 	if agentOpts.Enabled {
-		text, _, _, err := h.runProvider(taskCtx, model, []provider.Message{{Role: "user", Content: a2aMessageText(msg)}}, agentOpts)
+		emit := func(ev httpAgentEvent) {
+			if ev.Type == "text_delta" {
+				if ev.Text == "" {
+					return
+				}
+				writeA2ASSE(w, map[string]any{"artifactUpdate": map[string]any{
+					"taskId":    task.TaskID,
+					"contextId": task.ContextID,
+					"artifact": map[string]any{
+						"artifactId": "response",
+						"name":       "response",
+						"parts":      []a2aPart{{Kind: "text", Type: "text", Text: ev.Text}},
+					},
+				}})
+				return
+			}
+			writeA2ASSE(w, map[string]any{"agentUpdate": map[string]any{
+				"taskId":    task.TaskID,
+				"contextId": task.ContextID,
+				"event":     agentEventPayload(ev),
+			}})
+		}
+		text, _, _, err := h.runAgentProviderWithEvents(taskCtx, agentOpts, []provider.Message{{Role: "user", Content: a2aMessageText(msg)}}, emit)
 		if err != nil {
 			h.finishA2AStreamWithError(w, task.TaskID, err)
 			return
@@ -1186,6 +1336,53 @@ func writeSSE(w http.ResponseWriter, events []map[string]any) {
 		_, _ = io.WriteString(w, "\n")
 	}
 	_, _ = io.WriteString(w, "data: [DONE]\n\n")
+	flushSSE(w)
+}
+
+func writeChatCompletionSSE(w http.ResponseWriter, event map[string]any) {
+	b, err := json.Marshal(event)
+	if err != nil {
+		return
+	}
+	_, _ = io.WriteString(w, "data: ")
+	_, _ = w.Write(b)
+	_, _ = io.WriteString(w, "\n\n")
+	flushSSE(w)
+}
+
+func agentEventPayload(ev httpAgentEvent) map[string]any {
+	out := map[string]any{"type": ev.Type}
+	if ev.Turn > 0 {
+		out["turn"] = ev.Turn
+	}
+	if ev.ToolCall != nil {
+		out["tool_call"] = map[string]any{
+			"id":        ev.ToolCall.ID,
+			"name":      ev.ToolCall.Name,
+			"arguments": ev.ToolCall.Arguments,
+		}
+	}
+	if ev.ToolResult != "" {
+		out["tool_result"] = map[string]any{
+			"status":       "completed",
+			"output_chars": len(ev.ToolResult),
+		}
+	}
+	if ev.Usage != nil {
+		out["usage"] = openAIUsage(*ev.Usage)
+	}
+	if ev.StopReason != "" {
+		out["stop_reason"] = ev.StopReason
+	}
+	if ev.Data != nil {
+		out["data"] = ev.Data
+	}
+	return out
+}
+
+func writeSSEDone(w http.ResponseWriter) {
+	_, _ = io.WriteString(w, "data: [DONE]\n\n")
+	flushSSE(w)
 }
 
 func writeA2ASSE(w http.ResponseWriter, event any) {

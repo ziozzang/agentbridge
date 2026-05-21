@@ -106,6 +106,19 @@ curl -sS -X POST http://127.0.0.1:8766/v1/chat/completions \
   -d '{"model":"agent:grok-4.3","metadata":{"cwd":"'$PWD'","max_turns":6},"messages":[{"role":"user","content":"Use list_files and run_command to inspect the current directory and summarize the environment."}]}'
 ```
 
+Streaming smoke:
+
+Token flush 확인에는 `curl -N`을 사용합니다. Agent-loop streaming에서는
+`agent_event` chunk에서 `turn_start`, `tool_call`, `session/update`,
+`tool_result`를 확인합니다. 이 event들은 의도적으로 raw tool input/output을
+포함하지 않습니다.
+
+```bash
+curl -N -sS http://127.0.0.1:8766/v1/chat/completions \
+  -H 'Content-Type: application/json' \
+  -d '{"model":"agent:glm-5.1","stream":true,"metadata":{"cwd":"'$PWD'","max_turns":3},"messages":[{"role":"user","content":"Use list_files on . and answer with the first three names."}]}'
+```
+
 회귀 테스트 원칙:
 
 - 변경한 package 근처에 테스트를 추가합니다.

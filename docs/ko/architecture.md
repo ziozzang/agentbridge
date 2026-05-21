@@ -96,6 +96,24 @@ AgentBridge session id가 protocol 간 기본 session key입니다.
 로컬 Codex thread를 재사용합니다. OpenAI 스타일 `prompt_cache_retention`은 이
 경로의 Codex app-server wire contract가 아니므로 제거됩니다.
 
+## HTTP Streaming
+
+`POST /v1/chat/completions`는 `stream: true`인 경우 실제 SSE streaming을
+사용합니다. 일반 provider는 sanitize가 끝난 provider chunk를 OpenAI 호환
+`chat.completion.chunk` event로 즉시 flush합니다.
+
+`agent:<model>` 또는 `metadata.agent`로 HTTP agent loop를 켠 경우,
+AgentBridge는 assistant text delta와 loop 진행 상태를 함께 스트리밍합니다.
+Tool call, tool status notification, tool completion summary, usage, stop
+reason, turn boundary는 `agent_event` field가 있는 chunk object로 내려갑니다.
+Raw tool input/output payload는 이런 중간 event에 포함하지 않습니다. Tool
+result 자체는 내부 model loop에는 계속 전달됩니다.
+
+A2A streaming과 AG-UI도 같은 agent-loop emitter를 사용합니다. A2A는 assistant
+text를 `artifactUpdate`, loop 진행 상태를 `agentUpdate`로 내리고, AG-UI는
+assistant text를 `TEXT_MESSAGE_CONTENT`, loop 진행 상태를 `AGENT_EVENT`로
+내립니다.
+
 ## Compaction
 
 Compaction은 protocol-agnostic 설정입니다.
@@ -123,6 +141,11 @@ Safety 기능이 켜진 경우 provider 생성은 `internal/provider/pipeline` w
 
 PII masking은 upstream dispatch 전에 일어납니다. Streaming response는 client로
 돌아가기 전에 unmask 및 sanitize됩니다.
+
+HTTP agent-loop 중간 event는 executor의 raw input, raw output, full tool
+content를 재귀적으로 제거한 뒤 내보냅니다. 따라서 live tool status는 볼 수
+있지만, local file 내용이나 command output이 side-channel event metadata로
+스트리밍되지는 않습니다.
 
 ## Model Catalog
 

@@ -1,6 +1,7 @@
 package httpcompat
 
 import (
+	"bufio"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -11,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestCompatibilityEndpoints(t *testing.T) {
@@ -67,6 +69,115 @@ func TestCompatibilityEndpoints(t *testing.T) {
 				t.Fatalf("response %q does not contain %s", string(body), tc.want)
 			}
 		})
+	}
+}
+
+func TestChatCompletionsStreamingFlushesUpstreamChunks(t *testing.T) {
+	release := make(chan struct{})
+	releaseUpstream := func() {
+		select {
+		case <-release:
+		default:
+			close(release)
+		}
+	}
+	defer releaseUpstream()
+
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/chat/completions" {
+			t.Errorf("unexpected upstream path: %s", r.URL.Path)
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{\"content\":\"A\"}}]}\n\n")
+		if f, ok := w.(http.Flusher); ok {
+			f.Flush()
+		}
+		<-release
+		fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{\"content\":\"B\"},\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":1,\"completion_tokens\":2,\"total_tokens\":3}}\n\n")
+		fmt.Fprint(w, "data: [DONE]\n\n")
+	}))
+	defer upstream.Close()
+
+	cfg := filepath.Join(t.TempDir(), "providers.yaml")
+	if err := os.WriteFile(cfg, []byte(`providers:
+  test-http:
+    kind: openai-chat
+    base_url: `+upstream.URL+`
+    api_key: test-key
+    default_model: test-model
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("ACP_HARNESS_PROVIDERS_FILE", cfg)
+	t.Setenv("ACP_HARNESS_PROVIDER", "test-http")
+	t.Setenv("ACP_HARNESS_MODEL", "")
+	t.Setenv("ACP_HARNESS_API_KEY", "")
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(t.TempDir(), "missing"))
+
+	srv := httptest.NewServer(NewHandler())
+	defer srv.Close()
+
+	req, err := http.NewRequest(http.MethodPost, srv.URL+"/v1/chat/completions", strings.NewReader(`{"stream":true,"messages":[{"role":"user","content":"hi"}]}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		t.Fatalf("status=%d body=%q", resp.StatusCode, string(body))
+	}
+
+	lines := make(chan string, 16)
+	readErr := make(chan error, 1)
+	go func() {
+		scanner := bufio.NewScanner(resp.Body)
+		for scanner.Scan() {
+			lines <- scanner.Text()
+		}
+		readErr <- scanner.Err()
+		close(lines)
+	}()
+
+	var sawA bool
+	for !sawA {
+		select {
+		case line, ok := <-lines:
+			if !ok {
+				t.Fatal("stream closed before first content chunk")
+			}
+			if strings.Contains(line, `"content":"A"`) {
+				sawA = true
+			}
+		case <-time.After(2 * time.Second):
+			t.Fatal("first content chunk was not flushed while upstream was still open")
+		}
+	}
+
+	releaseUpstream()
+	var rest strings.Builder
+	for {
+		select {
+		case line, ok := <-lines:
+			if !ok {
+				if err := <-readErr; err != nil {
+					t.Fatal(err)
+				}
+				got := rest.String()
+				if !strings.Contains(got, `"content":"B"`) || !strings.Contains(got, "data: [DONE]") {
+					t.Fatalf("stream did not finish correctly: %q", got)
+				}
+				return
+			}
+			rest.WriteString(line)
+			rest.WriteString("\n")
+		case <-time.After(2 * time.Second):
+			t.Fatal("stream did not finish after upstream released")
+		}
 	}
 }
 
@@ -249,6 +360,74 @@ func TestChatCompletionsAgentModelRunsToolLoop(t *testing.T) {
 	}
 	if !strings.Contains(requests[1], `"role":"tool"`) || !strings.Contains(requests[1], "visible.txt") {
 		t.Fatalf("tool result was not fed back to upstream:\n%s", requests[1])
+	}
+}
+
+func TestChatCompletionsAgentStreamEmitsIntermediateEvents(t *testing.T) {
+	tmp := t.TempDir()
+	if err := os.WriteFile(filepath.Join(tmp, "visible.txt"), []byte("ok"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var requests []string
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		requests = append(requests, string(body))
+		w.Header().Set("Content-Type", "text/event-stream")
+		if len(requests) == 1 {
+			fmt.Fprint(w, `data: {"choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"tc1","type":"function","function":{"name":"list_files","arguments":"{\"path\":\".\"}"}}]},"finish_reason":"tool_calls"}]}`+"\n\n")
+			fmt.Fprint(w, "data: [DONE]\n\n")
+			return
+		}
+		fmt.Fprint(w, `data: {"choices":[{"index":0,"delta":{"content":"saw visible.txt"},"finish_reason":"stop"}]}`+"\n\n")
+		fmt.Fprint(w, "data: [DONE]\n\n")
+	}))
+	defer upstream.Close()
+
+	cfg := filepath.Join(t.TempDir(), "providers.yaml")
+	if err := os.WriteFile(cfg, []byte(`providers:
+  test-http:
+    kind: openai-chat
+    base_url: `+upstream.URL+`
+    api_key: test-key
+    default_model: test-model
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("ACP_HARNESS_PROVIDERS_FILE", cfg)
+	t.Setenv("ACP_HARNESS_PROVIDER", "test-http")
+	t.Setenv("ACP_HARNESS_MODEL", "")
+	t.Setenv("ACP_HARNESS_API_KEY", "")
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(t.TempDir(), "missing"))
+
+	srv := httptest.NewServer(NewHandler())
+	defer srv.Close()
+
+	body := `{"stream":true,"model":"agent:test-model","metadata":{"cwd":` + strconv.Quote(tmp) + `},"messages":[{"role":"user","content":"list files"}]}`
+	resp, err := http.Post(srv.URL+"/v1/chat/completions", "application/json", strings.NewReader(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	out, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status=%d body=%s", resp.StatusCode, string(out))
+	}
+	got := string(out)
+	for _, want := range []string{
+		`"agent_event"`,
+		`"type":"tool_call"`,
+		`"type":"tool_result"`,
+		`"content":"saw visible.txt"`,
+		`data: [DONE]`,
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("stream missing %s:\n%s", want, got)
+		}
+	}
+	for _, forbidden := range []string{`"rawOutput"`, `"rawInput"`} {
+		if strings.Contains(got, forbidden) {
+			t.Fatalf("agent event leaked %s: %s", forbidden, got)
+		}
 	}
 }
 

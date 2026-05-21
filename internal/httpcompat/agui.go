@@ -34,6 +34,31 @@ func (h *handler) aguiRun(w http.ResponseWriter, r *http.Request) {
 	writeAGUIEvent(w, map[string]any{"type": "RUN_STARTED", "runId": runID})
 	writeAGUIEvent(w, map[string]any{"type": "TEXT_MESSAGE_START", "messageId": msgID, "role": "assistant"})
 
+	metadata, _ := req["metadata"].(map[string]any)
+	agentOpts := httpAgentOptionsFrom(model, metadata)
+	if agentOpts.SessionID == "" {
+		agentOpts.SessionID = runID
+	}
+	if agentOpts.Enabled {
+		emit := func(ev httpAgentEvent) {
+			if ev.Type == "text_delta" {
+				if ev.Text != "" {
+					writeAGUIEvent(w, map[string]any{"type": "TEXT_MESSAGE_CONTENT", "messageId": msgID, "delta": ev.Text})
+				}
+				return
+			}
+			writeAGUIEvent(w, map[string]any{"type": "AGENT_EVENT", "runId": runID, "event": agentEventPayload(ev)})
+		}
+		text, _, _, err := h.runAgentProviderWithEvents(r.Context(), agentOpts, messages, emit)
+		if err != nil {
+			writeAGUIEvent(w, map[string]any{"type": "RUN_ERROR", "runId": runID, "message": err.Error()})
+			return
+		}
+		writeAGUIEvent(w, map[string]any{"type": "TEXT_MESSAGE_END", "messageId": msgID})
+		writeAGUIEvent(w, map[string]any{"type": "RUN_FINISHED", "runId": runID, "messages": []provider.Message{{Role: "assistant", Content: text}}})
+		return
+	}
+
 	chunks, errs, err := StreamProvider(r.Context(), model, messages)
 	if err != nil {
 		writeAGUIEvent(w, map[string]any{"type": "RUN_ERROR", "runId": runID, "message": err.Error()})

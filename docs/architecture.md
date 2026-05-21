@@ -100,6 +100,24 @@ reuse the same local Codex thread. The OpenAI-style `prompt_cache_retention`
 field is dropped because Codex app-server does not expose that wire contract on
 this path.
 
+## HTTP Streaming
+
+`POST /v1/chat/completions` uses true SSE streaming when `stream: true`.
+Standard providers forward sanitized provider chunks as OpenAI-compatible
+`chat.completion.chunk` events and flush each event immediately.
+
+When the HTTP agent loop is enabled through `agent:<model>` or
+`metadata.agent`, AgentBridge streams both assistant text deltas and loop
+progress. Tool calls, tool status notifications, tool completion summaries,
+usage, stop reasons, and turn boundaries are emitted as chunk objects with an
+`agent_event` field. Raw tool input/output payloads are not included in these
+intermediate events; tool results are still fed back into the internal model
+loop.
+
+A2A streaming and AG-UI use the same agent-loop emitter. A2A sends assistant
+text as `artifactUpdate` events and loop progress as `agentUpdate`; AG-UI sends
+assistant text as `TEXT_MESSAGE_CONTENT` and loop progress as `AGENT_EVENT`.
+
 ## Compaction
 
 Compaction is protocol-agnostic and configured in runtime config.
@@ -127,6 +145,11 @@ features are enabled. The wrapper preserves optional provider capabilities:
 
 PII masking happens before upstream dispatch. Streamed responses are unmasked
 and sanitized before they are returned to clients.
+
+HTTP agent-loop intermediate events scrub raw executor input, raw executor
+output, and full tool content recursively before emission. This keeps live tool
+status observable without streaming local file contents or command output as
+side-channel event metadata.
 
 ## Model Catalog
 
