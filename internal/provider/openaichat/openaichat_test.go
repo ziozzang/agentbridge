@@ -190,6 +190,32 @@ func TestThinkingEnabledWhenConfigured(t *testing.T) {
 	}
 }
 
+func TestAvailableModelsFetchesWildcardModelList(t *testing.T) {
+	var sawAuth string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/models" {
+			t.Fatalf("path = %q", r.URL.Path)
+		}
+		sawAuth = r.Header.Get("Authorization")
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"data":[{"id":"gpt-oss:120b","owned_by":"ollama"}]}`))
+	}))
+	defer srv.Close()
+	c := New(provider.Config{
+		Name: "ollama-cloud", BaseURL: srv.URL, APIKey: "k",
+		DefaultModel: "gpt-oss:120b",
+		Models:       []provider.ModelInfo{{ModelID: "*"}},
+	})
+	c.HTTPClient = srv.Client()
+	models := c.AvailableModels()
+	if sawAuth != "Bearer k" {
+		t.Fatalf("auth = %q", sawAuth)
+	}
+	if len(models) != 1 || models[0].ModelID != "gpt-oss:120b" || models[0].Provider != "ollama-cloud" {
+		t.Fatalf("models = %+v", models)
+	}
+}
+
 func TestRequestDefaultsInjected(t *testing.T) {
 	var body map[string]any
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

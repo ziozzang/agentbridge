@@ -18,6 +18,7 @@ import (
 	"net/http"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/ziozzang/agentbridge/internal/logger"
 	"github.com/ziozzang/agentbridge/internal/provider"
@@ -62,9 +63,84 @@ func (c *Client) Kind() string { return Kind }
 
 // AvailableModels implements provider.Provider.
 func (c *Client) AvailableModels() []provider.ModelInfo {
+	if modelsAreWildcard(c.cfg.Models) {
+		if models, err := c.fetchModels(); err == nil && len(models) > 0 {
+			return models
+		}
+		if c.cfg.DefaultModel != "" {
+			return []provider.ModelInfo{{
+				ModelID:     c.cfg.DefaultModel,
+				Name:        c.cfg.DefaultModel,
+				Description: "provider: " + c.Name(),
+				Provider:    c.Name(),
+			}}
+		}
+	}
 	out := make([]provider.ModelInfo, len(c.cfg.Models))
 	copy(out, c.cfg.Models)
 	return out
+}
+
+func modelsAreWildcard(models []provider.ModelInfo) bool {
+	return len(models) == 1 && strings.TrimSpace(models[0].ModelID) == "*"
+}
+
+func (c *Client) fetchModels() ([]provider.ModelInfo, error) {
+	if c.cfg.BaseURL == "" {
+		return nil, fmt.Errorf("missing base URL")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, strings.TrimRight(c.cfg.BaseURL, "/")+"/models", nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Accept", "application/json")
+	if c.cfg.APIKey != "" {
+		req.Header.Set(c.cfg.AuthHeader, c.cfg.AuthPrefix+c.cfg.APIKey)
+	}
+	for k, v := range c.cfg.Headers {
+		req.Header.Set(k, v)
+	}
+	client := c.HTTPClient
+	if client == nil {
+		client = &http.Client{}
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if resp.StatusCode/100 != 2 {
+		return nil, fmt.Errorf("models failed: HTTP %d", resp.StatusCode)
+	}
+	var payload struct {
+		Data []struct {
+			ID      string `json:"id"`
+			OwnedBy string `json:"owned_by"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(body, &payload); err != nil {
+		return nil, err
+	}
+	out := make([]provider.ModelInfo, 0, len(payload.Data))
+	for _, m := range payload.Data {
+		if strings.TrimSpace(m.ID) == "" {
+			continue
+		}
+		desc := "provider: " + c.Name()
+		if m.OwnedBy != "" {
+			desc += ", upstream_owner: " + m.OwnedBy
+		}
+		out = append(out, provider.ModelInfo{
+			ModelID:     m.ID,
+			Name:        m.ID,
+			Description: desc,
+			Provider:    c.Name(),
+		})
+	}
+	return out, nil
 }
 
 // DefaultModel implements provider.Provider.

@@ -164,9 +164,24 @@ func providerModels(cfg provider.Config) []provider.ModelInfo {
 			}
 		}
 	}
+	if modelsAreWildcard(cfg.Models) {
+		if cfg.DefaultModel == "" {
+			return nil
+		}
+		return []provider.ModelInfo{{
+			ModelID:     cfg.DefaultModel,
+			Name:        cfg.DefaultModel,
+			Description: "provider: " + cfg.Name,
+			Provider:    cfg.Name,
+		}}
+	}
 	out := make([]provider.ModelInfo, len(cfg.Models))
 	copy(out, cfg.Models)
 	return out
+}
+
+func modelsAreWildcard(models []provider.ModelInfo) bool {
+	return len(models) == 1 && strings.TrimSpace(models[0].ModelID) == "*"
 }
 
 func fetchOpenAIModels(cfg provider.Config) ([]provider.ModelInfo, error) {

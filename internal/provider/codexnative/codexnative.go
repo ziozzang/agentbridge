@@ -119,9 +119,10 @@ func staticModelFallback(models []provider.ModelInfo, contextWindow int, provide
 	return []provider.ModelInfo{
 		{ModelID: "gpt-5.5", Name: "GPT-5.5 (Codex app-server)", Description: "Current Codex app-server model", Provider: name, ContextWindow: contextWindow},
 		{ModelID: "gpt-5.4", Name: "GPT-5.4 (Codex app-server)", Provider: name, ContextWindow: contextWindow},
+		{ModelID: "gpt-5.4-mini", Name: "GPT-5.4-Mini (Codex app-server)", Provider: name, ContextWindow: contextWindow},
 		{ModelID: "gpt-5.3-codex", Name: "GPT-5.3 Codex (Codex app-server)", Provider: name, ContextWindow: contextWindow},
-		{ModelID: "gpt-5", Name: "GPT-5 (Codex app-server)", Provider: name, ContextWindow: contextWindow},
-		{ModelID: "gpt-5-mini", Name: "GPT-5 mini (Codex app-server)", Provider: name, ContextWindow: contextWindow},
+		{ModelID: "gpt-5.3-codex-spark", Name: "GPT-5.3-Codex-Spark (Codex app-server)", Provider: name, ContextWindow: contextWindow},
+		{ModelID: "gpt-5.2", Name: "GPT-5.2 (Codex app-server)", Provider: name, ContextWindow: contextWindow},
 	}
 }
 

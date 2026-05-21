@@ -369,10 +369,12 @@ CODEX_APPROVAL_POLICY=never \
 agentbridge
 ```
 
-기본적으로 `codex-app`은 `models: ["*"]`로 설정되어 있으므로 AgentBridge는
-로컬 app-server의 `model/list` 응답을 먼저 사용합니다. native 목록을 빠르게
-읽지 못하면 정적 `gpt-5*` Codex 목록으로 fallback합니다:
-`gpt-5.5`, `gpt-5.4`, `gpt-5.3-codex`, `gpt-5`, `gpt-5-mini`.
+기본적으로 `codex-app`은 Codex CLI model cache에서 확인한 Codex OAuth
+provider의 visible model 목록과 같은 내장 목록을 가집니다. AgentBridge는 그래도
+로컬 app-server의 `model/list` 응답을 먼저 사용하며, native 목록을 빠르게
+읽지 못하면 내장된 `gpt-5*` Codex 목록으로 fallback합니다:
+`gpt-5.5`, `gpt-5.4`, `gpt-5.4-mini`, `gpt-5.3-codex`,
+`gpt-5.3-codex-spark`, `gpt-5.2`.
 제약된 환경에서 시작 시 모델 조회를 피해야 할 때만 `CODEX_MODEL_LIST=static`을
 설정하세요.
 

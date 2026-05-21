@@ -187,10 +187,13 @@ func TestWildcardModelsFallbackToGPT5StaticList(t *testing.T) {
 		Models:        []provider.ModelInfo{{ModelID: "*"}},
 	})
 	models := client.AvailableModels()
-	if len(models) != 5 {
+	if len(models) != 6 {
 		t.Fatalf("models = %+v", models)
 	}
-	if models[0].ModelID != "gpt-5.5" || models[4].ModelID != "gpt-5-mini" {
+	if models[0].ModelID != "gpt-5.5" || models[5].ModelID != "gpt-5.2" {
+		t.Fatalf("fallback models = %+v", models)
+	}
+	if models[2].ModelID != "gpt-5.4-mini" || models[4].ModelID != "gpt-5.3-codex-spark" {
 		t.Fatalf("fallback models = %+v", models)
 	}
 }

@@ -206,6 +206,35 @@ func TestLoadEmbeddedCodexWebSearchDefaults(t *testing.T) {
 	}
 }
 
+func TestCodexAppEmbeddedModelsMatchCodexOAuthModels(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(t.TempDir(), "missing"))
+	_ = os.Unsetenv("ACP_HARNESS_PROVIDERS_FILE")
+
+	m, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	oauthCfg, err := m.Resolve("codex")
+	if err != nil {
+		t.Fatal(err)
+	}
+	appCfg, err := m.Resolve("codex-app")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(oauthCfg.Models) == 0 || len(appCfg.Models) == 0 {
+		t.Fatalf("codex models=%+v codex-app models=%+v", oauthCfg.Models, appCfg.Models)
+	}
+	if len(oauthCfg.Models) != len(appCfg.Models) {
+		t.Fatalf("codex models=%+v codex-app models=%+v", oauthCfg.Models, appCfg.Models)
+	}
+	for i := range oauthCfg.Models {
+		if oauthCfg.Models[i].ModelID != appCfg.Models[i].ModelID || oauthCfg.Models[i].Name != appCfg.Models[i].Name {
+			t.Fatalf("model %d mismatch: codex=%+v codex-app=%+v", i, oauthCfg.Models[i], appCfg.Models[i])
+		}
+	}
+}
+
 func TestLoadEmbeddedOpenAIResponsesCompactionDefaults(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(t.TempDir(), "missing"))
 	_ = os.Unsetenv("ACP_HARNESS_PROVIDERS_FILE")

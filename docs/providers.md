@@ -377,10 +377,12 @@ CODEX_APPROVAL_POLICY=never \
 agentbridge
 ```
 
-By default, `codex-app` is configured with `models: ["*"]`, so AgentBridge asks
-the local app-server for its own `model/list` response first. If the native
-list cannot be read quickly, it falls back to the static `gpt-5*` Codex list:
-`gpt-5.5`, `gpt-5.4`, `gpt-5.3-codex`, `gpt-5`, and `gpt-5-mini`. Set
+By default, `codex-app` embeds the same visible model list as the Codex OAuth
+provider, based on the Codex CLI model cache. AgentBridge still asks the local
+app-server for its own `model/list` response first; if that native list cannot
+be read quickly, it falls back to the embedded `gpt-5*` Codex list:
+`gpt-5.5`, `gpt-5.4`, `gpt-5.4-mini`, `gpt-5.3-codex`,
+`gpt-5.3-codex-spark`, and `gpt-5.2`. Set
 `CODEX_MODEL_LIST=static` only when startup-time model probing is undesirable
 in a constrained environment.
 

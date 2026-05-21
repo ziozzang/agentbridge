@@ -299,6 +299,34 @@ func TestRouterRenamesExposedModelNames(t *testing.T) {
 	}
 }
 
+func TestRouterWildcardProviderModelsFallBackToDefaultModel(t *testing.T) {
+	c, err := New(provider.Config{
+		Name: "router", Kind: Kind,
+		Extra: map[string]any{
+			"_providers": map[string]provider.Config{
+				"ollama-cloud": {
+					Name: "ollama-cloud", Kind: "openai-chat", BaseURL: "http://127.0.0.1", APIKey: "",
+					DefaultModel: "gpt-oss:120b",
+					Models:       []provider.ModelInfo{{ModelID: "*"}},
+				},
+			},
+			"routes": []any{map[string]any{
+				"models":            []any{"*"},
+				"provider":          "ollama-cloud",
+				"target_model":      "$model",
+				"model_name_rename": "ollama:{name}",
+			}},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	models := c.AvailableModels()
+	if len(models) != 1 || models[0].ModelID != "ollama:gpt-oss:120b" {
+		t.Fatalf("models = %+v", models)
+	}
+}
+
 func TestGlobMatch(t *testing.T) {
 	cases := []struct {
 		pat, model string

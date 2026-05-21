@@ -267,7 +267,19 @@ providers:
       cwd: ${CODEX_CWD:-}
       model_list: ${CODEX_MODEL_LIST:-native}
     models:
-      - "*"
+      - id: gpt-5.5
+        name: GPT-5.5
+        description: Current Codex ChatGPT model
+      - id: gpt-5.4
+        name: GPT-5.4
+      - id: gpt-5.4-mini
+        name: GPT-5.4-Mini
+      - id: gpt-5.3-codex
+        name: GPT-5.3 Codex
+      - id: gpt-5.3-codex-spark
+        name: GPT-5.3-Codex-Spark
+      - id: gpt-5.2
+        name: GPT-5.2
 
   # --------- Ollama (native /api/chat) -----------------------------------
   ollama:
@@ -986,12 +998,8 @@ providers:
     max_tokens: 8192
     context_window: 128000
     models:
-      - id: gpt-oss:120b
-        name: GPT-OSS 120B
-      - id: deepseek-v3.2
-        name: DeepSeek V3.2
-      - id: qwen3-coder
-        name: Qwen3 Coder
+      - id: "*"
+        name: Ollama Cloud native model list
 
   lmstudio:
     kind: openai-chat
@@ -1070,5 +1078,11 @@ providers:
         description: Current Codex ChatGPT model
       - id: gpt-5.4
         name: GPT-5.4
+      - id: gpt-5.4-mini
+        name: GPT-5.4-Mini
       - id: gpt-5.3-codex
         name: GPT-5.3 Codex
+      - id: gpt-5.3-codex-spark
+        name: GPT-5.3-Codex-Spark
+      - id: gpt-5.2
+        name: GPT-5.2
