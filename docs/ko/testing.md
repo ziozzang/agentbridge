@@ -42,6 +42,26 @@ curl -sS http://127.0.0.1:8766/openapi.json
 curl -sS http://127.0.0.1:8766/metrics
 ```
 
+HTTP catalog / compaction smoke:
+
+```bash
+curl -sS http://127.0.0.1:8766/v1/models | jq '.data[] | {id, owned_by, metadata}'
+curl -sS http://127.0.0.1:8766/v1/tool-catalog | jq '.tools[] | {name, source, owner}'
+curl -sS -X POST http://127.0.0.1:8766/v1/responses/compact \
+  -H 'Content-Type: application/json' \
+  -d '{"strategy":"prune","target_tokens":64,"messages":[{"role":"system","content":"Be concise."},{"role":"user","content":"Long history to compact."},{"role":"assistant","content":"Intermediate answer."},{"role":"user","content":"Keep recent context."}]}'
+```
+
+Safety primitive package 테스트:
+
+```bash
+go test ./internal/pii ./internal/sanitize ./internal/responsecache ./internal/runtimeconfig
+```
+
+Safety pipeline primitive는 모든 request path에 연결되기 전까지 별도 package
+단위로 검증합니다. HTTP, A2A, ACP, router dispatch에 연결할 때 integration
+test를 추가하세요.
+
 Codex live web search smoke:
 
 ```bash

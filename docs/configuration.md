@@ -119,6 +119,39 @@ compaction:
   keep_recent_tokens: 20000
   reserve_tokens: 16384
 
+pii:
+  enabled: true
+  mask: true
+  disable_defaults: false
+  routing:
+    reject: false
+    route_to: local-private-model
+  patterns:
+    - name: account_id
+      regex: '\bACCT-[0-9]{8}\b'
+      mask: '[MASK_ACCOUNT_{n}]'
+
+sanitize:
+  strip_think_tags: true
+  tags: [think, thinking, reasoning, reflection]
+
+cache:
+  enabled: true
+  ttl: 1h
+  max_size: 10000
+  models_to_cache: [gpt-*, claude-*]
+
+inject:
+  - when: "grok-*, glm-*"
+    system_prompt: "Return concise operational answers."
+    system_prompt_mode: prepend
+    user_suffix: "\n\nReturn only the final answer."
+    remove: [logprobs, top_logprobs]
+    request_regex:
+      - pattern: '\bSECRET:\s*\S+'
+        replace: 'SECRET: [redacted]'
+        roles: [user]
+
 providers:
   router:
     kind: router
@@ -151,6 +184,13 @@ HTTP clients can request the same mechanism directly with
 `previous_response_id`, plus optional `strategy` (`auto`, `native`, `summary`,
 `prune`, `none`) and `target_tokens`. The response returns a replacement
 message list with `strategy`, `compacted`, and token estimates.
+
+## Safety And Request Mutation
+
+`pii`, `sanitize`, `cache`, and `inject` are intentionally configured at the
+top level because they are protocol-agnostic. See [Safety Pipeline](safety.md)
+for the detailed intent, current implementation status, settings, and rollout
+notes.
 
 ## Provider Cache And Reasoning Options
 
@@ -399,6 +439,13 @@ signals such as `rate limit`, `quota`, `weekly limit`, and `5h` before any
 streamed output is emitted. It marks the key as limited for the current
 process and skips it on later round-robin picks. Reset time parsing is not
 provider-stable yet.
+
+`max_concurrent_per_key` limits simultaneous sessions for each key selected by
+`api_key_envs` or `api_keys`. For example, with two Ollama Cloud keys and
+`max_concurrent_per_key: 3`, the route can run up to six concurrent upstream
+sessions, three on each key. This is separate from quota detection: concurrency
+caps prevent local overuse, while quota detection reacts to upstream errors and
+quota headers/messages.
 
 Fallbacks are for alternate upstream models/providers, not for continuing a
 partially streamed response. If a route emits any output and then fails,

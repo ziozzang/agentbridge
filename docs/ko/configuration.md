@@ -117,6 +117,39 @@ compaction:
   keep_recent_tokens: 20000
   reserve_tokens: 16384
 
+pii:
+  enabled: true
+  mask: true
+  disable_defaults: false
+  routing:
+    reject: false
+    route_to: local-private-model
+  patterns:
+    - name: account_id
+      regex: '\bACCT-[0-9]{8}\b'
+      mask: '[MASK_ACCOUNT_{n}]'
+
+sanitize:
+  strip_think_tags: true
+  tags: [think, thinking, reasoning, reflection]
+
+cache:
+  enabled: true
+  ttl: 1h
+  max_size: 10000
+  models_to_cache: [gpt-*, claude-*]
+
+inject:
+  - when: "grok-*, glm-*"
+    system_prompt: "Return concise operational answers."
+    system_prompt_mode: prepend
+    user_suffix: "\n\nReturn only the final answer."
+    remove: [logprobs, top_logprobs]
+    request_regex:
+      - pattern: '\bSECRET:\s*\S+'
+        replace: 'SECRET: [redacted]'
+        roles: [user]
+
 providers:
   router:
     kind: router
@@ -149,6 +182,12 @@ HTTP client는 같은 메커니즘을 `POST /v1/responses/compact`로 직접 호
 선택적으로 `strategy`(`auto`, `native`, `summary`, `prune`, `none`),
 `target_tokens`를 받습니다. 응답은 교체용 message list와 `strategy`,
 `compacted`, token estimate를 돌려줍니다.
+
+## Safety / Request Mutation
+
+`pii`, `sanitize`, `cache`, `inject`는 특정 provider가 아니라 모든 protocol에
+동일하게 적용되어야 하므로 top-level 설정으로 둡니다. 의도, 현재 구현 상태,
+세부 설정, rollout 순서는 [Safety Pipeline](safety.md)을 보세요.
 
 ## Provider Cache / Reasoning 옵션
 
@@ -396,6 +435,13 @@ HTTP 429와 `rate limit`, `quota`, `weekly limit`, `5h` 같은 문구를
 감지합니다. 감지된 key는 현재 프로세스에서 limited로 표시하고 이후
 round-robin에서 건너뜁니다. Reset 시간 parsing은 아직 provider마다 안정적이지
 않습니다.
+
+`max_concurrent_per_key`는 `api_key_envs` 또는 `api_keys`로 선택된 각 key별
+동시 session 수를 제한합니다. 예를 들어 Ollama Cloud key가 두 개이고
+`max_concurrent_per_key: 3`이면 route 전체로는 최대 6개 session을 실행하되
+각 key에는 3개까지만 붙습니다. 이는 quota 감지와 별개입니다. 동시성 cap은
+로컬에서 과사용을 막고, quota 감지는 upstream 오류와 quota header/message에
+반응합니다.
 
 Fallback은 대체 upstream model/provider를 위한 기능입니다. 어떤 route가 이미
 출력을 시작한 뒤 실패하면 AgentBridge는 다른 모델로 재시도하지 않고 해당

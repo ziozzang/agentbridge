@@ -117,6 +117,7 @@ request/response는 `google.protobuf.Struct`를 사용하므로 프로젝트 전
 | --- | --- |
 | [Install](docs/install.md) | [설치](docs/ko/install.md) |
 | [Configuration](docs/configuration.md) | [설정](docs/ko/configuration.md) |
+| [Safety Pipeline](docs/safety.md) | [Safety Pipeline](docs/ko/safety.md) |
 | [Providers](docs/providers.md) | [프로바이더](docs/ko/providers.md) |
 | [Plugins](docs/plugins.md) | [플러그인](docs/ko/plugins.md) |
 | [Testing](docs/testing.md) | [테스트](docs/ko/testing.md) |

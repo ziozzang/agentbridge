@@ -1,0 +1,239 @@
+# Safety Pipeline
+
+AgentBridge is absorbing the safety and request-mutation mechanisms from
+`gollm`. These features are separated from provider configuration because they
+should apply consistently across ACP, A2A, OpenAI-compatible HTTP,
+Anthropic-compatible HTTP, and future protocol surfaces.
+
+## Intent
+
+The target request lifecycle is:
+
+1. Apply declarative inject rules.
+2. Drop unsupported or unwanted top-level request parameters.
+3. Detect and optionally mask PII before the upstream call.
+4. Dispatch to the selected provider or router route.
+5. Restore PII placeholders in the response.
+6. Strip thinking tags or structured reasoning fields when configured.
+7. Cache eligible non-streaming responses only when no PII was detected.
+
+This order matters. PII masking must happen before upstream dispatch; response
+rollback must happen before final response sanitization; response caching must
+avoid PII-detected requests.
+
+## Current Status
+
+| Area | Status | Implemented part |
+| --- | --- | --- |
+| PII detection/masking | Primitive present | `internal/pii` has default Korean/generic patterns, salted placeholders, dedupe, mapping rollback, provider-message walkers, and streaming unmask support. |
+| Thinking tag sanitize | Primitive present | `internal/sanitize` strips `<think>`, `<thinking>`, `<reasoning>`, and `<reflection>` spans, including split streaming chunks. |
+| Response cache | Primitive present | `internal/responsecache` provides an in-memory TTL cache with stable SHA-256 JSON keys and stats. |
+| Config schema | Present | `pii`, `sanitize`, `cache`, and `inject` are parsed from `config.yaml` by `runtimeconfig`. |
+| Parameter drop | Schema present through inject | `inject[].remove` represents top-level parameter drop. Automatic application is pending. |
+| JSON mode | Provider-level workaround present | OpenAI-compatible providers can receive `response_format` through provider `extra.request_defaults`; top-level `inject[].set.response_format` is parsed but not yet wired globally. |
+| Header changes | Provider static headers present | Provider `headers:` are already sent upstream. Kong-style add/set/remove/rename/replace transforms are still pending. |
+| Request path wiring | Pending | The primitives are not yet applied automatically to every request path. Wire them into `runProvider`, router dispatch, and streaming wrappers before treating these settings as active runtime behavior. |
+| `/v1/providers/status` | Pending | The endpoint is not mounted yet. The target shape should include provider health, request/error counts, quota state, response times, and cache stats. |
+
+## Configuration
+
+Place these settings in `$XDG_CONFIG_HOME/agentbridge/config.yaml` or a file
+specified by `AGENTBRIDGE_CONFIG_FILE`.
+
+```yaml
+pii:
+  enabled: true
+  mask: true
+  disable_defaults: false
+  routing:
+    reject: false
+    reject_message: "PII detected"
+    route_to: local-private-model
+  patterns:
+    - name: account_id
+      regex: '\bACCT-[0-9]{8}\b'
+      mask: '[MASK_ACCOUNT_{n}]'
+
+sanitize:
+  strip_think_tags: true
+  tags: [think, thinking, reasoning, reflection]
+
+cache:
+  enabled: true
+  ttl: 1h
+  max_size: 10000
+  models_to_cache: [gpt-*, claude-*]
+
+inject:
+  - when: "grok-*, glm-*"
+    system_prompt: "Return concise operational answers."
+    system_prompt_mode: prepend
+    user_suffix: "\n\nReturn only the final answer."
+    remove: [logprobs, top_logprobs]
+    request_regex:
+      - pattern: '\bSECRET:\s*\S+'
+        replace: 'SECRET: [redacted]'
+        roles: [user]
+```
+
+## PII Detection
+
+Default patterns cover:
+
+- Korean resident registration numbers
+- Korean mobile and landline phone numbers
+- Email addresses
+- Credit-card-like numbers
+- IPv4 addresses
+- JWT-looking tokens
+
+Custom `pii.patterns` extend the defaults. A custom pattern with the same
+`name` replaces that default. `mask` uses `{n}` as the placeholder counter,
+and AgentBridge adds a per-request salt so placeholders do not collide with
+normal user text.
+
+`pii.mask: false` is intended for detect-only mode. In that mode routing or
+rejection can still happen, but the prompt is not changed before upstream
+dispatch. `pii.routing.reject` should take precedence over `route_to` once the
+request path is wired.
+
+## Message Sanitization
+
+`sanitize.strip_think_tags` removes model-visible chain-of-thought tags from
+assistant text. The default tag catalog is:
+
+- `think`
+- `thinking`
+- `reasoning`
+- `reflection`
+
+The streaming stripper keeps a tail buffer so tags split across SSE chunks can
+still be removed. This is separate from provider-native structured reasoning:
+thinking deltas can be discarded or omitted at the protocol adapter layer once
+the setting is wired in.
+
+## Inject Rules
+
+Inject rules are declarative request edits matched by model name. `when`
+accepts exact names, `*` wildcards, or comma-separated patterns.
+
+Supported rule fields:
+
+| Field | Purpose |
+| --- | --- |
+| `set` | Overlay top-level request fields. |
+| `prepend_messages` | Insert messages before the client-provided history. |
+| `system_prompt` | Add or edit the first system message. |
+| `system_prompt_mode` | `prepend`, `append`, or `replace`. |
+| `user_prefix` | Prefix the first user message. |
+| `user_suffix` | Suffix the last user message. |
+| `remove` | Drop top-level request fields. |
+| `request_regex` | Apply regex replacements to message text, optionally by role. |
+
+This is meant for request normalization, unsupported-parameter removal, and
+small policy prompts. Keep large agent prompts in agent profiles instead.
+
+## JSON Mode
+
+There are two related mechanisms:
+
+- Provider-level JSON mode: for OpenAI Chat Completions compatible providers,
+  use `providers.<name>.extra.request_defaults.response_format`.
+- Pipeline-level JSON mode: once `inject` is wired globally, use
+  `inject[].set.response_format` to force JSON on selected public model names.
+
+Provider-level example:
+
+```yaml
+providers:
+  openrouter:
+    kind: openai-chat
+    extra:
+      request_defaults:
+        response_format:
+          type: json_object
+```
+
+Pipeline-level target example:
+
+```yaml
+inject:
+  - when: "json-*"
+    set:
+      response_format:
+        type: json_object
+```
+
+JSON validation is not enforced yet. The current behavior is request shaping,
+not post-response validation.
+
+## Header Changes
+
+Static provider headers are already supported:
+
+```yaml
+providers:
+  openrouter:
+    headers:
+      HTTP-Referer: https://example.com
+      X-Title: AgentBridge
+```
+
+The target transform model is intentionally more expressive and should mirror
+`gollm`'s actions:
+
+| Action | Purpose |
+| --- | --- |
+| `add` | Append a header value. |
+| `set` | Replace a header value. |
+| `remove` | Delete a header. |
+| `rename` | Move values from one header name to another. |
+| `replace` | Replace matching header values. |
+
+This transform layer is pending. Until then, use static provider `headers:`
+for upstream headers and avoid relying on dynamic downstream rewrites.
+
+## Response Cache
+
+The response cache is intentionally small and deterministic:
+
+- It is in-memory only.
+- Keys are SHA-256 hashes of canonical JSON payloads plus a namespace.
+- TTL expiration is lazy on read.
+- `max_size` evicts entries with the earliest expiry first.
+- Streaming responses should bypass the cache.
+- Tool-using or PII-detected requests should bypass the cache.
+
+The cache is meant to reduce duplicate upstream calls for identical,
+non-sensitive, non-streaming requests. It is not a durable store.
+
+## Provider Status Target
+
+`/v1/providers/status` is planned as the operator-facing status view for this
+pipeline. The target response should include:
+
+- provider name, kind, base URL redacted to origin when useful
+- health state: `healthy`, `unhealthy`, `rate_limited`, or `unknown`
+- request, success, and error counts
+- error rate and recent latency estimates
+- quota state: remaining requests/tokens, reset time, last quota reason
+- active concurrency/session counts when known
+- response cache stats
+
+Until the endpoint is mounted, use `/metrics`, router logs, and provider
+errors for operational visibility.
+
+## Rollout Notes
+
+The current code adds the reusable primitives and config shape first. The next
+implementation step is to wire them into the common HTTP/A2A/ACP execution
+paths without duplicating behavior per protocol.
+
+When wiring, preserve this invariant:
+
+```text
+request inject/drop -> PII mask -> provider call -> PII unmask -> sanitize -> cache/store
+```
+
+Do not store masked requests in response state or response cache unless the
+storage policy is explicitly reviewed.
