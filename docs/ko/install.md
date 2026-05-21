@@ -91,7 +91,7 @@ acp-agent --addr 127.0.0.1:8765 --model codex-agent \
 - `--read-only`: `--mode default --permission reject` 축약.
 - `--show-thinking`: ACP `agent_thought_chunk` update를 stderr에 출력합니다.
   기본값은 숨김입니다.
-- `--plain`: Bubble Tea UI를 끄고 legacy line-oriented UI를 사용합니다.
+- `--plain`: Bubble Tea UI를 끄고 최소 line-oriented fallback을 사용합니다.
 
 대화형 command:
 

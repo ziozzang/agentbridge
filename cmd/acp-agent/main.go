@@ -45,7 +45,7 @@ Flags:
   --show-thinking      print ACP agent_thought_chunk updates to stderr
   --hide-tools         hide ACP tool_call/tool_call_update status messages
   --raw-updates        print raw non-text session/update payloads to stderr
-  --plain              use the legacy line-oriented terminal UI
+  --plain              use the minimal line-oriented fallback
   --version            print version and exit
 
 Interactive commands:
@@ -90,7 +90,7 @@ func main() {
 	showThinking := flag.Bool("show-thinking", false, "print agent_thought_chunk updates")
 	hideTools := flag.Bool("hide-tools", false, "hide tool_call/tool_call_update status messages")
 	rawUpdates := flag.Bool("raw-updates", false, "print raw non-text session/update payloads")
-	plain := flag.Bool("plain", false, "use the legacy line-oriented terminal UI")
+	plain := flag.Bool("plain", false, "use the minimal line-oriented fallback")
 	version := flag.Bool("version", false, "print version and exit")
 	help := flag.Bool("help", false, "show help")
 	flag.Usage = func() { fmt.Fprint(os.Stderr, usage) }
@@ -285,6 +285,7 @@ type client struct {
 	activeAgents  map[string]string
 	thinkingPlain bool
 	events        chan uiEvent
+	promptCancel  context.CancelFunc
 
 	writeMu sync.Mutex
 	nextID  atomic.Int64
@@ -443,23 +444,33 @@ func (c *client) Interrupt(ctx context.Context) bool {
 	c.mu.Lock()
 	sessionID := c.state.SessionID
 	busy := c.state.Busy
+	cancel := c.promptCancel
 	c.mu.Unlock()
-	if !busy || sessionID == "" {
+	if !busy {
 		return false
 	}
-	_ = c.Cancel(ctx, sessionID)
+	if cancel != nil {
+		cancel()
+	}
+	if sessionID != "" {
+		_ = c.Cancel(ctx, sessionID)
+	}
 	return true
 }
 
 func (c *client) Prompt(ctx context.Context, sessionID, text string) error {
+	promptCtx, cancel := context.WithCancel(ctx)
 	c.mu.Lock()
 	c.state.Busy = true
+	c.promptCancel = cancel
 	c.mu.Unlock()
 	c.emitState()
 	defer func() {
+		cancel()
 		c.finishThinkingOutput()
 		c.mu.Lock()
 		c.state.Busy = false
+		c.promptCancel = nil
 		c.mu.Unlock()
 		c.emitState()
 	}()
@@ -486,7 +497,7 @@ func (c *client) Prompt(ctx context.Context, sessionID, text string) error {
 		blocks = append(blocks, acp.ContentBlock{Type: "text", Text: text})
 	}
 	var out acp.PromptResponse
-	err := c.Call(ctx, "session/prompt", acp.PromptParams{
+	err := c.Call(promptCtx, "session/prompt", acp.PromptParams{
 		SessionID: sessionID,
 		MessageID: "msg_" + time.Now().Format("20060102150405.000000000"),
 		Prompt:    blocks,
@@ -536,7 +547,16 @@ func (c *client) runPromptQueue(ctx context.Context, first string) {
 		sessionID := c.state.SessionID
 		c.mu.Unlock()
 		if err := c.Prompt(ctx, sessionID, next); err != nil {
-			fmt.Fprintln(c.stderr, "prompt failed:", err)
+			if errors.Is(err, context.Canceled) {
+				c.emitInfo("cancelled", "current turn cancelled")
+			} else {
+				c.emitError("prompt failed: " + err.Error())
+			}
+			if errors.Is(err, context.Canceled) {
+				// Cancellation is user-directed; keep the terminal ready for the next input.
+			} else {
+				fmt.Fprintln(c.stderr, "prompt failed:", err)
+			}
 		}
 		c.mu.Lock()
 		if len(c.promptQueue) == 0 {

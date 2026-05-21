@@ -175,3 +175,44 @@ func TestTUITurnElapsedFormatting(t *testing.T) {
 		t.Fatalf("duration=%q", got)
 	}
 }
+
+func TestTUIReflowReservesNoticeComposerStatusRows(t *testing.T) {
+	m := tuiModel{width: 100, height: 30}
+	m.reflow()
+	if m.viewport.Height != 27 {
+		t.Fatalf("viewport height=%d", m.viewport.Height)
+	}
+}
+
+func TestTUIViewIncludesNoticeComposerAndStatus(t *testing.T) {
+	start := time.Now().Add(-2 * time.Second)
+	m := tuiModel{
+		width:    140,
+		height:   10,
+		activity: "thinking",
+		turnAt:   start,
+		now:      start.Add(2 * time.Second),
+		state: clientState{
+			Busy:    true,
+			Model:   "glm-5.1",
+			Mode:    "default",
+			Context: contextState{Tokens: 1, Window: 10, UsedPercent: 10, LeftPercent: 90},
+		},
+		opts: clientOptions{Permission: "prompt"},
+	}
+	m.reflow()
+	got := stripANSI(m.View())
+	for _, want := range []string{"running 2s", "thinking", "Context 90% left", "Ask"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("view missing %q: %q", want, got)
+		}
+	}
+}
+
+func TestTUIOverlayNotice(t *testing.T) {
+	m := tuiModel{width: 120, overlay: &uiPermissionRequest{Title: "permission requested", Options: []choiceOption{{Key: "1", Label: "yes"}}}}
+	got := stripANSI(m.noticeLine())
+	if !strings.Contains(got, "approval requested") {
+		t.Fatalf("overlay notice=%q", got)
+	}
+}

@@ -145,6 +145,20 @@ func TestPrintUpdateSeparatesToolStatus(t *testing.T) {
 	}
 }
 
+func TestInterruptCancelsLocalPromptContext(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	c := &client{state: clientState{Busy: true}}
+	c.promptCancel = cancel
+	if !c.Interrupt(context.Background()) {
+		t.Fatalf("interrupt returned false")
+	}
+	select {
+	case <-ctx.Done():
+	default:
+		t.Fatalf("prompt context was not cancelled")
+	}
+}
+
 func TestStreamBufferFlushesOnToolUpdate(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	c := &client{

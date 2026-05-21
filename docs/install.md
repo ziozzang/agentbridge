@@ -94,7 +94,8 @@ Useful flags:
 - `--read-only`: shorthand for `--mode default --permission reject`.
 - `--show-thinking`: print ACP `agent_thought_chunk` updates to stderr. Hidden
   by default.
-- `--plain`: disable the Bubble Tea UI and use the legacy line-oriented UI.
+- `--plain`: disable the Bubble Tea UI and use the minimal line-oriented
+  fallback.
 
 Interactive commands:
 
