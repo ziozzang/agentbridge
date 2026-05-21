@@ -388,6 +388,62 @@ func TestTUICtrlCStopsThenExits(t *testing.T) {
 	}
 }
 
+func TestTUIStopFeedbackRefreshesFrameImmediately(t *testing.T) {
+	m := newTUIModel(context.Background(), &client{events: make(chan uiEvent)})
+	m.width = 120
+	m.height = 10
+	m.state = clientState{Busy: true, Model: "glm-5.1", Context: contextState{LeftPercent: 90}}
+	m.reflow()
+	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyCtrlC})
+	if cmd != nil {
+		t.Fatalf("first ctrl-c should stop current turn without quitting")
+	}
+	m = next.(tuiModel)
+	got := stripANSI(m.View())
+	for _, want := range []string{"interrupt", "Ctrl-C cancelled current turn", "Working"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("stop frame missing %q: %q", want, got)
+		}
+	}
+}
+
+func TestTUIUpdateSequenceRendersTranscriptProgressAndOverlay(t *testing.T) {
+	m := newTUIModel(context.Background(), &client{events: make(chan uiEvent)})
+	m.width = 140
+	m.height = 14
+	m.reflow()
+	events := []uiEvent{
+		uiStateEvent{State: clientState{Busy: true, Model: "glm-5.1", Context: contextState{LeftPercent: 88}}, Opts: clientOptions{Permission: "prompt"}},
+		uiUserEvent{Text: "inspect"},
+		uiThinkingDeltaEvent{Text: "plan"},
+		uiAssistantDeltaEvent{Text: "answer"},
+		uiToolEvent{Status: "in_progress", Title: "Read file", Detail: "path: README.md"},
+	}
+	for _, ev := range events {
+		next, _ := m.Update(tuiEventMsg{Event: ev})
+		m = next.(tuiModel)
+	}
+	got := stripANSI(m.View())
+	for _, want := range []string{"inspect", "reasoning", "plan", "assistant", "answer", "tool in_progress", "README.md", "Working"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("update sequence frame missing %q: %q", want, got)
+		}
+	}
+	next, _ := m.Update(tuiEventMsg{Event: uiPermissionRequest{
+		Title:   "tool permission",
+		Detail:  "command: date",
+		Options: []choiceOption{{Key: "1", Label: "yes"}, {Key: "3", Label: "no"}},
+		Reply:   make(chan string, 1),
+	}})
+	m = next.(tuiModel)
+	got = stripANSI(m.View())
+	for _, want := range []string{"tool permission", "command: date", "1. yes", "approval requested"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("overlay sequence frame missing %q: %q", want, got)
+		}
+	}
+}
+
 func TestTUITurnElapsedFormatting(t *testing.T) {
 	if got := compactDuration(75 * time.Second); got != "1m15s" {
 		t.Fatalf("duration=%q", got)

@@ -176,6 +176,7 @@ func (m *tuiModel) requestStop(title, body string) {
 		_ = m.client.Interrupt(m.ctx)
 	}
 	m.appendCell(tuiCell{Kind: "info", Title: title, Body: body})
+	m.refreshViewport()
 }
 
 func (m tuiModel) updateOverlay(msg tea.KeyMsg) (tea.Model, tea.Cmd) {

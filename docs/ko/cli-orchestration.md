@@ -56,6 +56,9 @@ shell script를 실행하지 않습니다.
   completion, spinner tick, composer update용 작은 handler를 거쳐 message를
   처리합니다. 그래서 terminal program을 띄우지 않고 runtime event loop를 테스트할
   수 있습니다.
+- Stop request는 같은 key event 안에서 즉시 transcript cell을 추가하고 viewport를
+  refresh합니다. 그래서 다음 provider event가 오기 전에도 interrupt feedback이
+  화면에 보입니다.
 - 최소 line-oriented fallback은 `--plain` 뒤에 debugging/minimal terminal용으로
   남깁니다. 이 경로는 terminal layout을 소유하지 않습니다.
 
