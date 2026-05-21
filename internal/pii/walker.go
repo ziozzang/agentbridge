@@ -38,6 +38,25 @@ func UnmaskChunk(ch provider.Chunk, mapping Mapping) provider.Chunk {
 	return ch
 }
 
+func UnmaskMessages(messages []provider.Message, mapping Mapping) []provider.Message {
+	if len(mapping) == 0 || len(messages) == 0 {
+		return messages
+	}
+	out := append([]provider.Message(nil), messages...)
+	for i := range out {
+		unmaskMessage(&out[i], mapping)
+	}
+	return out
+}
+
+func unmaskMessage(m *provider.Message, mapping Mapping) {
+	m.Content = unmaskContent(m.Content, mapping)
+	for i := range m.ToolCalls {
+		m.ToolCalls[i].Function.Arguments = Unmask(m.ToolCalls[i].Function.Arguments, mapping)
+	}
+	m.EncryptedContent = Unmask(m.EncryptedContent, mapping)
+}
+
 func maskMessage(m *provider.Message, b *MaskBuilder, mask bool) {
 	m.Content = maskContent(m.Content, b, mask)
 	for i := range m.ToolCalls {
@@ -52,6 +71,41 @@ func maskMessage(m *provider.Message, b *MaskBuilder, mask bool) {
 		if mask && masked != m.EncryptedContent {
 			m.EncryptedContent = masked
 		}
+	}
+}
+
+func unmaskContent(content any, mapping Mapping) any {
+	switch v := content.(type) {
+	case string:
+		return Unmask(v, mapping)
+	case []any:
+		out := make([]any, len(v))
+		for i, item := range v {
+			out[i] = unmaskContent(item, mapping)
+		}
+		return out
+	case map[string]any:
+		out := cloneMap(v)
+		for _, key := range []string{"text", "input_text", "output_text", "content"} {
+			if s, ok := out[key].(string); ok {
+				out[key] = Unmask(s, mapping)
+			}
+		}
+		return out
+	case []map[string]any:
+		out := make([]map[string]any, len(v))
+		for i, item := range v {
+			cp := cloneMap(item)
+			for _, key := range []string{"text", "input_text", "output_text", "content"} {
+				if s, ok := cp[key].(string); ok {
+					cp[key] = Unmask(s, mapping)
+				}
+			}
+			out[i] = cp
+		}
+		return out
+	default:
+		return v
 	}
 }
 

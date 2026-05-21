@@ -70,6 +70,74 @@ func TestCompatibilityEndpoints(t *testing.T) {
 	}
 }
 
+func TestExperimentalIntentionProbe(t *testing.T) {
+	var sawLogprobs bool
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/chat/completions" {
+			t.Errorf("unexpected upstream path: %s", r.URL.Path)
+		}
+		var body map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Fatal(err)
+		}
+		sawLogprobs, _ = body["logprobs"].(bool)
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, `{"model":"test-model","choices":[{"message":{"role":"assistant","content":"A"},"logprobs":{"content":[{"token":"A","logprob":-0.1,"top_logprobs":[{"token":"A","logprob":-0.1},{"token":"B","logprob":-2.4}]}]}}]}`)
+	}))
+	defer upstream.Close()
+
+	cfg := filepath.Join(t.TempDir(), "providers.yaml")
+	if err := os.WriteFile(cfg, []byte(`providers:
+  test-http:
+    kind: openai-chat
+    base_url: `+upstream.URL+`
+    api_key: test-key
+    default_model: test-model
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("ACP_HARNESS_PROVIDERS_FILE", cfg)
+	t.Setenv("ACP_HARNESS_PROVIDER", "test-http")
+	t.Setenv("ACP_HARNESS_MODEL", "")
+	t.Setenv("ACP_HARNESS_API_KEY", "")
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(t.TempDir(), "missing"))
+	t.Setenv("AGENTBRIDGE_EXPERIMENTAL_INTENTION_PROBE", "1")
+
+	srv := httptest.NewServer(NewHandler())
+	defer srv.Close()
+	resp, err := http.Post(srv.URL+"/experimental/intention", "application/json", strings.NewReader(`{"prompt":"capital?","choices":["Seoul","Busan"]}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status=%d body=%q", resp.StatusCode, string(body))
+	}
+	if !sawLogprobs {
+		t.Fatal("upstream request did not enable logprobs")
+	}
+	if !strings.Contains(string(body), `"answer":"A"`) || !strings.Contains(string(body), `"experimental":true`) {
+		t.Fatalf("bad intention response: %q", string(body))
+	}
+}
+
+func TestExperimentalIntentionProbeDisabledByDefault(t *testing.T) {
+	t.Setenv("AGENTBRIDGE_EXPERIMENTAL_INTENTION_PROBE", "")
+	t.Setenv("AGENTBRIDGE_EXPERIMENTS", "")
+	srv := httptest.NewServer(NewHandler())
+	defer srv.Close()
+	resp, err := http.Post(srv.URL+"/experimental/intention", "application/json", strings.NewReader(`{"choices":["A","B"]}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusNotFound {
+		body, _ := io.ReadAll(resp.Body)
+		t.Fatalf("status=%d body=%q", resp.StatusCode, string(body))
+	}
+}
+
 func TestChatCompletionsAgentModelRunsToolLoop(t *testing.T) {
 	tmp := t.TempDir()
 	if err := os.WriteFile(filepath.Join(tmp, "visible.txt"), []byte("ok"), 0o644); err != nil {
@@ -463,6 +531,65 @@ func TestModelsExposeProviderMetadata(t *testing.T) {
 	}
 	if !strings.Contains(text, `"reasoning":true`) || !strings.Contains(text, `"context_window":256000`) || !strings.Contains(text, `"aliases":["grok"]`) {
 		t.Fatalf("model metadata missing: %s", text)
+	}
+}
+
+func TestLlamaCppProviderOmitsModelByDefault(t *testing.T) {
+	var chatBody map[string]any
+	var completionBody map[string]any
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/v1/models":
+			fmt.Fprint(w, `{"object":"list","data":[{"id":"local.gguf","owned_by":"llamacpp","meta":{"n_ctx":13312}}]}`)
+		case "/v1/chat/completions":
+			if err := json.NewDecoder(r.Body).Decode(&chatBody); err != nil {
+				t.Fatal(err)
+			}
+			fmt.Fprint(w, `{"choices":[{"message":{"content":"OK"},"finish_reason":"stop"}],"usage":{"prompt_tokens":1,"completion_tokens":1,"total_tokens":2}}`)
+		case "/v1/completions":
+			if err := json.NewDecoder(r.Body).Decode(&completionBody); err != nil {
+				t.Fatal(err)
+			}
+			fmt.Fprint(w, `{"model":"local.gguf","choices":[{"text":" A","logprobs":{"content":[{"token":" A","logprob":-0.1,"top_logprobs":[{"token":" A","logprob":-0.1},{"token":" B","logprob":-2.0}]}]}}]}`)
+		default:
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+	}))
+	defer upstream.Close()
+
+	cfg := filepath.Join(t.TempDir(), "providers.yaml")
+	if err := os.WriteFile(cfg, []byte(`providers:
+  llama-local:
+    kind: llama.cpp
+    base_url: `+upstream.URL+`
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("ACP_HARNESS_PROVIDERS_FILE", cfg)
+	t.Setenv("ACP_HARNESS_PROVIDER", "llama-local")
+	t.Setenv("ACP_HARNESS_MODEL", "")
+	t.Setenv("ACP_HARNESS_API_KEY", "")
+	t.Setenv("AGENTBRIDGE_EXPERIMENTAL_INTENTION_PROBE", "1")
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(t.TempDir(), "missing"))
+
+	srv := httptest.NewServer(NewHandler())
+	defer srv.Close()
+	resp, err := http.Post(srv.URL+"/v1/chat/completions", "application/json", strings.NewReader(`{"messages":[{"role":"user","content":"hi"}]}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = resp.Body.Close()
+	if _, ok := chatBody["model"]; ok {
+		t.Fatalf("llama.cpp chat request should omit model by default: %#v", chatBody)
+	}
+	resp, err = http.Post(srv.URL+"/experimental/intention", "application/json", strings.NewReader(`{"prompt":"capital?","choices":["Seoul","Busan"]}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = resp.Body.Close()
+	if _, ok := completionBody["model"]; ok {
+		t.Fatalf("llama.cpp intention request should omit model by default: %#v", completionBody)
 	}
 }
 

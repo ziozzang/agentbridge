@@ -43,10 +43,12 @@ import (
 	"github.com/ziozzang/agentbridge/internal/provider/glm"
 	_ "github.com/ziozzang/agentbridge/internal/provider/glm/preset" // register glm kind
 	_ "github.com/ziozzang/agentbridge/internal/provider/google"     // register google
+	_ "github.com/ziozzang/agentbridge/internal/provider/llamacpp"   // register llama.cpp
 	_ "github.com/ziozzang/agentbridge/internal/provider/ollama"     // register ollama
 	_ "github.com/ziozzang/agentbridge/internal/provider/openaichat" // register openai-chat
 	_ "github.com/ziozzang/agentbridge/internal/provider/openairesp" // register openai-responses
-	_ "github.com/ziozzang/agentbridge/internal/provider/router"     // register model router
+	"github.com/ziozzang/agentbridge/internal/provider/pipeline"
+	_ "github.com/ziozzang/agentbridge/internal/provider/router" // register model router
 	"github.com/ziozzang/agentbridge/internal/tools/definitions"
 	"github.com/ziozzang/agentbridge/internal/tools/executor"
 	"github.com/ziozzang/agentbridge/internal/tools/sessionmcp"
@@ -830,16 +832,16 @@ func (a *Agent) ensureClient() error {
 	if rerr := resolveOAuthConfig(&cfg); rerr != nil {
 		return rerr
 	}
-	if cfg.APIKey == "" && cfg.Kind != "ollama" && cfg.Kind != "claude-code-cli" {
+	if cfg.APIKey == "" && cfg.Kind != "ollama" && cfg.Kind != "llama.cpp" && cfg.Kind != "llamacpp" && cfg.Kind != "claude-code-cli" {
 		return errors.New("No API key configured. Set an API key via AGENTBRIDGE_API_KEY, AGENTBRIDGE_<PROVIDER>_API_KEY, a provider-specific env var (Z_AI_API_KEY/OPENAI_API_KEY/…), or run `agentbridge --setup`. Legacy ACP_HARNESS_* variables are still accepted.")
 	}
 	p, err := provider.Build(cfg)
 	if err != nil {
 		return err
 	}
-	a.Provider = p
+	a.Provider = pipeline.WrapFromConfig(p)
 	logger.Infof("active provider: %s (kind=%s, model=%s, base=%s)",
-		cfg.Name, cfg.Kind, p.DefaultModel(), cfg.BaseURL)
+		cfg.Name, cfg.Kind, a.Provider.DefaultModel(), cfg.BaseURL)
 	if a.MCP == nil {
 		a.MCP = zaimcp.New()
 	}

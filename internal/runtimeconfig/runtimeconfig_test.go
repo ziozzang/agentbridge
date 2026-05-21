@@ -73,3 +73,33 @@ func TestLoadCompactionConfig(t *testing.T) {
 		t.Fatalf("compaction=%#v", got.Compaction)
 	}
 }
+
+func TestLoadPIIEnvConfig(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(path, []byte(`pii:
+  enabled: true
+  env:
+    enabled: true
+    file: ~/env
+    names: [OPENAI_API_KEY, XAI_API_KEY]
+    min_length: 20
+    mask: "[MASK_KEY_{n}]"
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("AGENTBRIDGE_CONFIG_FILE", path)
+
+	got, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !got.PII.Enabled || !got.PII.Env.Enabled || got.PII.Env.File != "~/env" {
+		t.Fatalf("pii=%#v", got.PII)
+	}
+	if got.PII.Env.MinLength != 20 || got.PII.Env.Mask != "[MASK_KEY_{n}]" {
+		t.Fatalf("env=%#v", got.PII.Env)
+	}
+	if len(got.PII.Env.Names) != 2 || got.PII.Env.Names[0] != "OPENAI_API_KEY" {
+		t.Fatalf("names=%#v", got.PII.Env.Names)
+	}
+}

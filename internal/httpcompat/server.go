@@ -36,9 +36,11 @@ import (
 	_ "github.com/ziozzang/agentbridge/internal/provider/claudecode"
 	_ "github.com/ziozzang/agentbridge/internal/provider/glm/preset"
 	_ "github.com/ziozzang/agentbridge/internal/provider/google"
+	_ "github.com/ziozzang/agentbridge/internal/provider/llamacpp"
 	_ "github.com/ziozzang/agentbridge/internal/provider/ollama"
 	_ "github.com/ziozzang/agentbridge/internal/provider/openaichat"
 	_ "github.com/ziozzang/agentbridge/internal/provider/openairesp"
+	"github.com/ziozzang/agentbridge/internal/provider/pipeline"
 	_ "github.com/ziozzang/agentbridge/internal/provider/router"
 	"github.com/ziozzang/agentbridge/internal/tools/sessionmcp"
 )
@@ -92,6 +94,7 @@ func NewHandler() http.Handler {
 	mux.HandleFunc("/chat/completions", h.chatCompletions)
 	mux.HandleFunc("/v1/responses/compact", h.responsesCompact)
 	mux.HandleFunc("/responses/compact", h.responsesCompact)
+	mux.HandleFunc("/experimental/intention", h.experimentalIntention)
 	mux.HandleFunc("/v1/responses/", h.responseByID)
 	mux.HandleFunc("/responses/", h.responseByID)
 	mux.HandleFunc("/v1/responses", h.responses)
@@ -958,10 +961,14 @@ func buildProvider() (provider.Provider, error) {
 			}
 		}
 	}
-	if cfg.APIKey == "" && cfg.Kind != "ollama" && cfg.Kind != "claude-code-cli" {
+	if cfg.APIKey == "" && cfg.Kind != "ollama" && cfg.Kind != "llama.cpp" && cfg.Kind != "llamacpp" && cfg.Kind != "claude-code-cli" {
 		return nil, errors.New("no API key configured")
 	}
-	return provider.Build(cfg)
+	p, err := provider.Build(cfg)
+	if err != nil {
+		return nil, err
+	}
+	return pipeline.WrapFromConfig(p), nil
 }
 
 func resolveOAuthKey(key string) (string, string, error) {

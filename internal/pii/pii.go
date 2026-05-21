@@ -74,6 +74,16 @@ func (d *Detector) Add(p Pattern) error {
 	return nil
 }
 
+func (d *Detector) AddLiteral(name, value, mask string) error {
+	if strings.TrimSpace(value) == "" {
+		return nil
+	}
+	if strings.TrimSpace(name) == "" {
+		name = "secret"
+	}
+	return d.Add(Pattern{Name: name, Regex: regexp.QuoteMeta(value), Mask: mask})
+}
+
 func (d *Detector) MaxTokenLen() int {
 	d.mu.RLock()
 	defer d.mu.RUnlock()

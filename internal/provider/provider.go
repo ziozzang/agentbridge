@@ -100,6 +100,50 @@ type Chunk struct {
 	StopReason string
 }
 
+// IntentionChoice is one candidate in an experimental logprob-based
+// classification probe.
+type IntentionChoice struct {
+	Label string `json:"label"`
+	Text  string `json:"text,omitempty"`
+}
+
+// IntentionProbeRequest asks a provider to choose among short labeled choices
+// and return normalized confidence from token log probabilities.
+type IntentionProbeRequest struct {
+	Model       string            `json:"model,omitempty"`
+	Prompt      string            `json:"prompt,omitempty"`
+	Messages    []Message         `json:"messages,omitempty"`
+	Choices     []IntentionChoice `json:"choices"`
+	MaxTokens   int               `json:"max_tokens,omitempty"`
+	TopLogprobs int               `json:"top_logprobs,omitempty"`
+}
+
+// TokenLogprob describes a token candidate returned by an upstream logprob
+// API. Logprob is natural-log probability.
+type TokenLogprob struct {
+	Token   string  `json:"token"`
+	Logprob float64 `json:"logprob"`
+}
+
+// IntentionProbeResult is returned by providers that can expose token-level
+// log probabilities for short classification probes.
+type IntentionProbeResult struct {
+	Model      string             `json:"model,omitempty"`
+	Provider   string             `json:"provider,omitempty"`
+	Answer     string             `json:"answer"`
+	Index      int                `json:"index"`
+	Confidence float64            `json:"confidence"`
+	Logprobs   map[string]float64 `json:"logprobs"`
+	Text       string             `json:"text,omitempty"`
+	Tokens     []TokenLogprob     `json:"tokens,omitempty"`
+}
+
+// IntentionProber is experimental. Implementations should only advertise
+// support when the upstream actually returns usable top token logprobs.
+type IntentionProber interface {
+	ProbeIntention(ctx context.Context, req IntentionProbeRequest) (IntentionProbeResult, error)
+}
+
 // StreamOptions tunes a single StreamChat invocation.
 type StreamOptions struct {
 	Model                string

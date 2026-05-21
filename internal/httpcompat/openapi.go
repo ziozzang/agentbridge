@@ -16,6 +16,32 @@ func (h *handler) openapi(w http.ResponseWriter, r *http.Request) {
 		"/v1/chat/completions":  pathItem("post", "OpenAI-compatible chat completions"),
 		"/v1/responses":         pathItem("post", "OpenAI-compatible responses"),
 		"/v1/responses/compact": compactPathItem(),
+		"/experimental/intention": map[string]any{"post": map[string]any{
+			"summary": "Experimental logprob-based intention probe",
+			"requestBody": map[string]any{
+				"required": true,
+				"content": map[string]any{"application/json": map[string]any{
+					"schema": map[string]any{
+						"type": "object",
+						"properties": map[string]any{
+							"model":        map[string]any{"type": "string"},
+							"prompt":       map[string]any{"type": "string", "example": "Which city is the capital of South Korea?"},
+							"messages":     map[string]any{"type": "array", "items": map[string]any{"type": "object"}},
+							"choices":      map[string]any{"type": "array", "items": map[string]any{}},
+							"max_tokens":   map[string]any{"type": "integer", "minimum": 1},
+							"top_logprobs": map[string]any{"type": "integer", "minimum": 1, "maximum": 20},
+						},
+						"required": []string{"choices"},
+						"example": map[string]any{
+							"model":   defaultModel(),
+							"prompt":  "Which city is the capital of South Korea?",
+							"choices": []string{"Seoul", "Busan"},
+						},
+					},
+				}},
+			},
+			"responses": okResponse(),
+		}},
 		"/v1/responses/{id}": map[string]any{"get": map[string]any{
 			"summary":    "Retrieve a stored response",
 			"parameters": []map[string]any{{"name": "id", "in": "path", "required": true, "schema": map[string]any{"type": "string"}}},

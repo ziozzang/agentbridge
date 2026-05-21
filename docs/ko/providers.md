@@ -18,6 +18,7 @@ AgentBridge는 모든 프로토콜 표면을 공통 provider interface로 라우
 | `amazon-bedrock-mantle` | `anthropic` | Bearer auth를 쓰는 Bedrock Mantle Anthropic 호환 endpoint. |
 | `claude-code` | `claude-code-cli` | Claude Code CLI adapter. |
 | `ollama` | `ollama` | Ollama native `/api/chat`. |
+| `llamacpp` | `llama.cpp` | 로컬/원격 llama.cpp server. 명시 요청이 없으면 `model`을 보내지 않습니다. |
 | `openrouter` | `openai-chat` | OpenRouter Chat Completions. |
 | `litellm` | `openai-chat` | LiteLLM proxy 또는 OpenAI 호환 gateway. |
 | `codex` | `openai-responses` | Codex/OpenAI OAuth 기반 ChatGPT Codex backend. |
@@ -64,6 +65,51 @@ AgentBridge는 모든 프로토콜 표면을 공통 provider interface로 라우
 | `minimax-portal` | `openai-chat` | MiniMax Portal/OAuth-token endpoint template. |
 | `ollama-cloud` | `openai-chat` | Ollama Cloud OpenAI 호환 API. |
 | `lmstudio` | `openai-chat` | 로컬 LM Studio OpenAI 호환 server. |
+
+## llama.cpp
+
+`llama.cpp` provider는 하나의 llama.cpp server instance를 나타냅니다.
+`base_url`에는 port가 포함된 전체 URL을 그대로 넣을 수 있고, AgentBridge는
+기본적으로 model 이름을 요구하거나 upstream에 보내지 않습니다.
+
+```yaml
+providers:
+  llama-office:
+    kind: llama.cpp
+    base_url: http://127.0.0.1:8888
+
+  llama-lab:
+    kind: llama.cpp
+    base_url: http://127.0.0.1:8889
+```
+
+여러 instance는 provider 이름만 다르게 여러 개 등록하면 됩니다. 외부에 노출할
+alias가 필요하면 model router에서 route를 잡습니다.
+
+```yaml
+providers:
+  router:
+    kind: router
+    default_model: local-a
+    extra:
+      routes_file: ./router.yaml
+```
+
+```yaml
+# router.yaml
+aliases:
+  local-a: local-a
+  local-b: local-b
+routes:
+  - model: local-a
+    provider: llama-office
+  - model: local-b
+    provider: llama-lab
+```
+
+실험용 intention probe는 llama.cpp `/v1/completions`의 `logprobs`를 사용합니다.
+chat template이 answer 전에 reasoning/channel token을 내는 경우를 피하기
+위해서입니다.
 
 ## Hermes 기반 template
 

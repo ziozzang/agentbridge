@@ -44,8 +44,17 @@ type PII struct {
 	Enabled         bool         `yaml:"enabled"`
 	Mask            *bool        `yaml:"mask"`
 	DisableDefaults bool         `yaml:"disable_defaults"`
+	Env             PIIEnv       `yaml:"env"`
 	Patterns        []PIIPattern `yaml:"patterns"`
 	Routing         PIIRouting   `yaml:"routing"`
+}
+
+type PIIEnv struct {
+	Enabled   bool     `yaml:"enabled"`
+	File      string   `yaml:"file"`
+	Names     []string `yaml:"names"`
+	MinLength int      `yaml:"min_length"`
+	Mask      string   `yaml:"mask"`
 }
 
 type PIIPattern struct {

@@ -56,6 +56,7 @@ func TestLoadEmbeddedDefaults(t *testing.T) {
 		"kimi-coding",
 		"kimi-coding-cn",
 		"litellm",
+		"llamacpp",
 		"lmstudio",
 		"microsoft-foundry",
 		"minimax",

@@ -123,6 +123,9 @@ pii:
   enabled: true
   mask: true
   disable_defaults: false
+  env:
+    file: ~/env
+    min_length: 12
   routing:
     reject: false
     route_to: local-private-model
@@ -236,6 +239,33 @@ and A2A calls can also pass `metadata.prompt_cache_key`,
 (`metadata.session_id`, `sessionId`, or `thread_id`) for per-request routing.
 `/v1/responses` additionally maps its top-level `prompt_cache_key` and
 `prompt_cache_retention` into the provider request.
+
+## Experimental Intention Probe
+
+AgentBridge includes an opt-in experimental classifier endpoint:
+`POST /experimental/intention`. Enable it with either:
+
+```bash
+AGENTBRIDGE_EXPERIMENTAL_INTENTION_PROBE=1
+# or
+AGENTBRIDGE_EXPERIMENTS=intention_probe
+```
+
+The endpoint asks a capable upstream to choose among labeled options and
+computes confidence from first-token `top_logprobs`. It currently supports the
+`openai-chat` provider shape when the upstream actually returns Chat
+Completions logprobs, and `router` forwards to such providers. It is not a
+general answer-confidence metric.
+
+```bash
+curl -s http://127.0.0.1:8766/experimental/intention \
+  -H 'content-type: application/json' \
+  -d '{"model":"openai/gpt-4.1","prompt":"Which city is the capital of South Korea?","choices":["Seoul","Busan"]}'
+```
+
+Providers that accept the logprobs parameters but omit logprobs in the
+response, such as Ollama Cloud in current testing, return an unsupported
+upstream error.
 
 ## Embedding Model Mapping
 

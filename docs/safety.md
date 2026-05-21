@@ -25,14 +25,14 @@ avoid PII-detected requests.
 
 | Area | Status | Implemented part |
 | --- | --- | --- |
-| PII detection/masking | Primitive present | `internal/pii` has default Korean/generic patterns, salted placeholders, dedupe, mapping rollback, provider-message walkers, and streaming unmask support. |
-| Thinking tag sanitize | Primitive present | `internal/sanitize` strips `<think>`, `<thinking>`, `<reasoning>`, and `<reflection>` spans, including split streaming chunks. |
+| PII detection/masking | Wired | `internal/provider/pipeline` masks provider messages before dispatch, restores placeholders on streamed responses, supports reject/route settings, and preserves native compaction through the wrapper. |
+| Thinking tag sanitize | Wired | `internal/provider/pipeline` strips `<think>`, `<thinking>`, `<reasoning>`, and `<reflection>` spans from streamed text when enabled. |
 | Response cache | Primitive present | `internal/responsecache` provides an in-memory TTL cache with stable SHA-256 JSON keys and stats. |
 | Config schema | Present | `pii`, `sanitize`, `cache`, and `inject` are parsed from `config.yaml` by `runtimeconfig`. |
 | Parameter drop | Schema present through inject | `inject[].remove` represents top-level parameter drop. Automatic application is pending. |
 | JSON mode | Provider-level workaround present | OpenAI-compatible providers can receive `response_format` through provider `extra.request_defaults`; top-level `inject[].set.response_format` is parsed but not yet wired globally. |
 | Header changes | Provider static headers present | Provider `headers:` are already sent upstream. Kong-style add/set/remove/rename/replace transforms are still pending. |
-| Request path wiring | Pending | The primitives are not yet applied automatically to every request path. Wire them into `runProvider`, router dispatch, and streaming wrappers before treating these settings as active runtime behavior. |
+| Request path wiring | Provider wrapper active | Configured ACP agent and HTTP/A2A provider construction wraps the active provider, so shared `StreamChat` and native compaction paths receive the safety pipeline. |
 | `/v1/providers/status` | Pending | The endpoint is not mounted yet. The target shape should include provider health, request/error counts, quota state, response times, and cache stats. |
 
 ## Configuration
@@ -45,6 +45,10 @@ pii:
   enabled: true
   mask: true
   disable_defaults: false
+  env:
+    file: ~/env
+    min_length: 12
+    mask: '[MASK_ENV_SECRET_{n}]'
   routing:
     reject: false
     reject_message: "PII detected"
@@ -86,11 +90,20 @@ Default patterns cover:
 - Credit-card-like numbers
 - IPv4 addresses
 - JWT-looking tokens
+- Common API key/token shapes such as `sk-*`, `sk-ant-*`, and GitHub `gh*_`
+  tokens
 
 Custom `pii.patterns` extend the defaults. A custom pattern with the same
 `name` replaces that default. `mask` uses `{n}` as the placeholder counter,
 and AgentBridge adds a per-request salt so placeholders do not collide with
 normal user text.
+
+`pii.env.file` adds exact-match masking for secrets read from an env dictionary
+file. Setting `file` is enough to enable this source. The parser accepts
+`KEY=value` and `export KEY=value` lines, optional single/double quotes, and
+inline comments outside quotes. By default, every value at least `min_length`
+characters long is treated as a secret. Set `names` only when you intentionally
+want to narrow loading to specific variables.
 
 `pii.mask: false` is intended for detect-only mode. In that mode routing or
 rejection can still happen, but the prompt is not changed before upstream
@@ -225,9 +238,10 @@ errors for operational visibility.
 
 ## Rollout Notes
 
-The current code adds the reusable primitives and config shape first. The next
-implementation step is to wire them into the common HTTP/A2A/ACP execution
-paths without duplicating behavior per protocol.
+The common provider wrapper now applies the core safety path for configured
+ACP, HTTP, and A2A provider calls. Remaining rollout work is focused on
+request inject/drop, dynamic header transforms, response cache policy, and
+provider status reporting.
 
 When wiring, preserve this invariant:
 

@@ -986,6 +986,14 @@ providers:
     extra:
       reasoning_effort: ${LM_REASONING_EFFORT:-}
 
+  llamacpp:
+    kind: llama.cpp
+    base_url: ${LLAMACPP_BASE_URL:-${LLAMA_CPP_BASE_URL:-http://127.0.0.1:8080}}
+    api_key: ${LLAMACPP_API_KEY:-${LLAMA_CPP_API_KEY:-}}
+    default_model: ${LLAMACPP_MODEL:-${LLAMA_CPP_MODEL:-}}
+    max_tokens: 8192
+    context_window: 13312
+
   # --------- Model router -------------------------------------------------
   # LiteLLM-style frontend. Select AGENTBRIDGE_PROVIDER=router, then choose
   # backends by model name. Routes are intentionally external so model/backend

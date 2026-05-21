@@ -18,6 +18,7 @@ interface. Select one with `AGENTBRIDGE_PROVIDER=<name>`.
 | `amazon-bedrock-mantle` | `anthropic` | Bedrock Mantle Anthropic-compatible endpoint with bearer auth. |
 | `claude-code` | `claude-code-cli` | Claude Code CLI one-shot adapter. |
 | `ollama` | `ollama` | Native Ollama `/api/chat`. |
+| `llamacpp` | `llama.cpp` | Local or remote llama.cpp server; omits `model` unless explicitly requested. |
 | `openrouter` | `openai-chat` | OpenRouter Chat Completions. |
 | `litellm` | `openai-chat` | LiteLLM proxy or any OpenAI-compatible gateway. |
 | `codex` | `openai-responses` | ChatGPT Codex backend via Codex/OpenAI OAuth. |
@@ -66,6 +67,51 @@ interface. Select one with `AGENTBRIDGE_PROVIDER=<name>`.
 | `lmstudio` | `openai-chat` | Local LM Studio OpenAI-compatible server. |
 
 ## Hermes-Derived Templates
+
+## llama.cpp
+
+The `llama.cpp` provider is for one llama.cpp server instance. Its `base_url`
+accepts a full host and port, and AgentBridge does not require or send a model
+name by default:
+
+```yaml
+providers:
+  llama-office:
+    kind: llama.cpp
+    base_url: http://127.0.0.1:8888
+
+  llama-lab:
+    kind: llama.cpp
+    base_url: http://127.0.0.1:8889
+```
+
+Register multiple instances by giving each provider a distinct name. Route to
+them through the model router when you want public aliases:
+
+```yaml
+providers:
+  router:
+    kind: router
+    default_model: local-a
+    extra:
+      routes_file: ./router.yaml
+```
+
+```yaml
+# router.yaml
+aliases:
+  local-a: local-a
+  local-b: local-b
+routes:
+  - model: local-a
+    provider: llama-office
+  - model: local-b
+    provider: llama-lab
+```
+
+The experimental intention probe uses llama.cpp `/v1/completions` with
+`logprobs`; this avoids chat templates that emit reasoning/channel tokens
+before the answer.
 
 AgentBridge includes provider templates derived from Hermes Agent's provider
 registry for entries that are already compatible with AgentBridge transports.

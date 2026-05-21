@@ -25,14 +25,14 @@ PII 감지 요청을 피해야 합니다.
 
 | 영역 | 상태 | 구현된 부분 |
 | --- | --- | --- |
-| PII detection/masking | primitive 있음 | `internal/pii`에 한국/일반 default pattern, salted placeholder, dedupe, mapping rollback, provider message walker, streaming unmask 지원이 들어갔습니다. |
-| Thinking tag sanitize | primitive 있음 | `internal/sanitize`가 `<think>`, `<thinking>`, `<reasoning>`, `<reflection>` span을 제거하고 split streaming chunk도 처리합니다. |
+| PII detection/masking | 연결됨 | `internal/provider/pipeline`이 provider dispatch 전에 message를 mask하고, streamed response에서 placeholder를 복원하며, reject/route 설정과 native compaction wrapper를 지원합니다. |
+| Thinking tag sanitize | 연결됨 | 설정된 경우 `internal/provider/pipeline`이 streamed text에서 `<think>`, `<thinking>`, `<reasoning>`, `<reflection>` span을 제거합니다. |
 | Response cache | primitive 있음 | `internal/responsecache`가 stable SHA-256 JSON key, TTL, max-size eviction, stats를 가진 in-memory cache를 제공합니다. |
 | Config schema | 있음 | `runtimeconfig`가 `pii`, `sanitize`, `cache`, `inject`를 `config.yaml`에서 읽습니다. |
 | Parameter drop | inject schema로 있음 | `inject[].remove`가 top-level parameter drop을 표현합니다. 자동 적용은 아직 대기 상태입니다. |
 | JSON mode | provider-level workaround 있음 | OpenAI 호환 provider는 `extra.request_defaults`로 `response_format`을 보낼 수 있습니다. Top-level `inject[].set.response_format`은 parse되지만 전역 적용은 아직 연결 전입니다. |
 | Header changes | static header 있음 | Provider `headers:`는 이미 upstream으로 전송됩니다. Kong-style add/set/remove/rename/replace transform은 아직 대기 상태입니다. |
-| Request path wiring | 대기 | 아직 모든 request path에 자동 적용되지는 않습니다. `runProvider`, router dispatch, streaming wrapper에 연결해야 runtime behavior로 볼 수 있습니다. |
+| Request path wiring | provider wrapper 활성 | 설정 기반 ACP agent와 HTTP/A2A provider 생성 시 active provider를 감싸므로, 공통 `StreamChat` 및 native compaction 경로가 safety pipeline을 탑니다. |
 | `/v1/providers/status` | 대기 | 아직 mount되지 않았습니다. 목표 shape는 provider health, request/error count, quota state, response time, cache stats입니다. |
 
 ## 설정
@@ -45,6 +45,10 @@ pii:
   enabled: true
   mask: true
   disable_defaults: false
+  env:
+    file: ~/env
+    min_length: 12
+    mask: '[MASK_ENV_SECRET_{n}]'
   routing:
     reject: false
     reject_message: "PII detected"
@@ -86,10 +90,17 @@ Default pattern은 아래를 대상으로 합니다.
 - Credit-card-like 숫자
 - IPv4 주소
 - JWT처럼 보이는 token
+- `sk-*`, `sk-ant-*`, GitHub `gh*_` token 같은 일반적인 API key/token 형태
 
 Custom `pii.patterns`는 default에 추가됩니다. 같은 `name`을 쓰면 해당 default를
 대체합니다. `mask` 문자열은 `{n}` counter를 사용하고, AgentBridge는 request별
 salt를 붙여 placeholder가 일반 사용자 텍스트와 충돌하지 않게 합니다.
+
+`pii.env.file`은 env dictionary 파일에서 읽은 secret 값을 exact match로
+mask합니다. `file`을 지정하면 이 source는 자동으로 켜집니다. parser는
+`KEY=value`, `export KEY=value`, single/double quote, quote 밖 inline comment를
+처리합니다. 기본값은 `min_length` 이상의 모든 값을 secret으로 취급하는
+것입니다. 특정 변수로 좁히고 싶을 때만 `names`를 지정합니다.
 
 `pii.mask: false`는 detect-only mode를 위한 설정입니다. 이 경우 routing이나
 reject는 가능하지만 upstream으로 보내는 prompt는 바꾸지 않습니다. Request path
@@ -223,9 +234,9 @@ Endpoint가 mount되기 전까지는 `/metrics`, router log, provider error를
 
 ## Rollout Notes
 
-현재 코드는 reusable primitive와 config shape를 먼저 추가한 상태입니다. 다음
-구현 단계는 protocol별로 중복하지 않고 공통 HTTP/A2A/ACP execution path에
-연결하는 것입니다.
+공통 provider wrapper가 설정 기반 ACP, HTTP, A2A provider 호출에 core safety
+path를 적용합니다. 남은 rollout 작업은 request inject/drop, dynamic header
+transform, response cache policy, provider status reporting입니다.
 
 연결할 때 아래 invariant를 유지해야 합니다.
 

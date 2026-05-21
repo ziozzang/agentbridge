@@ -121,6 +121,9 @@ pii:
   enabled: true
   mask: true
   disable_defaults: false
+  env:
+    file: ~/env
+    min_length: 12
   routing:
     reject: false
     route_to: local-private-model
@@ -233,6 +236,32 @@ A2A 요청에서는 `metadata.prompt_cache_key`, `metadata.prompt_cache_retentio
 session id(`metadata.session_id`, `sessionId`, `thread_id`)를 넘겨 request별
 라우팅에 사용할 수 있습니다. `/v1/responses`의 top-level `prompt_cache_key`와
 `prompt_cache_retention`도 provider request로 전달됩니다.
+
+## Experimental Intention Probe
+
+AgentBridge에는 opt-in 실험용 classifier endpoint인
+`POST /experimental/intention`이 있습니다. 아래 중 하나로 켭니다.
+
+```bash
+AGENTBRIDGE_EXPERIMENTAL_INTENTION_PROBE=1
+# 또는
+AGENTBRIDGE_EXPERIMENTS=intention_probe
+```
+
+이 endpoint는 label이 붙은 선택지 중 하나를 고르게 하고, 첫 token의
+`top_logprobs`로 confidence를 계산합니다. 현재는 upstream이 Chat Completions
+logprobs를 실제로 반환하는 `openai-chat` provider shape에서만 동작하고,
+`router`는 해당 provider로 forwarding합니다. 일반적인 답변 confidence 지표는
+아닙니다.
+
+```bash
+curl -s http://127.0.0.1:8766/experimental/intention \
+  -H 'content-type: application/json' \
+  -d '{"model":"openai/gpt-4.1","prompt":"Which city is the capital of South Korea?","choices":["Seoul","Busan"]}'
+```
+
+Ollama Cloud처럼 logprobs parameter는 받아도 응답에 logprobs를 내려주지 않는
+provider는 unsupported upstream error를 반환합니다.
 
 ## Embedding Model Mapping
 
