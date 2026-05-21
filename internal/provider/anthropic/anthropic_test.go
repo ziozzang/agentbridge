@@ -129,6 +129,21 @@ func TestAnthropicAuthorizationBearerHeader(t *testing.T) {
 	}
 }
 
+func TestAnthropicVertexMessagesURL(t *testing.T) {
+	c := New(provider.Config{
+		BaseURL: "https://aiplatform.googleapis.com",
+		Extra: map[string]any{
+			"vertex_project_id": "proj",
+			"vertex_region":     "us-east5",
+		},
+	})
+	got := c.messagesURL("claude-sonnet-4-6")
+	want := "https://aiplatform.googleapis.com/v1/projects/proj/locations/us-east5/publishers/anthropic/models/claude-sonnet-4-6:streamRawPredict"
+	if got != want {
+		t.Fatalf("url = %q want %q", got, want)
+	}
+}
+
 func TestPromptCacheControlMarksSystemAndLastThreeMessages(t *testing.T) {
 	var body map[string]any
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

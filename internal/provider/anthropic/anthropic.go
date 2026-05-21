@@ -26,6 +26,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 
 	"github.com/ziozzang/agentbridge/internal/logger"
@@ -229,8 +230,8 @@ func (c *Client) StreamChat(ctx context.Context, messages []provider.Message, op
 			errs <- err
 			return
 		}
-		url := strings.TrimRight(c.cfg.BaseURL, "/") + "/v1/messages"
-		httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
+		endpoint := c.messagesURL(model)
+		httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(body))
 		if err != nil {
 			errs <- err
 			return
@@ -388,6 +389,21 @@ func (c *Client) StreamChat(ctx context.Context, messages []provider.Message, op
 	}()
 
 	return chunks, errs
+}
+
+func (c *Client) messagesURL(model string) string {
+	if project := c.extraString("vertex_project_id"); project != "" {
+		base := strings.TrimRight(c.cfg.BaseURL, "/")
+		if base == "" {
+			base = "https://aiplatform.googleapis.com"
+		}
+		if !strings.HasSuffix(base, "/v1") {
+			base += "/v1"
+		}
+		region := firstNonEmpty(c.extraString("vertex_region"), "global")
+		return base + "/projects/" + url.PathEscape(project) + "/locations/" + url.PathEscape(region) + "/publishers/anthropic/models/" + url.PathEscape(model) + ":streamRawPredict"
+	}
+	return strings.TrimRight(c.cfg.BaseURL, "/") + "/v1/messages"
 }
 
 // translateMessages converts harness-neutral OpenAI-shaped messages into

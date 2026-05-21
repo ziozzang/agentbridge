@@ -102,6 +102,27 @@ providers:
         name: Claude Haiku 4.5
         description: Fast lightweight model
 
+  anthropic-vertex:
+    kind: anthropic
+    base_url: ${ANTHROPIC_VERTEX_BASE_URL:-https://aiplatform.googleapis.com}
+    api_key: oauth:google-vertex
+    auth_header: Authorization
+    auth_prefix: "Bearer "
+    default_model: ${ANTHROPIC_VERTEX_MODEL:-claude-sonnet-4-6}
+    max_tokens: 8192
+    context_window: 1000000
+    extra:
+      anthropic_version: "2023-06-01"
+      vertex_project_id: ${ANTHROPIC_VERTEX_PROJECT_ID:-${GOOGLE_CLOUD_PROJECT:-${GOOGLE_CLOUD_PROJECT_ID:-}}}
+      vertex_region: ${GOOGLE_CLOUD_LOCATION:-${CLOUD_ML_REGION:-global}}
+      prompt_cache: ${ANTHROPIC_VERTEX_PROMPT_CACHE:-on}
+      prompt_cache_ttl: ${ANTHROPIC_VERTEX_PROMPT_CACHE_TTL:-5m}
+    models:
+      - id: claude-opus-4-6
+        name: Claude Opus 4.6 (Vertex)
+      - id: claude-sonnet-4-6
+        name: Claude Sonnet 4.6 (Vertex)
+
   # --------- Google Gemini native ----------------------------------------
   google:
     kind: google

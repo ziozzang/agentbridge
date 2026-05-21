@@ -11,6 +11,7 @@ interface. Select one with `AGENTBRIDGE_PROVIDER=<name>`.
 | `openai` | `openai-chat` | OpenAI Chat Completions and compatible gateways. |
 | `openai-responses` | `openai-responses` | OpenAI Responses API. |
 | `anthropic` | `anthropic` | Anthropic Messages API. |
+| `anthropic-vertex` | `anthropic` | Anthropic Claude over Vertex AI raw predict with Google OAuth token resolution. |
 | `google` | `google` | Native Gemini Generative Language API with cachedContent prompt cache support. |
 | `google-vertex`, `google-antigravity` | `google` | Gemini over Vertex AI with Google OAuth access token resolution. |
 | `amazon-bedrock` | `bedrock-converse` | Amazon Bedrock Converse with AWS SigV4 signing. |
@@ -107,7 +108,6 @@ are not enabled as default templates yet:
 | `nous` | Device-code OAuth and scoped inference token minting. |
 | `qwen-oauth` | Qwen OAuth token refresh/store integration. |
 | `google-gemini-cli` | Cloud Code Assist OAuth transport, not a plain HTTP base URL. |
-| `anthropic-vertex` | Anthropic Vertex SDK transport and ADC project/region handling. |
 | `copilot-acp` | External ACP process transport. |
 | `minimax-oauth` | Browser OAuth setup flow beyond using an existing `MINIMAX_OAUTH_TOKEN`. |
 | `fal`, `comfy`, `vydra` | Media-generation providers, not chat providers. |
@@ -132,6 +132,7 @@ tools can also be exposed directly through MCP `POST /mcp` and `/v1/mcp`.
 | `xai` | `XAI_API_KEY` | xAI Responses-compatible Grok | xAI hosted `x_search` when used through plugin |
 | `xai-oauth` | `~/.grok/auth.json`, fallback `~/.hermes/auth.json` | xAI Responses-compatible Grok | Same OAuth token can be reused by `xai` plugin |
 | `anthropic` | `ANTHROPIC_API_KEY` | Anthropic Messages | Built-in agent tools |
+| `anthropic-vertex` | `GOOGLE_OAUTH_ACCESS_TOKEN` or authenticated `gcloud`, plus `ANTHROPIC_VERTEX_PROJECT_ID` / `GOOGLE_CLOUD_PROJECT` | Vertex Anthropic `streamRawPredict` | Built-in agent tools |
 | `claude-code` | Claude Code CLI auth | Claude CLI one-shot adapter | Claude CLI tool policy passthrough |
 | `ollama` | optional `OLLAMA_API_KEY` | Native Ollama `/api/chat` | Built-in agent tools |
 | `openrouter` | `OPENROUTER_API_KEY` | OpenAI Chat Completions gateway | Built-in agent tools |

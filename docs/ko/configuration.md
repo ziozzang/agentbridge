@@ -165,7 +165,7 @@ Hermes에서 가져온 provider별 knob는 provider `extra` 또는 내장 templa
 | `TOGETHER_REASONING_EFFORT` | `together` | Together의 `reasoning.enabled` payload로 매핑합니다. |
 | `TOKENHUB_REASONING_EFFORT`, `LM_REASONING_EFFORT` | `tencent-tokenhub`, `lmstudio` | Chat Completions top-level `reasoning_effort`. |
 | `GOOGLE_CACHE_RETENTION` | `google` | Gemini 2.5/3에서 기본값 `short`; Google native `cachedContents`를 생성/갱신합니다. |
-| `GOOGLE_OAUTH_ACCESS_TOKEN`, `GOOGLE_VERTEX_ACCESS_TOKEN`, `GOOGLE_CLOUD_PROJECT`, `GOOGLE_CLOUD_LOCATION` | `google-vertex`, `google-antigravity` | Vertex Gemini auth/project/region. token env가 없으면 `gcloud auth application-default print-access-token`을 시도합니다. |
+| `GOOGLE_OAUTH_ACCESS_TOKEN`, `GOOGLE_VERTEX_ACCESS_TOKEN`, `GOOGLE_CLOUD_PROJECT`, `GOOGLE_CLOUD_LOCATION` | `google-vertex`, `google-antigravity`, `anthropic-vertex` | Vertex auth/project/region. token env가 없으면 `gcloud auth application-default print-access-token`을 시도합니다. |
 | `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_SESSION_TOKEN`, `AWS_REGION` | `amazon-bedrock` | Bedrock Converse SigV4 credential과 region. |
 | `OPENAI_RESPONSES_SERVER_COMPACTION` | `openai-responses` | OpenAI Responses `context_management` compaction hint를 켭니다. |
 | `OPENAI_RESPONSES_COMPACT_THRESHOLD` | `openai-responses` | 선택적 `context_management.compact_threshold`; 기본값은 context의 70%. |

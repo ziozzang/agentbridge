@@ -32,6 +32,7 @@ func TestLoadEmbeddedDefaults(t *testing.T) {
 		"amazon-bedrock",
 		"amazon-bedrock-mantle",
 		"anthropic",
+		"anthropic-vertex",
 		"arcee",
 		"byteplus",
 		"byteplus-plan",
