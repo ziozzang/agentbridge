@@ -36,6 +36,9 @@ shell script를 실행하지 않습니다.
   transcript cell을 소유합니다.
 - Transcript rendering은 별도 surface입니다. History cell을 정규화한 뒤 렌더링하고,
   viewport는 렌더링된 transcript string을 소비합니다.
+- Status/notice rendering도 별도 surface입니다. Running activity, token progress,
+  queue/subagent/tool count, scroll state, context, quota, permission mode, session
+  identity를 frame layout과 분리해서 계산합니다.
 - TUI component construction은 runtime update loop 밖에 둡니다. 그래서 composer,
   spinner, viewport, 초기 model state를 terminal program 실행 없이 테스트할 수 있습니다.
 - Keyboard handling은 작은 key layer로 분리합니다. Global interrupt/exit key가

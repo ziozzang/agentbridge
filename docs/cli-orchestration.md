@@ -37,6 +37,9 @@ The broader ownership and permission rules are documented in
   overlay, and transcript cells.
 - Transcript rendering is a dedicated surface: history cells are normalized
   before rendering, and the viewport consumes the rendered transcript string.
+- Status and notice rendering is also a dedicated surface. It derives running
+  activity, token progress, queue/subagent/tool counts, scroll state, context,
+  quota, permission mode, and session identity separately from the frame layout.
 - TUI component construction lives outside the runtime update loop, so the
   composer, spinner, viewport, and initial model state can be tested without
   launching a terminal program.

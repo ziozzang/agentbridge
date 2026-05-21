@@ -96,6 +96,35 @@ func TestTUIProgressTracksStreamingEvents(t *testing.T) {
 	}
 }
 
+func TestTUIStatusSurfaceSeparatesNoticeProgressAndStatus(t *testing.T) {
+	start := time.Date(2026, 5, 22, 1, 2, 3, 0, time.UTC)
+	m := tuiModel{
+		width:         220,
+		state:         clientState{Busy: true, Model: "glm-5.1", Context: contextState{LeftPercent: 70}},
+		opts:          clientOptions{Permission: "allow"},
+		activity:      "answering",
+		turnAt:        start,
+		now:           start.Add(4 * time.Second),
+		answerRunes:   12,
+		lastEventAt:   start.Add(3 * time.Second),
+		lastEventKind: "answer",
+	}
+	surface := m.statusSurface()
+	for _, check := range []struct {
+		name string
+		got  string
+		want string
+	}{
+		{"notice", stripANSI(surface.Notice()), "running 4s"},
+		{"progress", stripANSI(surface.Progress()), "answer 12 chars"},
+		{"status", stripANSI(surface.Status()), "Working: answering"},
+	} {
+		if !strings.Contains(check.got, check.want) {
+			t.Fatalf("%s missing %q: %q", check.name, check.want, check.got)
+		}
+	}
+}
+
 func TestTUIPermissionOverlayReplies(t *testing.T) {
 	reply := make(chan string, 1)
 	m := tuiModel{ctx: context.Background(), overlay: &uiPermissionRequest{

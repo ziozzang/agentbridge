@@ -1,0 +1,158 @@
+package main
+
+import (
+	"fmt"
+	"strings"
+	"time"
+
+	"github.com/charmbracelet/lipgloss"
+)
+
+type tuiStatusSurface struct {
+	model tuiModel
+}
+
+func (s tuiStatusSurface) Notice() string {
+	m := s.model
+	if m.width <= 0 {
+		return ""
+	}
+	if m.overlay != nil {
+		return tuiWarnStyle.Render("approval requested") + " choose with numbers, arrows, enter, or esc"
+	}
+	if m.escArmed {
+		return tuiWarnStyle.Render("stop current turn?") + " press ESC again to stop · Ctrl-C stops immediately · Ctrl-C again exits"
+	}
+	if m.state.Busy {
+		parts := []string{"running " + s.turnElapsed()}
+		if strings.TrimSpace(m.activity) != "" {
+			parts = append(parts, m.activity)
+		}
+		if progress := s.Progress(); progress != "" {
+			parts = append(parts, progress)
+		}
+		parts = append(parts, "ESC: confirm stop", "Ctrl-C: stop", "Ctrl-D: exit")
+		return strings.Join(parts, " · ")
+	}
+	if hint := m.completionHint(); hint != "" {
+		return tuiHintStyle.Render(hint)
+	}
+	return "Ctrl-D: exit · /help"
+}
+
+func (s tuiStatusSurface) Progress() string {
+	m := s.model
+	var parts []string
+	if m.answerRunes > 0 {
+		parts = append(parts, fmt.Sprintf("answer %d chars", m.answerRunes))
+	}
+	if m.thinkingRunes > 0 {
+		parts = append(parts, fmt.Sprintf("reasoning %d chars", m.thinkingRunes))
+	}
+	if m.toolEvents > 0 {
+		parts = append(parts, fmt.Sprintf("tool events %d", m.toolEvents))
+	}
+	if !m.lastEventAt.IsZero() {
+		age := m.now.Sub(m.lastEventAt)
+		if age < 0 {
+			age = 0
+		}
+		label := firstNonEmpty(m.lastEventKind, "event")
+		parts = append(parts, fmt.Sprintf("%s %s ago", label, compactDuration(age)))
+	}
+	return strings.Join(parts, " · ")
+}
+
+func (s tuiStatusSurface) Status() string {
+	m := s.model
+	state := m.state
+	status := "Ready"
+	if state.Busy {
+		status = m.spinner.View() + " Working"
+	}
+	if m.activity != "" {
+		status += ": " + m.activity
+	}
+	if state.Busy {
+		status += " · " + s.turnElapsed()
+		if progress := s.Progress(); progress != "" {
+			status += " · " + progress
+		}
+	}
+	parts := []string{
+		tuiStateStyle.Render(status),
+		tuiContextStyle.Render(contextLabel(state.Context)),
+	}
+	for _, part := range limitLabels(state.Limits) {
+		parts = append(parts, tuiQuotaStyle.Render(part))
+	}
+	parts = append(parts,
+		firstNonEmpty(state.Model, "(model)"),
+		firstNonEmpty(state.Mode, "default"),
+		shortPath(state.Cwd),
+		tuiPermStyle.Render(permissionLabel(firstNonEmpty(m.opts.Permission, "prompt"))),
+	)
+	if state.QueueLen > 0 {
+		parts = append(parts, fmt.Sprintf("Queue %d", state.QueueLen))
+	}
+	if state.Subagents > 0 {
+		parts = append(parts, fmt.Sprintf("Subagents %d", state.Subagents))
+	}
+	if state.Tools > 0 {
+		parts = append(parts, fmt.Sprintf("Tools %d", state.Tools))
+	}
+	if scroll := s.scrollLabel(); scroll != "" {
+		parts = append(parts, scroll)
+	}
+	parts = append(parts, agentVersionShort(), shortSession(state.SessionID))
+	line := strings.Join(nonEmpty(parts), " · ")
+	if lipgloss.Width(line) > m.width && m.width > 0 {
+		return lipgloss.NewStyle().MaxWidth(m.width).Render(line)
+	}
+	return line
+}
+
+func (s tuiStatusSurface) scrollLabel() string {
+	m := s.model
+	if m.autoFollow || m.viewport.AtBottom() {
+		return ""
+	}
+	return fmt.Sprintf("Scroll %.0f%%", m.viewport.ScrollPercent()*100)
+}
+
+func (s tuiStatusSurface) turnElapsed() string {
+	m := s.model
+	if m.turnAt.IsZero() {
+		return "0s"
+	}
+	now := m.now
+	if now.IsZero() {
+		now = m.turnAt
+	}
+	if now.Before(m.turnAt) {
+		now = m.turnAt
+	}
+	return compactDuration(now.Sub(m.turnAt))
+}
+
+func (m tuiModel) statusSurface() tuiStatusSurface {
+	return tuiStatusSurface{model: m}
+}
+
+func compactDuration(d time.Duration) string {
+	if d < 0 {
+		d = 0
+	}
+	seconds := int(d.Seconds())
+	if seconds < 60 {
+		return fmt.Sprintf("%ds", seconds)
+	}
+	minutes := seconds / 60
+	seconds %= 60
+	if minutes < 60 {
+		return fmt.Sprintf("%dm%02ds", minutes, seconds)
+	}
+	hours := minutes / 60
+	minutes %= 60
+	return fmt.Sprintf("%dh%02dm", hours, minutes)
+}
