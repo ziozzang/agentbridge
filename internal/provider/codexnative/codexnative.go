@@ -75,7 +75,14 @@ func (c *Client) UsesNativeAgentLoop() bool { return true }
 
 func (c *Client) AvailableModels() []provider.ModelInfo {
 	c.modelsOnce.Do(func() {
-		if len(c.cfg.Models) > 0 {
+		staticModels := attachNativeAgentModelMetadata(cloneModels(c.cfg.Models))
+		if c.extraString("model_list") != "native" {
+			if len(staticModels) > 0 {
+				c.models = staticModels
+				return
+			}
+		}
+		if c.extraString("model_list") == "static" {
 			c.models = attachNativeAgentModelMetadata(cloneModels(c.cfg.Models))
 			return
 		}
@@ -84,6 +91,10 @@ func (c *Client) AvailableModels() []provider.ModelInfo {
 		models, err := c.fetchModels(ctx)
 		if err == nil && len(models) > 0 {
 			c.models = attachNativeAgentModelMetadata(models)
+			return
+		}
+		if len(staticModels) > 0 {
+			c.models = staticModels
 			return
 		}
 		if c.cfg.DefaultModel != "" {

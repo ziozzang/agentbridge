@@ -363,10 +363,15 @@ Codex app-server native runtime:
 ```bash
 AGENTBRIDGE_PROVIDER=codex-app \
 CODEX_COMMAND=codex \
-CODEX_MODEL=gpt-5 \
+CODEX_MODEL=gpt-5.5 \
 CODEX_APPROVAL_POLICY=never \
 agentbridge
 ```
+
+기본적으로 `codex-app`은 `gpt-5*` Codex 모델만 노출합니다:
+`gpt-5.5`, `gpt-5.4`, `gpt-5.3-codex`, `gpt-5`, `gpt-5-mini`.
+`CODEX_MODEL_LIST=native`를 설정하면 로컬 app-server의 `model/list` 응답을
+먼저 사용합니다. native 목록을 읽지 못하면 위 정적 목록으로 fallback합니다.
 
 `codex-app`은 OpenAI 스타일 `prompt_cache_*` hint를 upstream으로 보내지
 않습니다. 대신 AgentBridge 쪽에서 `session_id`나 `prompt_cache_key`가

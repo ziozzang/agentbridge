@@ -149,6 +149,34 @@ func TestSanitizeStreamOptionsDropsPromptCacheHints(t *testing.T) {
 	}
 }
 
+func TestAvailableModelsCanUseNativeModelList(t *testing.T) {
+	t.Setenv("GO_WANT_CODEX_HELPER", "1")
+	t.Setenv("CODEX_NATIVE_HELPER_MODE", "models")
+
+	client := New(provider.Config{
+		Name:         "codex-app",
+		Kind:         Kind,
+		DefaultModel: "gpt-5.5",
+		Extra: map[string]any{
+			"argv":       []any{os.Args[0], "-test.run=TestCodexNativeHelperProcess", "--"},
+			"model_list": "native",
+		},
+		Models: []provider.ModelInfo{{ModelID: "gpt-5-static", Name: "GPT-5 Static"}},
+	})
+	models := client.AvailableModels()
+	if len(models) != 2 {
+		t.Fatalf("models = %+v", models)
+	}
+	if models[0].ModelID != "gpt-5.5" || models[1].ModelID != "gpt-5.4" {
+		t.Fatalf("native models = %+v", models)
+	}
+	for _, m := range models {
+		if m.Provider != "codex-app" || m.Compat["agent_loop"] != "provider_native" {
+			t.Fatalf("metadata not attached: %+v", m)
+		}
+	}
+}
+
 func TestCodexNativeHelperProcess(t *testing.T) {
 	if os.Getenv("GO_WANT_CODEX_HELPER") != "1" {
 		return
@@ -174,6 +202,11 @@ func TestCodexNativeHelperProcess(t *testing.T) {
 			respondHelper(msg["id"], map[string]any{"thread": map[string]any{"id": "thread-1"}})
 		case "thread/resume":
 			respondHelper(msg["id"], map[string]any{})
+		case "model/list":
+			respondHelper(msg["id"], map[string]any{"data": []any{
+				map[string]any{"id": "gpt-5.5", "name": "GPT-5.5"},
+				map[string]any{"id": "gpt-5.4", "name": "GPT-5.4"},
+			}})
 		case "turn/start":
 			logHelper(logPath, contentText(nestedInputText(msg)))
 			respondHelper(msg["id"], map[string]any{"turn": map[string]any{"id": "turn-1", "status": "in_progress"}})
