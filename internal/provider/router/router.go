@@ -54,6 +54,7 @@ type route struct {
 	Models          stringsList    `json:"models" yaml:"models"`
 	Provider        string         `json:"provider" yaml:"provider"`
 	TargetModel     string         `json:"target_model" yaml:"target_model"`
+	ModelNameRename string         `json:"model_name_rename" yaml:"model_name_rename"`
 	Aliases         stringsList    `json:"aliases" yaml:"aliases"`
 	Fallbacks       []route        `json:"fallbacks" yaml:"fallbacks"`
 	RequestDefaults map[string]any `json:"request_defaults" yaml:"request_defaults"`
@@ -120,6 +121,7 @@ func (c *Client) AvailableModels() []provider.ModelInfo {
 				if m.ModelID == "" {
 					continue
 				}
+				m = applyModelNameRename(r.ModelNameRename, m)
 				if _, ok := seen[m.ModelID]; ok {
 					continue
 				}
@@ -136,7 +138,7 @@ func (c *Client) AvailableModels() []provider.ModelInfo {
 		if strings.Contains(r.primaryPattern(), "*") {
 			continue
 		}
-		id := firstNonEmpty(r.Match, r.Model, r.TargetModel)
+		id := renameModelName(r.ModelNameRename, firstNonEmpty(r.Match, r.Model, r.TargetModel))
 		if id == "" || strings.Contains(id, "*") {
 			continue
 		}
@@ -330,7 +332,7 @@ func (c *Client) targetConfig(routeIndex int, r route, requested string) (provid
 	if key != "" {
 		cfg.APIKey = key
 	}
-	target := resolveTargetModel(r, requested, cfg.DefaultModel)
+	target := resolveTargetModel(r, requested, upstreamModelName(r.ModelNameRename, requested), cfg.DefaultModel)
 	return cfg, target, keySig, true
 }
 
@@ -554,15 +556,45 @@ func routeMatches(r route, model string) bool {
 	return len(r.patterns()) == 0 && r.Default
 }
 
-func resolveTargetModel(r route, requested, fallback string) string {
-	target := firstNonEmpty(r.TargetModel, r.Model, requested, fallback)
+func resolveTargetModel(r route, requested, upstream, fallback string) string {
+	target := firstNonEmpty(r.TargetModel, r.Model, upstream, fallback)
 	if target == "$model" {
-		return requested
+		return upstream
 	}
 	if strings.Contains(target, "$1") {
 		target = strings.ReplaceAll(target, "$1", wildcardCapture(r.primaryPattern(), requested))
 	}
 	return target
+}
+
+func applyModelNameRename(tmpl string, m provider.ModelInfo) provider.ModelInfo {
+	m.ModelID = renameModelName(tmpl, m.ModelID)
+	if m.Name == "" || m.Name == m.ModelID {
+		m.Name = m.ModelID
+	}
+	return m
+}
+
+func renameModelName(tmpl, name string) string {
+	if strings.TrimSpace(tmpl) == "" || name == "" || strings.Contains(name, "*") {
+		return name
+	}
+	return strings.ReplaceAll(tmpl, "{name}", name)
+}
+
+func upstreamModelName(tmpl, requested string) string {
+	if strings.TrimSpace(tmpl) == "" || !strings.Contains(tmpl, "{name}") {
+		return requested
+	}
+	prefix, suffix, ok := strings.Cut(tmpl, "{name}")
+	if !ok || !strings.HasPrefix(requested, prefix) || !strings.HasSuffix(requested, suffix) {
+		return requested
+	}
+	name := strings.TrimSuffix(strings.TrimPrefix(requested, prefix), suffix)
+	if name == "" {
+		return requested
+	}
+	return name
 }
 
 func wildcardCapture(pattern, value string) string {

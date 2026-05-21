@@ -229,6 +229,7 @@ providers:
         - match: ollama/*
           provider: ollama-cloud
           target_model: "$1"
+          model_name_rename: "ollama:{name}"
           api_key_envs:
             - OLLAMA_API_KEY_A
             - OLLAMA_API_KEY_B
@@ -246,6 +247,12 @@ For the `ollama/*` route above, calls to `model=ollama/gpt-oss:120b` use
 `api_keys` only for local/private files; prefer `api_key_envs` so secrets do
 not enter version control.
 
+Use `model_name_rename` when provider model ids would collide in `/v1/models`.
+The template must contain `{name}`. For example,
+`model_name_rename: "ollama:{name}"` exposes upstream `gpt-oss:120b` as
+`ollama:gpt-oss:120b`, and a request for `model=ollama:gpt-oss:120b` is sent
+upstream as `gpt-oss:120b` when `target_model: "$model"` is used.
+
 Routes can also live in `$XDG_CONFIG_HOME/agentbridge/router.yaml`,
 `router.json`, or a file selected by `AGENTBRIDGE_ROUTER_FILE`:
 
@@ -261,6 +268,7 @@ routes:
   - match: ollama/*
     provider: ollama-cloud
     target_model: "$1"
+    model_name_rename: "ollama:{name}"
     api_key_envs: [OLLAMA_API_KEY_A, OLLAMA_API_KEY_B]
     retry_keys: true
   - match: glm-5.1

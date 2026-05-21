@@ -264,6 +264,41 @@ func TestRouterAliasesAndProviderWildcardModels(t *testing.T) {
 	}
 }
 
+func TestRouterRenamesExposedModelNames(t *testing.T) {
+	c, err := New(provider.Config{
+		Name: "router", Kind: Kind,
+		Extra: map[string]any{
+			"_providers": map[string]provider.Config{
+				"ollama-cloud": {
+					Name: "ollama-cloud", Kind: "openai-chat", BaseURL: "http://127.0.0.1", APIKey: "k",
+					Models: []provider.ModelInfo{{ModelID: "gpt-oss:120b", Name: "GPT-OSS 120B"}},
+				},
+			},
+			"routes": []any{map[string]any{
+				"models":            []any{"*"},
+				"provider":          "ollama-cloud",
+				"target_model":      "$model",
+				"model_name_rename": "ollama:{name}",
+			}},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	models := c.AvailableModels()
+	if len(models) != 1 || models[0].ModelID != "ollama:gpt-oss:120b" {
+		t.Fatalf("models = %+v", models)
+	}
+	chain, ok := c.resolveChain("ollama:gpt-oss:120b")
+	if !ok || len(chain) != 1 {
+		t.Fatalf("chain=%+v ok=%v", chain, ok)
+	}
+	cfg, target, _, ok := c.targetConfig(chain[0].index, chain[0].route, "ollama:gpt-oss:120b")
+	if !ok || cfg.Name != "ollama-cloud" || target != "gpt-oss:120b" {
+		t.Fatalf("cfg=%+v target=%q ok=%v", cfg, target, ok)
+	}
+}
+
 func TestGlobMatch(t *testing.T) {
 	cases := []struct {
 		pat, model string
@@ -282,7 +317,7 @@ func TestGlobMatch(t *testing.T) {
 
 func TestResolveTargetModelWildcardCapture(t *testing.T) {
 	r := route{Match: "zai:*", TargetModel: "$1"}
-	if got := resolveTargetModel(r, "zai:glm-5.1", "fallback"); got != "glm-5.1" {
+	if got := resolveTargetModel(r, "zai:glm-5.1", "zai:glm-5.1", "fallback"); got != "glm-5.1" {
 		t.Fatalf("target = %q", got)
 	}
 }

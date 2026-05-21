@@ -228,6 +228,7 @@ providers:
         - match: ollama/*
           provider: ollama-cloud
           target_model: "$1"
+          model_name_rename: "ollama:{name}"
           api_key_envs:
             - OLLAMA_API_KEY_A
             - OLLAMA_API_KEY_B
@@ -245,6 +246,13 @@ providers:
 round-robin 합니다. 비밀값이 저장소에 들어가지 않도록 `api_keys`보다는
 `api_key_envs`를 권장합니다.
 
+Provider model id가 `/v1/models`에서 서로 겹칠 수 있으면
+`model_name_rename`을 사용하세요. 템플릿에는 `{name}`이 포함되어야 합니다.
+예를 들어 `model_name_rename: "ollama:{name}"`은 upstream
+`gpt-oss:120b`를 `ollama:gpt-oss:120b`로 노출합니다. 그리고
+`target_model: "$model"`을 쓰는 경우 `model=ollama:gpt-oss:120b` 요청은
+upstream에는 다시 `gpt-oss:120b`로 전달됩니다.
+
 Route는 `$XDG_CONFIG_HOME/agentbridge/router.yaml`, `router.json`, 또는
 `AGENTBRIDGE_ROUTER_FILE`로 지정한 외부 JSON/YAML 파일로도 분리할 수
 있습니다.
@@ -261,6 +269,7 @@ routes:
   - match: ollama/*
     provider: ollama-cloud
     target_model: "$1"
+    model_name_rename: "ollama:{name}"
     api_key_envs: [OLLAMA_API_KEY_A, OLLAMA_API_KEY_B]
     retry_keys: true
   - match: glm-5.1
