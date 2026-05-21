@@ -4,14 +4,19 @@ package systemprompt
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"time"
 )
 
-// MaxProjectContextChars caps the size of AGENTS.md / CLAUDE.md content we
-// inline into the system prompt.
+// MaxProjectContextChars caps the size of project context content we inline
+// into the system prompt.
 const MaxProjectContextChars = 8 * 1024
+
+// ProjectContextFiles are checked in order when loading repository context.
+var ProjectContextFiles = []string{"SOUL.md", "AGENTS.md", "CLAUDE.md"}
 
 const persona = `You are agentbridge, an ACP coding agent backed by the GLM model family (Z.AI / Zhipu AI).
 You help developers read, understand, and modify code in their projects.
@@ -158,10 +163,21 @@ func renderProfile(md string) string {
 	}, "\n")
 }
 
-// LoadProjectContext reads AGENTS.md or CLAUDE.md (preferred order) from cwd
-// and caps the result. Missing files yield an empty string.
+// ProjectContextPath returns the first project context file found under cwd.
+func ProjectContextPath(cwd string) string {
+	for _, name := range ProjectContextFiles {
+		path := filepath.Join(cwd, name)
+		if st, err := os.Stat(path); err == nil && !st.IsDir() {
+			return path
+		}
+	}
+	return ""
+}
+
+// LoadProjectContext reads SOUL.md, AGENTS.md, or CLAUDE.md (preferred order)
+// from cwd and caps the result. Missing files yield an empty string.
 func LoadProjectContext(cwd string) string {
-	for _, name := range []string{"AGENTS.md", "CLAUDE.md"} {
+	for _, name := range ProjectContextFiles {
 		body, err := readFile(cwd, name)
 		if err != nil {
 			continue

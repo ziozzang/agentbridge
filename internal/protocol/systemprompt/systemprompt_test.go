@@ -53,7 +53,21 @@ func TestProjectContextNeutralizesBreakouts(t *testing.T) {
 	}
 }
 
-func TestLoadProjectContextPrefersAGENTSmd(t *testing.T) {
+func TestLoadProjectContextPrefersSOULmd(t *testing.T) {
+	dir := t.TempDir()
+	_ = writeFile(filepath.Join(dir, "SOUL.md"), "soul content")
+	_ = writeFile(filepath.Join(dir, "AGENTS.md"), "agents content")
+	_ = writeFile(filepath.Join(dir, "CLAUDE.md"), "claude content")
+	got := LoadProjectContext(dir)
+	if got != "soul content" {
+		t.Errorf("got %q", got)
+	}
+	if path := ProjectContextPath(dir); filepath.Base(path) != "SOUL.md" {
+		t.Errorf("path = %q", path)
+	}
+}
+
+func TestLoadProjectContextFallsBackToAGENTSmd(t *testing.T) {
 	dir := t.TempDir()
 	_ = writeFile(filepath.Join(dir, "AGENTS.md"), "agents content")
 	_ = writeFile(filepath.Join(dir, "CLAUDE.md"), "claude content")

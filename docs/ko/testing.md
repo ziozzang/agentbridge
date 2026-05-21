@@ -93,7 +93,9 @@ HTTP agent loop smoke:
 
 HTTP 호환 엔드포인트에서 ACP와 같은 로컬 도구 루프까지 실행하려면
 `agent:<model>`을 쓰거나 request metadata에 `{"agent": true}`를 넣습니다.
-`metadata.cwd`는 파일/쉘 도구의 작업 디렉토리입니다.
+`metadata.cwd`는 server-owned file tool의 작업 디렉토리입니다. Shell execution은
+client-owned이며 `acp-agent` 같은 ACP client가 `client__run_command`로 제공합니다.
+HTTP agent loop는 서버에서 shell command를 직접 실행하지 않습니다.
 
 반대로 `codex-app` 같은 native agent provider는 ACP에서 이미 로컬 harness를
 bypass합니다. 활성 provider가 native-agent capable이면
@@ -103,7 +105,7 @@ bypass합니다. 활성 provider가 native-agent capable이면
 AGENTBRIDGE_PROVIDER=xai-oauth agentbridge --http-listen 0.0.0.0:8766
 curl -sS -X POST http://127.0.0.1:8766/v1/chat/completions \
   -H 'Content-Type: application/json' \
-  -d '{"model":"agent:grok-4.3","metadata":{"cwd":"'$PWD'","max_turns":6},"messages":[{"role":"user","content":"Use list_files and run_command to inspect the current directory and summarize the environment."}]}'
+  -d '{"model":"agent:grok-4.3","metadata":{"cwd":"'$PWD'","max_turns":6},"messages":[{"role":"user","content":"Use list_files to inspect the current directory and summarize the environment."}]}'
 ```
 
 Streaming smoke:

@@ -24,6 +24,8 @@ English documentation: [README.md](README.md)
   metrics.
 - **OpenAPI/Swagger**: `/openapi.json`, `/v1/openapi.json`, `/swagger`.
 - **플러그인**: SQLite와 DuckDB 확장 표면.
+- **런타임 제어**: ACP session에서 terminal/runtime command로 checkpoint,
+  rollback, markdown skill injection을 지원합니다.
 - **하위 호환성**: 기존 `ACP_HARNESS_*`, `ACP_GLM_*`, `Z_AI_API_KEY`를 계속
   허용합니다.
 
@@ -117,6 +119,9 @@ request/response는 `google.protobuf.Struct`를 사용하므로 프로젝트 전
 | --- | --- |
 | [Install](docs/install.md) | [설치](docs/ko/install.md) |
 | [Configuration](docs/configuration.md) | [설정](docs/ko/configuration.md) |
+| [Architecture](docs/architecture.md) | [아키텍처](docs/ko/architecture.md) |
+| [CLI Orchestration Design](docs/cli-orchestration.md) | [CLI Orchestration 설계](docs/ko/cli-orchestration.md) |
+| [Tool Placement](docs/tool-placement.md) | [Tool Placement](docs/ko/tool-placement.md) |
 | [Safety Pipeline](docs/safety.md) | [Safety Pipeline](docs/ko/safety.md) |
 | [Providers](docs/providers.md) | [프로바이더](docs/ko/providers.md) |
 | [Plugins](docs/plugins.md) | [플러그인](docs/ko/plugins.md) |

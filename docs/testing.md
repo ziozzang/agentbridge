@@ -94,7 +94,9 @@ HTTP agent loop smoke:
 Use `agent:<model>` or set request metadata `{"agent": true}` to make the
 HTTP compatibility endpoint run the same local tool loop used by ACP before
 returning the final assistant text. `metadata.cwd` controls the working
-directory for file and shell tools.
+directory for server-owned file tools. Shell execution is client-owned and is
+available through ACP clients such as `acp-agent` as `client__run_command`; the
+HTTP agent loop does not execute shell commands directly in the server.
 
 Native agent providers such as `codex-app` are different: ACP already bypasses
 the local harness for them, and `/v1/chat/completions` uses the provider's own
@@ -104,7 +106,7 @@ session/runtime when the active provider is native-agent capable.
 AGENTBRIDGE_PROVIDER=xai-oauth agentbridge --http-listen 0.0.0.0:8766
 curl -sS -X POST http://127.0.0.1:8766/v1/chat/completions \
   -H 'Content-Type: application/json' \
-  -d '{"model":"agent:grok-4.3","metadata":{"cwd":"'$PWD'","max_turns":6},"messages":[{"role":"user","content":"Use list_files and run_command to inspect the current directory and summarize the environment."}]}'
+  -d '{"model":"agent:grok-4.3","metadata":{"cwd":"'$PWD'","max_turns":6},"messages":[{"role":"user","content":"Use list_files to inspect the current directory and summarize the environment."}]}'
 ```
 
 Streaming smoke:

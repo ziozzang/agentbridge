@@ -85,7 +85,38 @@ acp-agent --addr 127.0.0.1:8765 --model codex-agent \
   thinking 표시, tool 표시, raw update 표시 상태를 보여줍니다.
 - `/sessions`: 현재 cwd의 ACP session 목록을 보여줍니다.
 - `/resume SESSION_ID`: 저장된 session을 history replay 없이 resume합니다.
-- `/load SESSION_ID`: 저장된 session을 load하고 message를 replay합니다.
+- `/session-load SESSION_ID`: 저장된 session을 load하고 message를 replay합니다.
+- `/save NAME`: 현재 session에 runtime checkpoint를 저장합니다.
+- `/list`: 현재 session의 runtime checkpoint 목록을 보여줍니다.
+- `/load NAME|ID`: runtime checkpoint로 되돌리고 session cache epoch를 올립니다.
+- `/context`: 추정 context token, context window, compaction threshold, target,
+  message 수, checkpoint 수, cache epoch를 보여줍니다.
+- `/attach PATH [...]`: 로컬 파일을 추출해서 다음 prompt에 ACP resource block으로
+  첨부합니다. Markdown, text, JSON/YAML/CSV, source file 등 UTF-8 text file은
+  직접 읽습니다. PDF는 `pdftotext`가 있으면 사용하고, 없으면 printable text
+  fallback을 사용합니다.
+- `/files`: 다음 prompt에 첨부될 file queue를 보여줍니다.
+- `/clear-files`: 첨부 file queue를 비웁니다.
+- `/structure`: 현재 session id, cwd, model, mode, project context file, queued
+  attachment 구조를 보여줍니다.
+- `/lua FILE [args...]`: `acp-agent` 안에서 로컬 Lua controller script를 실행합니다.
+  CLI는 `clientRunLua` capability를 광고하고, 서버가 보내는 `client/run_lua`
+  JSON-RPC 요청도 처리합니다. 또한 client-owned `run_lua` tool을 광고하며,
+  client-owned `run_command` shell tool도 광고합니다. AgentBridge는 이를 model에
+  `client__run_lua`, `client__run_command`로 노출하고 `client/call_tool`로 CLI에
+  다시 라우팅합니다. Lua API는 `cli.say(text)`, `cli.status()`,
+  `cli.structure()`, `cli.prompt(text)`, `cli.attach(path)`, `cli.files()`,
+  `cli.clear_files()`, `cli.command(line)`입니다.
+- `/compact [TARGET_TOKENS]`: 현재 transcript를 수동 compaction합니다. 가능한 경우
+  오래된 turn을 summary로 교체하고 cache epoch를 올립니다.
+- `/new`: 같은 cwd에서 새 session을 만듭니다.
+- `/stop`: 현재 session에 `session/cancel`을 보냅니다. 현재 terminal client 구조에서는
+  외부/scripted 제어에 주로 유효하며, prompt 중 실시간 interrupt는 별도 입력 루프가
+  필요합니다.
+- `/subagent [--model MODEL] TASK`: 서버에 bounded child provider call을 실행하게 하고
+  결과를 현재 session으로 돌려받습니다.
+- `/skill list|status|clear|NAME`: `.agentbridge/skills` 또는
+  `$XDG_CONFIG_HOME/agentbridge/skills`의 markdown skill을 목록/상태/해제/활성화합니다.
 - `/model [MODEL]`: model 확인 또는 변경.
 - `/mode [MODE]`: ACP mode 확인 또는 변경.
 - `/permission [prompt|allow|reject|cancel]`: permission 처리 방식 확인 또는

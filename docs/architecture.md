@@ -139,6 +139,48 @@ upstream `thread/compact/start` for the native thread, then replaces the local
 mirror transcript with a checkpoint message plus recent turns. The upstream
 thread remains the source of truth for deep session state.
 
+## Runtime Commands
+
+ACP text prompts that start with runtime commands are handled before any model
+call, including provider-native agent sessions. They are not appended to the
+LLM transcript as user messages.
+
+- `/btw mark NAME` and the CLI alias `/save NAME` create a checkpoint with the
+  current message index, model, mode, active skills, timestamp, and cache epoch.
+- `/btw list` and the CLI alias `/list` show checkpoints.
+- `/btw back NAME|ID` and the CLI alias `/load NAME|ID` truncate the local
+  transcript to the checkpoint, restore the checkpoint's active skills, and
+  increment `cacheEpoch` to avoid stale prompt-cache assumptions.
+- `/context` reports estimated context usage, provider context window,
+  configured compaction threshold/target, message count, checkpoint count, and
+  cache epoch.
+- `/compact [TARGET_TOKENS]` runs the same compaction path used by proactive
+  and overflow compaction, but on demand. It is a continuation operation, not a
+  rollback: older turns are summarized or provider-native compacted, recent
+  turns are kept, and `cacheEpoch` is incremented when the transcript changes.
+- `/subagent [--model MODEL] TASK` runs a bounded child provider call with a
+  child session id and returns the result to the current session. It is the
+  primitive Lua/client orchestration can use for delegated work.
+- `/skill list|status|clear|NAME` manages markdown skills. Skills are loaded
+  from `<cwd>/.agentbridge/skills/*.md` first, then
+  `$XDG_CONFIG_HOME/agentbridge/skills/*.md`. Active skills are injected into
+  the system prompt inside `<skill>` blocks with their content hash.
+
+## CLI Lua Runtime
+
+Lua orchestration is a client-owned harness layer. AgentBridge exposes
+client-owned tools under the `client__<name>` namespace and routes calls back to
+the ACP client with `client/call_tool`. `acp-agent` advertises `run_lua` and
+`run_command`, so the model sees `client__run_lua` and `client__run_command`.
+Shell execution is client-owned; the AgentBridge server does not run shell
+commands or scripts as server-owned tools.
+
+The detailed placement model, primitive/composition API, memory layers, and
+canonical goal/autoresearch cases are documented in
+[CLI Orchestration Design](cli-orchestration.md).
+Tool ownership and permission boundaries are documented in
+[Tool Placement](tool-placement.md).
+
 ## Safety Pipeline
 
 Provider construction flows through `internal/provider/pipeline` when safety

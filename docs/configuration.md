@@ -87,6 +87,47 @@ Legacy `ACP_HARNESS_LOG_*` and `ACP_GLM_DEBUG` are still accepted.
 Default: `$XDG_STATE_HOME/agentbridge/sessions` or
 `~/.local/state/agentbridge/sessions`.
 
+Session JSON also stores runtime checkpoints, active skill references, and
+`cacheEpoch`. The file format is internal; do not rely on it as a public API.
+
+## Skills
+
+Runtime skills are markdown files loaded by `/skill` commands:
+
+- Project-local: `<cwd>/.agentbridge/skills/*.md`
+- User config: `$XDG_CONFIG_HOME/agentbridge/skills/*.md` or
+  `~/.config/agentbridge/skills/*.md`
+
+Project-local skills shadow user-config skills with the same file name.
+
+## Project Context
+
+AgentBridge automatically loads one repository context file from the session
+cwd and injects it into the system prompt. Preferred order:
+
+1. `SOUL.md`
+2. `AGENTS.md`
+3. `CLAUDE.md`
+
+The content is capped by `MaxProjectContextChars`. `acp-agent /status` shows
+which file, if any, will be used for the current session cwd.
+
+## File Attachments
+
+`acp-agent /attach PATH [...]` extracts local documents and queues them for the
+next prompt. Successful prompt submission clears the queue; failed submission
+restores it. Extracted content is capped by `filecontext.MaxExtractedChars`.
+
+Supported extraction:
+
+- UTF-8 text-like files, including Markdown, plain text, JSON, YAML, CSV, and
+  source files.
+- PDF through `pdftotext` when available, with a printable-string fallback for
+  simple PDFs.
+
+Use `/files` to inspect the queue, `/clear-files` to drop it, and `/structure`
+to inspect the session/context/attachment layout.
+
 ## Config YAML
 
 `config.yaml` has the same `providers:` schema as `providers.yaml`, but is

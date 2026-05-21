@@ -42,63 +42,6 @@ func TestWriteFileRejectsWhitespacePath(t *testing.T) {
 	}
 }
 
-func TestRunCommandRejectsEmpty(t *testing.T) {
-	c := &fakeConn{}
-	e := newExecutor(t, c)
-	r := e.Execute(context.Background(), "tc", "run_command", `{"command":""}`)
-	if !strings.Contains(r.Content, "must be a non-empty string") {
-		t.Errorf("got %q", r.Content)
-	}
-	r = e.Execute(context.Background(), "tc", "run_command", `{"command":"   "}`)
-	if !strings.Contains(r.Content, "must be a non-empty string") {
-		t.Errorf("whitespace got %q", r.Content)
-	}
-}
-
-func TestRunCommandShellQuoting(t *testing.T) {
-	// Pipes / quoting only work when we shell-execute. echo a | wc -c counts 2
-	// (newline included).
-	c := &fakeConn{}
-	e := newExecutor(t, c)
-	r := e.Execute(context.Background(), "tc", "run_command", `{"command":"echo a | wc -c"}`)
-	if !strings.Contains(r.Content, "Exit code: 0") {
-		t.Fatalf("expected zero exit, got %q", r.Content)
-	}
-	if !strings.Contains(r.Content, "2") {
-		t.Fatalf("expected piped output, got %q", r.Content)
-	}
-}
-
-func TestRunCommandIncludesStderr(t *testing.T) {
-	c := &fakeConn{}
-	e := newExecutor(t, c)
-	r := e.Execute(context.Background(), "tc", "run_command", `{"command":"echo err 1>&2; exit 7"}`)
-	if !strings.Contains(r.Content, "Exit code: 7") {
-		t.Errorf("exit code missing: %q", r.Content)
-	}
-	if !strings.Contains(r.Content, "STDERR:") || !strings.Contains(r.Content, "err") {
-		t.Errorf("stderr missing: %q", r.Content)
-	}
-}
-
-func TestRunCommandRejected(t *testing.T) {
-	c := &fakeConn{reject: true}
-	e := newExecutor(t, c)
-	r := e.Execute(context.Background(), "tc", "run_command", `{"command":"echo hello"}`)
-	if !strings.Contains(r.Content, "rejected by user") {
-		t.Errorf("got %q", r.Content)
-	}
-}
-
-func TestRunCommandCancelled(t *testing.T) {
-	c := &fakeConn{cancel: true}
-	e := newExecutor(t, c)
-	r := e.Execute(context.Background(), "tc", "run_command", `{"command":"echo hello"}`)
-	if !strings.Contains(r.Content, "cancelled by user") {
-		t.Errorf("got %q", r.Content)
-	}
-}
-
 func TestListFilesRelativeToSessionCwd(t *testing.T) {
 	c := &fakeConn{}
 	e := newExecutor(t, c)
@@ -165,36 +108,6 @@ func TestWriteFileDefaultModePromptsForPermission(t *testing.T) {
 	}
 }
 
-func TestRunCommandDefaultModePromptsForPermission(t *testing.T) {
-	c := &fakeConn{}
-	e := newExecutor(t, c)
-	e.Mode = "default"
-	_ = e.Execute(context.Background(), "tc", "run_command", `{"command":"echo a"}`)
-	if c.permissionCalls != 1 {
-		t.Errorf("default mode should call permission once, got %d", c.permissionCalls)
-	}
-}
-
-func TestRunCommandAcceptEditsStillPromptsForCommands(t *testing.T) {
-	c := &fakeConn{}
-	e := newExecutor(t, c)
-	e.Mode = "accept_edits"
-	_ = e.Execute(context.Background(), "tc", "run_command", `{"command":"echo a"}`)
-	if c.permissionCalls != 1 {
-		t.Errorf("accept_edits should still prompt for execute, got %d", c.permissionCalls)
-	}
-}
-
-func TestRunCommandBypassSkipsPermission(t *testing.T) {
-	c := &fakeConn{}
-	e := newExecutor(t, c)
-	e.Mode = "bypass_permissions"
-	_ = e.Execute(context.Background(), "tc", "run_command", `{"command":"echo a"}`)
-	if c.permissionCalls != 0 {
-		t.Errorf("bypass should skip permission, got %d", c.permissionCalls)
-	}
-}
-
 // ---------------------------------------------------------------------------
 // Permission transport errors → failed tool result
 // ---------------------------------------------------------------------------
@@ -212,17 +125,5 @@ func TestWriteFilePermissionTransportError(t *testing.T) {
 	// The write must NOT have happened.
 	if _, err := os.Stat(filepath.Join(e.SessionCwd, "x.txt")); err == nil {
 		t.Error("file should not be created when permission errors")
-	}
-}
-
-func TestRunCommandPermissionTransportError(t *testing.T) {
-	c := &fakeConn{callErr: errors.New("io blew up")}
-	e := newExecutor(t, c)
-	r := e.Execute(context.Background(), "tc", "run_command", `{"command":"echo nope"}`)
-	if !strings.Contains(r.Content, "Error requesting permission") {
-		t.Errorf("got %q", r.Content)
-	}
-	if !c.hasStatus("failed") {
-		t.Error("expected failed status update")
 	}
 }

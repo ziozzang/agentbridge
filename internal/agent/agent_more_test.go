@@ -24,6 +24,7 @@ type recorderConn struct {
 	updates         []map[string]any
 	permissionCalls int
 	permissionErr   error
+	clientToolCalls int
 }
 
 func (r *recorderConn) SendNotification(method string, params any) error {
@@ -38,6 +39,17 @@ func (r *recorderConn) SendNotification(method string, params any) error {
 func (r *recorderConn) Call(_ context.Context, method string, _ any, result any) error {
 	if r.permissionErr != nil {
 		return r.permissionErr
+	}
+	if method == "client/call_tool" {
+		r.mu.Lock()
+		r.clientToolCalls++
+		r.mu.Unlock()
+		if out, ok := result.(*struct {
+			Output string `json:"output"`
+		}); ok {
+			out.Output = "Exit code: 0\n\nSTDOUT:\nHELLO\n\nSTDERR:\n(empty)"
+		}
+		return nil
 	}
 	if method != "session/request_permission" {
 		return errors.New("unexpected call: " + method)
@@ -209,6 +221,40 @@ func TestInitializeCapsToServerVersionWhenClientHigher(t *testing.T) {
 	}
 }
 
+func TestAvailableToolsIncludeClientLuaWhenAdvertised(t *testing.T) {
+	a := New(sessionstore.NewIn(t.TempDir()))
+	_, err := a.Initialize(context.Background(), acp.InitializeParams{
+		ProtocolVersion: acp.ProtocolVersion,
+		ClientCapabilities: map[string]any{
+			"clientTools": []map[string]any{{
+				"name":        "run_lua",
+				"description": "run lua",
+				"parameters":  map[string]any{"type": "object"},
+			}},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, tool := range a.availableTools() {
+		if tool.Function.Name == "client__run_lua" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatal("client_run_lua not exposed")
+	}
+	a.clientCapabilities = map[string]any{}
+	a.clientTools = nil
+	for _, tool := range a.availableTools() {
+		if tool.Function.Name == "client__run_lua" {
+			t.Fatal("client__run_lua should be hidden without advertised client tool")
+		}
+	}
+}
+
 // ---------------------------------------------------------------------------
 // Session mode
 // ---------------------------------------------------------------------------
@@ -349,6 +395,9 @@ func TestPromptDerivesTitleFromFirstUserMessage(t *testing.T) {
 	if !strings.Contains(title, "Refactor the executor module") {
 		t.Errorf("title = %q", title)
 	}
+	if ctx, ok := infoUpdate["context"].(map[string]any); !ok || ctx["window"] == nil {
+		t.Fatalf("missing context snapshot: %#v", infoUpdate["context"])
+	}
 }
 
 func TestSetSessionModelEmitsSessionInfoUpdate(t *testing.T) {
@@ -363,6 +412,9 @@ func TestSetSessionModelEmitsSessionInfoUpdate(t *testing.T) {
 	})
 	if r.findUpdate("session_info_update") == nil {
 		t.Error("expected session_info_update notification")
+	}
+	if ctx, ok := r.findUpdate("session_info_update")["context"].(map[string]any); !ok || ctx["tokens"] == nil {
+		t.Fatalf("missing context snapshot")
 	}
 }
 
@@ -480,9 +532,9 @@ func TestCloseSessionThenLoadCanRestore(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestPromptReturnsMaxTurnRequestsAfterExhaustion(t *testing.T) {
-	// Server always emits a tool call → the loop spins until MaxTurns is hit.
-	// (run_command is approved by the recorderConn.)
-	body := `data: {"choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"tc","type":"function","function":{"name":"run_command","arguments":"{\"command\":\"true\"}"}}]},"finish_reason":"tool_calls"}]}` + "\n\n"
+	// Server always emits a client-owned shell tool call, so the loop spins
+	// until MaxTurns is hit.
+	body := `data: {"choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"tc","type":"function","function":{"name":"client__run_command","arguments":"{\"command\":\"true\"}"}}]},"finish_reason":"tool_calls"}]}` + "\n\n"
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/event-stream")
 		w.Write([]byte(body))

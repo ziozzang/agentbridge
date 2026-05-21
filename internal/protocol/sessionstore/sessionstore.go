@@ -28,7 +28,32 @@ type PersistedSession struct {
 	UpdatedAt     string        `json:"updatedAt"`
 	Model         string        `json:"model"`
 	Mode          string        `json:"mode,omitempty"`
+	Checkpoints   []Checkpoint  `json:"checkpoints,omitempty"`
+	ActiveSkills  []ActiveSkill `json:"activeSkills,omitempty"`
+	CacheEpoch    int           `json:"cacheEpoch,omitempty"`
 	SchemaVersion int           `json:"schemaVersion"`
+}
+
+// Checkpoint records a rollback point inside a session. CacheEpoch is bumped
+// when a session rolls back so provider/cache layers can avoid stale-prefix
+// assumptions.
+type Checkpoint struct {
+	ID           string        `json:"id"`
+	Name         string        `json:"name,omitempty"`
+	MessageIndex int           `json:"messageIndex"`
+	CreatedAt    string        `json:"createdAt"`
+	Model        string        `json:"model,omitempty"`
+	Mode         string        `json:"mode,omitempty"`
+	CacheEpoch   int           `json:"cacheEpoch,omitempty"`
+	Skills       []ActiveSkill `json:"skills,omitempty"`
+}
+
+// ActiveSkill identifies a markdown skill injected into the session prompt.
+type ActiveSkill struct {
+	Name       string `json:"name"`
+	Path       string `json:"path,omitempty"`
+	Hash       string `json:"hash,omitempty"`
+	InjectedAt string `json:"injectedAt,omitempty"`
 }
 
 // Metadata is the lightweight session-list view.

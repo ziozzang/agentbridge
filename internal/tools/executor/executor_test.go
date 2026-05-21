@@ -23,7 +23,11 @@ type fakeConn struct {
 	reject          bool
 	cancel          bool
 	callErr         error
+	luaOutput       string
 	permissionCalls int
+	luaCalls        int
+	clientToolCalls int
+	clientToolName  string
 }
 
 func (f *fakeConn) SendNotification(method string, params any) error {
@@ -37,9 +41,34 @@ func (f *fakeConn) SendNotification(method string, params any) error {
 	return nil
 }
 
-func (f *fakeConn) Call(_ context.Context, method string, _ any, result any) error {
+func (f *fakeConn) Call(_ context.Context, method string, params any, result any) error {
 	if f.callErr != nil {
 		return f.callErr
+	}
+	if method == "client/run_lua" {
+		f.mu.Lock()
+		f.luaCalls++
+		f.mu.Unlock()
+		if out, ok := result.(*struct {
+			Output string `json:"output"`
+		}); ok {
+			out.Output = f.luaOutput
+		}
+		return nil
+	}
+	if method == "client/call_tool" {
+		f.mu.Lock()
+		f.clientToolCalls++
+		if m, ok := params.(map[string]any); ok {
+			f.clientToolName, _ = m["name"].(string)
+		}
+		f.mu.Unlock()
+		if out, ok := result.(*struct {
+			Output string `json:"output"`
+		}); ok {
+			out.Output = f.luaOutput
+		}
+		return nil
 	}
 	if method != "session/request_permission" {
 		return errors.New("unexpected call: " + method)
@@ -58,6 +87,24 @@ func (f *fakeConn) Call(_ context.Context, method string, _ any, result any) err
 	}
 	_ = f.approve // documenting intent
 	return nil
+}
+
+func (f *fakeConn) lastClientToolName() string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.clientToolName
+}
+
+func (f *fakeConn) countClientToolCalls() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.clientToolCalls
+}
+
+func (f *fakeConn) countLuaCalls() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.luaCalls
 }
 
 func (f *fakeConn) hasStatus(status string) bool {
@@ -153,30 +200,66 @@ func TestListFiles(t *testing.T) {
 	}
 }
 
-func TestRunCommandApproved(t *testing.T) {
-	c := &fakeConn{}
-	e := newExecutor(t, c)
-	r := e.Execute(context.Background(), "tc", "run_command", `{"command":"echo hello"}`)
-	if !strings.Contains(r.Content, "Exit code: 0") || !strings.Contains(r.Content, "hello") {
-		t.Errorf("got %q", r.Content)
-	}
-}
-
-func TestRunCommandFailingExit(t *testing.T) {
-	c := &fakeConn{}
-	e := newExecutor(t, c)
-	r := e.Execute(context.Background(), "tc", "run_command", `{"command":"exit 3"}`)
-	if !strings.Contains(r.Content, "Exit code: 3") {
-		t.Errorf("got %q", r.Content)
-	}
-}
-
 func TestImageAnalysisRequiresVision(t *testing.T) {
 	c := &fakeConn{}
 	e := newExecutor(t, c)
 	r := e.Execute(context.Background(), "tc", "image_analysis", `{"image_source":"a.png"}`)
 	if !strings.Contains(r.Content, "vision is not configured") {
 		t.Errorf("got %q", r.Content)
+	}
+}
+
+func TestClientRunLuaDelegatesToACPClient(t *testing.T) {
+	c := &fakeConn{luaOutput: "lua says ok"}
+	e := newExecutor(t, c)
+	r := e.Execute(context.Background(), "tc", "client_run_lua", `{"code":"cli.say('ok')","args":["a"]}`)
+	if !strings.Contains(r.Content, "lua says ok") {
+		t.Fatalf("content = %q", r.Content)
+	}
+	if c.countLuaCalls() != 1 {
+		t.Fatalf("lua calls = %d", c.countLuaCalls())
+	}
+	if !c.hasStatus("completed") {
+		t.Fatal("expected completed update")
+	}
+}
+
+func TestClientRunLuaRequiresCodeOrPath(t *testing.T) {
+	c := &fakeConn{}
+	e := newExecutor(t, c)
+	r := e.Execute(context.Background(), "tc", "client_run_lua", `{}`)
+	if !strings.Contains(r.Content, "either `code` or `path` is required") {
+		t.Fatalf("content = %q", r.Content)
+	}
+}
+
+func TestClientNamespacedToolDelegatesToACPClient(t *testing.T) {
+	c := &fakeConn{luaOutput: "client tool ok"}
+	e := newExecutor(t, c)
+	r := e.Execute(context.Background(), "tc", "client__run_lua", `{"code":"cli.say('ok')"}`)
+	if !strings.Contains(r.Content, "client tool ok") {
+		t.Fatalf("content = %q", r.Content)
+	}
+	if c.countClientToolCalls() != 1 {
+		t.Fatalf("client tool calls = %d", c.countClientToolCalls())
+	}
+	if c.lastClientToolName() != "run_lua" {
+		t.Fatalf("client tool name = %q", c.lastClientToolName())
+	}
+}
+
+func TestClientRunCommandDelegatesToACPClient(t *testing.T) {
+	c := &fakeConn{luaOutput: "Exit code: 0\n\nSTDOUT:\nhello\n\nSTDERR:\n(empty)"}
+	e := newExecutor(t, c)
+	r := e.Execute(context.Background(), "tc", "client__run_command", `{"command":"echo hello"}`)
+	if !strings.Contains(r.Content, "hello") {
+		t.Fatalf("content = %q", r.Content)
+	}
+	if c.countClientToolCalls() != 1 {
+		t.Fatalf("client tool calls = %d", c.countClientToolCalls())
+	}
+	if c.lastClientToolName() != "run_command" {
+		t.Fatalf("client tool name = %q", c.lastClientToolName())
 	}
 }
 

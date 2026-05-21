@@ -87,7 +87,43 @@ Interactive commands:
   thinking display, tool display, and raw update display.
 - `/sessions`: list known ACP sessions for the current cwd.
 - `/resume SESSION_ID`: resume a persisted session without replaying history.
-- `/load SESSION_ID`: load a persisted session and replay messages.
+- `/session-load SESSION_ID`: load a persisted session and replay messages.
+- `/save NAME`: save a runtime checkpoint in the current session.
+- `/list`: list runtime checkpoints in the current session.
+- `/load NAME|ID`: roll back to a runtime checkpoint and bump the session cache
+  epoch.
+- `/context`: show estimated context usage, context window, compaction
+  threshold, target, message count, checkpoint count, and cache epoch.
+- `/attach PATH [...]`: extract local files and attach them to the next prompt
+  as ACP resource blocks. Markdown, text, JSON/YAML/CSV, source files, and other
+  UTF-8 text files are read directly. PDF uses `pdftotext` when installed and
+  falls back to printable text extraction.
+- `/files`: list queued attachments.
+- `/clear-files`: clear queued attachments.
+- `/structure`: show the current session id, cwd, model, mode, project context
+  file, and queued attachment structure.
+- `/lua FILE [args...]`: run a local Lua controller script inside `acp-agent`.
+  The CLI also advertises `clientRunLua` and handles server-initiated
+  `client/run_lua` JSON-RPC requests. It also advertises a client-owned
+  `run_lua` tool and a client-owned `run_command` shell tool; AgentBridge
+  exposes them to models as `client__run_lua` and `client__run_command`, then
+  routes calls back to the CLI with `client/call_tool`. Exposed Lua API:
+  `cli.say(text)`, `cli.status()`, `cli.structure()`, `cli.prompt(text)`,
+  `cli.attach(path)`, `cli.files()`, `cli.clear_files()`, and
+  `cli.command(line)`. Orchestration helpers are available under `cli.orch`,
+  including `plan`, `fetch_next_job`, `run`, `check_status`, `trigger`,
+  `steer`, `control_loop`, and `cron`.
+- `/compact [TARGET_TOKENS]`: manually compact the current transcript. This
+  keeps the session going, replaces older turns with a summary when possible,
+  and bumps the cache epoch.
+- `/new`: create a fresh session in the same cwd.
+- `/stop`: send `session/cancel` for the current session. In the current
+  terminal client this is most useful for external/scripted control; true
+  mid-prompt interactive interrupt requires a separate input loop.
+- `/subagent [--model MODEL] TASK`: ask the server to run a bounded child
+  provider call and return the result to the current session.
+- `/skill list|status|clear|NAME`: list, inspect, clear, or activate markdown
+  skills from `.agentbridge/skills` or `$XDG_CONFIG_HOME/agentbridge/skills`.
 - `/model [MODEL]`: show or switch model.
 - `/mode [MODE]`: show or switch ACP mode.
 - `/permission [prompt|allow|reject|cancel]`: show or change permission

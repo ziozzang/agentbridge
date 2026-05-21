@@ -94,20 +94,6 @@ var allTools = []Tool{
 	{
 		Type: "function",
 		Function: ToolFunction{
-			Name:        "run_command",
-			Description: "Execute a shell command via 'sh -c' in the ACP session working directory and return stdout, stderr, and exit code. The user is asked for permission before each invocation.",
-			Parameters: json.RawMessage(`{
-  "type": "object",
-  "properties": {
-    "command": {"type": "string", "description": "The shell command line to execute (interpreted by 'sh -c', so quoting, pipes, and redirects all work)."}
-  },
-  "required": ["command"]
-}`),
-		},
-	},
-	{
-		Type: "function",
-		Function: ToolFunction{
 			Name:        "web_search",
 			Description: "Search the web using Z.AI's premium search engine and return relevant results, including titles, URLs, sources, dates, and content summaries.",
 			Parameters: json.RawMessage(`{
@@ -147,6 +133,21 @@ var allTools = []Tool{
     "prompt": {"type": "string", "description": "Optional question or instruction guiding the analysis. Defaults to a general description."}
   },
   "required": ["image_source"]
+}`),
+		},
+	},
+	{
+		Type: "function",
+		Function: ToolFunction{
+			Name:        "client_run_lua",
+			Description: "Ask the connected ACP client to run a Lua orchestration script in the client runtime. Use this to control client-side flow such as attaching files, inspecting CLI status/structure, transforming text, or running CLI commands. The client exposes a restricted Lua API: cli.say, cli.status, cli.structure, cli.prompt, cli.attach, cli.files, cli.clear_files, cli.command, plus cli.orch control-loop helpers: plan, fetch_next_job, run, check_status, trigger, run_triggers, steer, loop, control_loop, and cron.",
+			Parameters: json.RawMessage(`{
+  "type": "object",
+  "properties": {
+    "code": {"type": "string", "description": "Lua source code to execute on the connected client."},
+    "path": {"type": "string", "description": "Optional client-local Lua file path to execute. Relative paths resolve against the client session cwd."},
+    "args": {"type": "array", "items": {"type": "string"}, "description": "Optional string arguments exposed to Lua as arg[1], arg[2], ..."}
+  }
 }`),
 		},
 	},

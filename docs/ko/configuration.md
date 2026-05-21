@@ -85,6 +85,46 @@ AGENTBRIDGE_OPENAI_MODEL=gpt-4.1-mini
 기본값은 `$XDG_STATE_HOME/agentbridge/sessions` 또는
 `~/.local/state/agentbridge/sessions`입니다.
 
+Session JSON에는 runtime checkpoint, active skill reference, `cacheEpoch`도
+저장됩니다. 파일 형식은 내부 구현이며 public API로 간주하지 않습니다.
+
+## Skills
+
+Runtime skill은 `/skill` command가 읽는 markdown 파일입니다.
+
+- Project-local: `<cwd>/.agentbridge/skills/*.md`
+- User config: `$XDG_CONFIG_HOME/agentbridge/skills/*.md` 또는
+  `~/.config/agentbridge/skills/*.md`
+
+같은 이름이면 project-local skill이 user-config skill보다 우선합니다.
+
+## Project Context
+
+AgentBridge는 session cwd에서 repository context 파일 하나를 자동으로 읽어
+system prompt에 주입합니다. 우선순위는 아래와 같습니다.
+
+1. `SOUL.md`
+2. `AGENTS.md`
+3. `CLAUDE.md`
+
+내용은 `MaxProjectContextChars`로 제한됩니다. `acp-agent /status`는 현재 session
+cwd에서 어떤 파일이 사용될지 보여줍니다.
+
+## File Attachments
+
+`acp-agent /attach PATH [...]`는 로컬 문서를 추출해서 다음 prompt에 첨부하도록
+queue에 넣습니다. Prompt 전송이 성공하면 queue를 비우고, 실패하면 복원합니다.
+추출된 내용은 `filecontext.MaxExtractedChars`로 제한됩니다.
+
+지원하는 추출:
+
+- Markdown, plain text, JSON, YAML, CSV, source file 등 UTF-8 text-like file.
+- PDF는 `pdftotext`가 있으면 사용하고, 간단한 PDF에는 printable-string fallback을
+  사용합니다.
+
+`/files`로 queue를 확인하고, `/clear-files`로 비우며, `/structure`로
+session/context/attachment 구조를 확인할 수 있습니다.
+
 ## Config YAML
 
 `config.yaml`은 `providers.yaml`과 같은 `providers:` schema를 사용합니다.

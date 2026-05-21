@@ -173,7 +173,7 @@ tools can also be exposed directly through MCP `POST /mcp` and `/v1/mcp`.
 
 | Provider / plugin | Auth | Provider APIs | AgentBridge tools |
 | --- | --- | --- | --- |
-| `glm` | `Z_AI_API_KEY` / `AGENTBRIDGE_API_KEY` | ACP chat, Chat Completions-compatible GLM route | Built-in file/shell/web tools, Z.AI MCP web tools |
+| `glm` | `Z_AI_API_KEY` / `AGENTBRIDGE_API_KEY` | ACP chat, Chat Completions-compatible GLM route | Built-in file/web tools, Z.AI MCP web tools; shell is client-owned via `client__run_command` when an ACP client advertises it |
 | `zai` | `GLM_API_KEY`, `ZAI_API_KEY`, `Z_AI_API_KEY` | OpenAI Chat Completions | Built-in agent tools |
 | `openai` | `OPENAI_API_KEY` | OpenAI Chat Completions | Built-in agent tools |
 | `openai-responses` | `OPENAI_API_KEY` | OpenAI Responses | Hosted `web_search` when configured in provider `extra` |

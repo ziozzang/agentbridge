@@ -19,6 +19,18 @@ func TestSaveAndLoadRoundTrip(t *testing.T) {
 		Title:     ptr("greeting"),
 		UpdatedAt: "2024-01-01T00:00:00Z",
 		Model:     "glm-5.1",
+		Checkpoints: []Checkpoint{{
+			ID:           "cp_1",
+			Name:         "before",
+			MessageIndex: 1,
+			CreatedAt:    "2024-01-01T00:00:01Z",
+			Model:        "glm-5.1",
+			Mode:         "default",
+			CacheEpoch:   2,
+			Skills:       []ActiveSkill{{Name: "repo", Path: "/tmp/repo.md", Hash: "abc"}},
+		}},
+		ActiveSkills: []ActiveSkill{{Name: "repo", Path: "/tmp/repo.md", Hash: "abc"}},
+		CacheEpoch:   2,
 	}
 	if err := s.Save(want); err != nil {
 		t.Fatal(err)
@@ -34,6 +46,9 @@ func TestSaveAndLoadRoundTrip(t *testing.T) {
 	}
 	if got.SchemaVersion != SchemaVersion {
 		t.Errorf("schema version not stamped: %d", got.SchemaVersion)
+	}
+	if got.CacheEpoch != 2 || len(got.Checkpoints) != 1 || len(got.ActiveSkills) != 1 {
+		t.Errorf("runtime fields not preserved: %+v", got)
 	}
 }
 

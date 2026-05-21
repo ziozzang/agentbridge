@@ -49,7 +49,7 @@ func TestFilterPreservesOrder(t *testing.T) {
 }
 
 func TestExpectedToolNamesPresent(t *testing.T) {
-	want := []string{"read_file", "write_file", "list_files", "run_command", "web_search", "web_reader", "image_analysis"}
+	want := []string{"read_file", "write_file", "list_files", "web_search", "web_reader", "image_analysis", "client_run_lua"}
 	for _, n := range want {
 		if ByName(n) == nil {
 			t.Errorf("missing tool: %s", n)

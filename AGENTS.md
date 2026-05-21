@@ -100,7 +100,7 @@ AgentBridge has two execution modes. Do not blur them.
 Standard providers only expose a model API. ACP requests for these providers
 must pass through AgentBridge's built-in harness:
 
-1. Build a system prompt from cwd, AGENTS.md/project context, tools, and profile.
+1. Build a system prompt from cwd, project context, tools, and profile.
 2. Stream the model response.
 3. Execute tool calls through `internal/tools/executor`.
 4. Append tool results and continue until stop or `MaxTurns`.
@@ -109,6 +109,50 @@ must pass through AgentBridge's built-in harness:
 HTTP uses this loop only when the caller opts in with `agent:<model>` or
 metadata such as `{"agent": true}`. Plain `/v1/chat/completions` stays a single
 provider call.
+
+### Runtime commands and skills
+
+ACP text prompts beginning with runtime commands are intercepted before the
+provider call, including provider-native sessions. Keep these commands out of
+the LLM transcript.
+
+- `/btw mark|list|back` is the server-side checkpoint namespace. The terminal
+  client exposes `/save`, `/list`, and `/load` aliases for the same operations.
+- Rolling back a checkpoint must truncate only AgentBridge's local transcript,
+  restore active skills, and increment `cacheEpoch` so cache-aware providers do
+  not reuse stale prefix assumptions.
+- `/context` and `/compact` are continuation controls, not checkpoint controls.
+  `/context` reports estimated usage; `/compact` should reuse the same
+  provider-native/summary/prune path as automatic compaction and bump
+  `cacheEpoch` only when it actually rewrites the transcript.
+- `/new` is a client/session command. `/stop` maps to ACP `session/cancel`;
+  making it interrupt a running terminal prompt requires a concurrent input
+  loop, not only a server handler.
+- `/subagent [--model MODEL] TASK` is the server-side bounded child-call
+  primitive. It should stay small and avoid mutating parent transcript except
+  through the returned runtime-command text.
+- `/attach` is a terminal-client feature. It extracts local files through
+  `internal/harness/filecontext` and sends them as ACP `resource` blocks on the
+  next prompt. Keep extraction bounded and text-only unless a provider-specific
+  binary upload path is deliberately added.
+- `/structure` is a local inspection command for session, project context, and
+  queued attachments. It should not mutate state.
+- Lua orchestration belongs in `cmd/acp-agent`, not in `internal/agent`.
+  `acp-agent` exposes `/lua FILE` and handles server-initiated
+  `client/run_lua`. Keep the Lua API restricted to CLI flow/text/attachment
+  control (`cli.prompt`, `cli.attach`, `cli.command`, `cli.status`, etc.).
+- Client-owned tools are advertised through `initialize.clientCapabilities`
+  as `clientTools` and surfaced to the model under `client__<name>`. Executor
+  must route those calls back to the ACP client with `client/call_tool`. This is
+  separate from AgentBridge-owned server tools.
+- Shell commands and shell scripts are client-owned. `acp-agent` advertises
+  `run_command`, which the model sees as `client__run_command`; do not add
+  server-owned shell execution back into `internal/tools/executor`.
+- `/skill list|status|clear|NAME` manages markdown skills from
+  `<cwd>/.agentbridge/skills` and `$XDG_CONFIG_HOME/agentbridge/skills`.
+  Active skills are persisted on the session and injected into the standard
+  loop's system prompt. Native-agent providers still accept skill commands, but
+  skill injection into their native transport must be implemented per provider.
 
 ### Provider-native agent providers
 
@@ -273,11 +317,11 @@ internal/observability         # process-local status snapshot for /ui and statu
 internal/plugins               # plugin core (sqlite, duckdb)
 internal/protocol/imagepre     # image content-block preprocessor
 internal/protocol/sessionstore # per-session JSON persistence
-internal/protocol/systemprompt # system prompt builder + AGENTS.md loader
+internal/protocol/systemprompt # system prompt builder + SOUL.md/AGENTS.md/CLAUDE.md loader
 internal/provider              # provider abstraction + concrete adapters
 internal/provider/codexnative  # local `codex app-server` native-agent provider
 internal/tools/definitions     # OpenAI function-calling tool schemas
-internal/tools/executor        # tool dispatcher (file/shell/MCP/plugin)
+internal/tools/executor        # tool dispatcher (file/MCP/plugin/client-owned routing)
 internal/tools/sessionmcp      # session-scoped MCP servers
 internal/tools/visionmcp       # vision MCP client
 internal/tools/zaimcp          # Z.AI hosted MCP (web_search, web_reader)

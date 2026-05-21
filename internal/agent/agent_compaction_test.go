@@ -45,8 +45,8 @@ func (s *recordingServer) handler() http.HandlerFunc {
 func TestToolResultFedBackIntoNextStreamChat(t *testing.T) {
 	srv := &recordingServer{
 		responses: []string{
-			// 1st call: model emits a run_command tool call.
-			`data: {"choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"tc1","type":"function","function":{"name":"run_command","arguments":"{\"command\":\"echo HELLO\"}"}}]},"finish_reason":"tool_calls"}]}` + "\n\n",
+			// 1st call: model emits a client-owned shell tool call.
+			`data: {"choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"tc1","type":"function","function":{"name":"client__run_command","arguments":"{\"command\":\"echo HELLO\"}"}}]},"finish_reason":"tool_calls"}]}` + "\n\n",
 			// 2nd call: model finishes after seeing the tool result.
 			`data: {"choices":[{"index":0,"delta":{"content":"done"},"finish_reason":"stop"}]}` + "\n\n",
 		},

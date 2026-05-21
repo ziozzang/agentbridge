@@ -3,6 +3,7 @@ module github.com/ziozzang/agentbridge
 go 1.25.0
 
 require (
+	github.com/yuin/gopher-lua v1.1.2
 	google.golang.org/grpc v1.81.1
 	google.golang.org/protobuf v1.36.11
 	gopkg.in/yaml.v3 v3.0.1

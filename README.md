@@ -26,6 +26,8 @@ variables and on-disk paths are still accepted where practical.
 - **OpenAPI and Swagger**: `/openapi.json`, `/v1/openapi.json`, and
   `/swagger`.
 - **Plugins**: optional SQLite and DuckDB extension surface.
+- **Runtime controls**: ACP sessions support checkpoints, rollback, and
+  markdown skill injection through terminal/runtime commands.
 - **Backwards compatibility**: `ACP_HARNESS_*`, `ACP_GLM_*`,
   `Z_AI_API_KEY`, and old credential/session paths remain supported.
 
@@ -119,6 +121,9 @@ Legacy aliases such as `ACP_HARNESS_PROVIDER`, `ACP_HARNESS_API_KEY`,
 | --- | --- |
 | [Install](docs/install.md) | [설치](docs/ko/install.md) |
 | [Configuration](docs/configuration.md) | [설정](docs/ko/configuration.md) |
+| [Architecture](docs/architecture.md) | [아키텍처](docs/ko/architecture.md) |
+| [CLI Orchestration Design](docs/cli-orchestration.md) | [CLI Orchestration 설계](docs/ko/cli-orchestration.md) |
+| [Tool Placement](docs/tool-placement.md) | [Tool Placement](docs/ko/tool-placement.md) |
 | [Safety Pipeline](docs/safety.md) | [Safety Pipeline](docs/ko/safety.md) |
 | [Providers](docs/providers.md) | [프로바이더](docs/ko/providers.md) |
 | [Plugins](docs/plugins.md) | [플러그인](docs/ko/plugins.md) |

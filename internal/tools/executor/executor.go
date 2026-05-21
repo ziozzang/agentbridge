@@ -1,8 +1,9 @@
 // Package executor dispatches GLM tool calls inside the agent process.
 //
-// File reads/list operations and approved writes/commands run locally with
-// paths resolved relative to the ACP session cwd. Writes and shell commands
-// always ask the ACP client for permission before executing.
+// File reads/list operations and approved writes run locally with paths
+// resolved relative to the ACP session cwd. Shell execution is intentionally
+// client-owned and is routed through client__ tools advertised by the ACP
+// terminal client.
 package executor
 
 import (
@@ -10,9 +11,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -20,6 +19,7 @@ import (
 	"github.com/ziozzang/agentbridge/internal/acp"
 	"github.com/ziozzang/agentbridge/internal/credentials"
 	"github.com/ziozzang/agentbridge/internal/metrics"
+	"github.com/ziozzang/agentbridge/internal/tools/clienttools"
 	"github.com/ziozzang/agentbridge/internal/tools/zaimcp"
 )
 
@@ -94,6 +94,9 @@ func (e *Executor) Execute(ctx context.Context, toolCallID, toolName, rawArgs st
 	if strings.HasPrefix(toolName, "plugin__") && e.Plugins != nil {
 		return e.pluginTool(ctx, toolCallID, toolName, args, rawArgs)
 	}
+	if localName, ok := clienttools.LocalName(toolName); ok {
+		return e.clientTool(ctx, toolCallID, toolName, localName, args)
+	}
 	switch toolName {
 	case "read_file":
 		return e.readFile(ctx, toolCallID, args)
@@ -101,14 +104,14 @@ func (e *Executor) Execute(ctx context.Context, toolCallID, toolName, rawArgs st
 		return e.writeFile(ctx, toolCallID, args)
 	case "list_files":
 		return e.listFiles(ctx, toolCallID, args)
-	case "run_command":
-		return e.runCommand(ctx, toolCallID, args)
 	case "web_search":
 		return e.webSearch(ctx, toolCallID, args)
 	case "web_reader":
 		return e.webReader(ctx, toolCallID, args)
 	case "image_analysis":
 		return e.imageAnalysis(ctx, toolCallID, args)
+	case "client_run_lua":
+		return e.clientRunLua(ctx, toolCallID, args)
 	default:
 		msg := fmt.Sprintf(`Error: unknown tool %q`, toolName)
 		e.failedToolCall(toolCallID, toolName, args, msg)
@@ -116,8 +119,93 @@ func (e *Executor) Execute(ctx context.Context, toolCallID, toolName, rawArgs st
 	}
 }
 
+func (e *Executor) clientTool(ctx context.Context, id, visibleName, localName string, args map[string]any) Result {
+	if e.Conn == nil {
+		return e.failAndReturn(id, visibleName, args, "Error: ACP client connection is not configured.")
+	}
+	e.sendUpdate(map[string]any{
+		"sessionUpdate": "tool_call",
+		"toolCallId":    id,
+		"title":         "Client tool: " + localName,
+		"kind":          "client",
+		"status":        "in_progress",
+		"rawInput":      args,
+	})
+	var out struct {
+		Output string `json:"output"`
+	}
+	if err := e.Conn.Call(ctx, "client/call_tool", map[string]any{
+		"name": localName,
+		"args": args,
+	}, &out); err != nil {
+		e.markFailed(id, err.Error())
+		return Result{Content: "Error running client tool: " + err.Error()}
+	}
+	text := strings.TrimSpace(out.Output)
+	if text == "" {
+		text = "client tool completed"
+	}
+	e.sendUpdate(map[string]any{
+		"sessionUpdate": "tool_call_update",
+		"toolCallId":    id,
+		"status":        "completed",
+		"content":       []any{map[string]any{"type": "content", "content": map[string]any{"type": "text", "text": text}}},
+		"rawOutput":     map[string]any{"output": text},
+	})
+	return Result{Content: text}
+}
+
+func (e *Executor) clientRunLua(ctx context.Context, id string, args map[string]any) Result {
+	if e.Conn == nil {
+		return e.failAndReturn(id, "client_run_lua", args, "Error: ACP client connection is not configured.")
+	}
+	code := stringArg(args["code"])
+	path := strings.TrimSpace(stringArg(args["path"]))
+	if strings.TrimSpace(code) == "" && path == "" {
+		return e.failAndReturn(id, "client_run_lua", args, "Error: either `code` or `path` is required.")
+	}
+	var luaArgs []string
+	if raw, ok := args["args"].([]any); ok {
+		for _, v := range raw {
+			luaArgs = append(luaArgs, stringArg(v))
+		}
+	}
+	e.sendUpdate(map[string]any{
+		"sessionUpdate": "tool_call",
+		"toolCallId":    id,
+		"title":         "Run client Lua orchestration",
+		"kind":          "client",
+		"status":        "in_progress",
+		"rawInput":      args,
+	})
+	var out struct {
+		Output string `json:"output"`
+	}
+	err := e.Conn.Call(ctx, "client/run_lua", map[string]any{
+		"code": code,
+		"path": path,
+		"args": luaArgs,
+	}, &out)
+	if err != nil {
+		e.markFailed(id, err.Error())
+		return Result{Content: "Error running client Lua: " + err.Error()}
+	}
+	text := strings.TrimSpace(out.Output)
+	if text == "" {
+		text = "client Lua completed"
+	}
+	e.sendUpdate(map[string]any{
+		"sessionUpdate": "tool_call_update",
+		"toolCallId":    id,
+		"status":        "completed",
+		"content":       []any{map[string]any{"type": "content", "content": map[string]any{"type": "text", "text": text}}},
+		"rawOutput":     map[string]any{"output": text},
+	})
+	return Result{Content: text}
+}
+
 // ---------------------------------------------------------------------------
-// Local file/shell tools
+// Local file tools
 // ---------------------------------------------------------------------------
 
 func (e *Executor) readFile(ctx context.Context, id string, args map[string]any) Result {
@@ -247,124 +335,6 @@ func (e *Executor) listFiles(ctx context.Context, id string, args map[string]any
 		"rawOutput":     map[string]any{"output": out},
 	})
 	return Result{Content: out}
-}
-
-func (e *Executor) runCommand(ctx context.Context, id string, args map[string]any) Result {
-	command := strings.TrimSpace(stringArg(args["command"]))
-	if command == "" {
-		return e.failAndReturn(id, "run_command", args, "Error running command: command must be a non-empty string.")
-	}
-	e.sendUpdate(map[string]any{
-		"sessionUpdate": "tool_call",
-		"toolCallId":    id,
-		"title":         "Run command: " + command,
-		"kind":          "execute",
-		"status":        "pending",
-		"locations":     []any{},
-		"rawInput":      args,
-	})
-	outcome := e.maybeRequestPermission(ctx, permArgs{
-		ToolCallID: id, Kind: "execute", Title: "Run command: " + command,
-		Locations: []any{}, RawInput: args,
-	})
-	switch outcome.Type {
-	case permError:
-		e.markFailed(id, outcome.Message)
-		return Result{Content: "Error requesting permission: " + outcome.Message}
-	case permCancelled:
-		e.markFailed(id, "Cancelled by user.")
-		return Result{Content: "Command cancelled by user."}
-	case permReject:
-		e.markFailed(id, "Rejected by user.")
-		return Result{Content: "Command rejected by user."}
-	}
-	return e.runLocalCommand(ctx, id, command)
-}
-
-// CommandResult captures the structured shell output.
-type CommandResult struct {
-	Stdout   string
-	Stderr   string
-	ExitCode int
-	Signal   string
-}
-
-func (e *Executor) runLocalCommand(ctx context.Context, id, command string) Result {
-	e.sendUpdate(map[string]any{
-		"sessionUpdate": "tool_call_update",
-		"toolCallId":    id,
-		"status":        "in_progress",
-	})
-	res, err := RunShell(ctx, command, e.SessionCwd)
-	if err != nil {
-		e.markFailed(id, err.Error())
-		return Result{Content: "Error running command: " + err.Error()}
-	}
-	out := FormatCommandOutput(res)
-	e.sendUpdate(map[string]any{
-		"sessionUpdate": "tool_call_update",
-		"toolCallId":    id,
-		"status":        "completed",
-		"content":       []any{map[string]any{"type": "content", "content": map[string]any{"type": "text", "text": out}}},
-		"rawOutput":     map[string]any{"stdout": res.Stdout, "stderr": res.Stderr, "exitCode": res.ExitCode, "signal": res.Signal},
-	})
-	return Result{Content: out}
-}
-
-// RunShell executes `sh -c command` in cwd and captures stdout/stderr.
-func RunShell(ctx context.Context, command, cwd string) (CommandResult, error) {
-	cmd := exec.CommandContext(ctx, "sh", "-c", command)
-	cmd.Dir = cwd
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		return CommandResult{}, err
-	}
-	stderr, err := cmd.StderrPipe()
-	if err != nil {
-		return CommandResult{}, err
-	}
-	if err := cmd.Start(); err != nil {
-		return CommandResult{}, err
-	}
-	outBytes, _ := io.ReadAll(stdout)
-	errBytes, _ := io.ReadAll(stderr)
-	wErr := cmd.Wait()
-	res := CommandResult{
-		Stdout: string(outBytes),
-		Stderr: string(errBytes),
-	}
-	if wErr == nil {
-		res.ExitCode = 0
-		return res, nil
-	}
-	var ee *exec.ExitError
-	if errors.As(wErr, &ee) {
-		res.ExitCode = ee.ExitCode()
-		if ee.ProcessState != nil && ee.ProcessState.ExitCode() == -1 {
-			// killed by signal
-			res.Signal = ee.ProcessState.String()
-		}
-		return res, nil
-	}
-	return res, wErr
-}
-
-// FormatCommandOutput renders a shell result the way TypeScript does.
-func FormatCommandOutput(r CommandResult) string {
-	lines := []string{fmt.Sprintf("Exit code: %d", r.ExitCode)}
-	if r.Signal != "" {
-		lines = append(lines, "Signal: "+r.Signal)
-	}
-	stdout := r.Stdout
-	if stdout == "" {
-		stdout = "(empty)"
-	}
-	stderr := r.Stderr
-	if stderr == "" {
-		stderr = "(empty)"
-	}
-	lines = append(lines, "", "STDOUT:", stdout, "", "STDERR:", stderr)
-	return strings.Join(lines, "\n")
 }
 
 // ---------------------------------------------------------------------------

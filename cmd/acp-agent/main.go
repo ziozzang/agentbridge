@@ -12,6 +12,8 @@ import (
 	"net"
 	"os"
 	"os/signal"
+	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -20,6 +22,9 @@ import (
 
 	"github.com/ziozzang/agentbridge/internal/acp"
 	"github.com/ziozzang/agentbridge/internal/agent"
+	"github.com/ziozzang/agentbridge/internal/harness/filecontext"
+	"github.com/ziozzang/agentbridge/internal/protocol/systemprompt"
+	"github.com/ziozzang/agentbridge/internal/tools/clienttools"
 )
 
 const usage = `acp-agent - terminal ACP client for AgentBridge
@@ -48,7 +53,20 @@ Interactive commands:
   /status              show current connection/session settings
   /sessions            list sessions for the current cwd
   /resume SESSION_ID   resume a persisted session without replay
-  /load SESSION_ID     load a persisted session and replay messages
+  /session-load ID     load a persisted session and replay messages
+  /save NAME           save a session checkpoint
+  /list                list session checkpoints
+  /load NAME|ID        roll back to a session checkpoint
+  /compact [TOKENS]    compact the current session transcript
+  /context             show estimated context usage
+  /attach PATH [...]    extract local files and attach them to the next prompt
+  /files               list queued file attachments
+  /clear-files         clear queued file attachments
+  /structure           show session/context/attachment structure
+  /lua FILE [args...]  run a local Lua controller script
+  /new                 start a new session in the current cwd
+  /stop                cancel the current session prompt
+  /skill COMMAND       run server-side skill commands
   /exit, /quit         leave the session
   /model [MODEL]       show or switch model with session/set_model
   /mode [MODE]         show or switch mode with session/set_mode
@@ -101,8 +119,11 @@ func main() {
 		text = strings.Join(flag.Args(), " ")
 	}
 
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)
+	defer signal.Stop(sigCh)
 	cli, err := dialClient(ctx, *addr, os.Stdin, os.Stdout, os.Stderr, clientOptions{
 		Permission:   strings.ToLower(strings.TrimSpace(*permission)),
 		ShowThinking: *showThinking,
@@ -114,6 +135,13 @@ func main() {
 		os.Exit(1)
 	}
 	defer cli.Close()
+	go func() {
+		<-sigCh
+		cancel()
+		fmt.Fprintln(os.Stderr, "\ninterrupted")
+		_ = cli.Close()
+		os.Exit(130)
+	}()
 
 	if err := cli.Initialize(ctx); err != nil {
 		fmt.Fprintln(os.Stderr, "initialize failed:", err)
@@ -183,16 +211,35 @@ type clientState struct {
 	SessionID string
 	Model     string
 	Mode      string
+	Context   contextState
+}
+
+type contextState struct {
+	Tokens       int
+	Window       int
+	UsedPercent  float64
+	LeftPercent  float64
+	Messages     int
+	Checkpoints  int
+	CacheEpoch   int
+	CompactionOn bool
+}
+
+type attachment struct {
+	Resource filecontext.Resource
 }
 
 type client struct {
-	conn   net.Conn
-	dec    *json.Decoder
-	stdin  *bufio.Reader
-	stdout io.Writer
-	stderr io.Writer
-	opts   clientOptions
-	state  clientState
+	conn          net.Conn
+	dec           *json.Decoder
+	stdin         *bufio.Reader
+	stdout        io.Writer
+	stderr        io.Writer
+	ui            *cliUI
+	opts          clientOptions
+	state         clientState
+	files         []attachment
+	allowCommands map[string]bool
 
 	writeMu sync.Mutex
 	nextID  atomic.Int64
@@ -210,14 +257,16 @@ func dialClient(ctx context.Context, addr string, stdin io.Reader, stdout, stder
 		return nil, err
 	}
 	c := &client{
-		conn:    conn,
-		dec:     json.NewDecoder(bufio.NewReader(conn)),
-		stdin:   bufio.NewReader(stdin),
-		stdout:  stdout,
-		stderr:  stderr,
-		opts:    opts,
-		pending: map[int64]*pendingResponse{},
-		done:    make(chan struct{}),
+		conn:          conn,
+		dec:           json.NewDecoder(bufio.NewReader(conn)),
+		stdin:         bufio.NewReader(stdin),
+		stdout:        stdout,
+		stderr:        stderr,
+		ui:            newCLIUI(stderr),
+		opts:          opts,
+		allowCommands: map[string]bool{},
+		pending:       map[int64]*pendingResponse{},
+		done:          make(chan struct{}),
 	}
 	go c.readLoop()
 	return c, nil
@@ -232,8 +281,41 @@ func (c *client) Initialize(ctx context.Context) error {
 	var out acp.InitializeResponse
 	return c.Call(ctx, "initialize", acp.InitializeParams{
 		ProtocolVersion:    acp.ProtocolVersion,
-		ClientCapabilities: map[string]any{"terminal": true},
+		ClientCapabilities: c.capabilities(),
 	}, &out)
+}
+
+func (c *client) capabilities() map[string]any {
+	return map[string]any{
+		"terminal":     true,
+		"lua":          true,
+		"clientRunLua": true,
+		"clientTools": []clienttools.AdvertisedTool{
+			{
+				Name:        "run_lua",
+				Description: "Run a Lua orchestration script inside the ACP terminal client. Use this when client-side placement is required for attaching files, steering CLI flow, transforming text, running CLI commands, or coordinating local orchestration factors.",
+				Parameters: json.RawMessage(`{
+  "type": "object",
+  "properties": {
+    "code": {"type": "string", "description": "Lua source code to execute on the client."},
+    "path": {"type": "string", "description": "Optional client-local Lua file path. Relative paths resolve against the client session cwd."},
+    "args": {"type": "array", "items": {"type": "string"}}
+  }
+}`),
+			},
+			{
+				Name:        "run_command",
+				Description: "Execute a shell command via 'sh -c' in the ACP terminal client's session working directory after CLI-side permission handling. Use this for local shell execution; the AgentBridge server does not run shell commands.",
+				Parameters: json.RawMessage(`{
+  "type": "object",
+  "properties": {
+    "command": {"type": "string", "description": "The shell command line to execute in the client session cwd."}
+  },
+  "required": ["command"]
+}`),
+			},
+		},
+	}
 }
 
 func (c *client) NewSession(ctx context.Context, cwd string) (acp.NewSessionResponse, error) {
@@ -299,14 +381,40 @@ func (c *client) ResumeSession(ctx context.Context, sessionID string, replay boo
 	return nil
 }
 
+func (c *client) Cancel(ctx context.Context, sessionID string) error {
+	return c.Notify(ctx, "session/cancel", acp.CancelParams{SessionID: sessionID})
+}
+
 func (c *client) Prompt(ctx context.Context, sessionID, text string) error {
+	if c.ui != nil {
+		c.ui.start(c, "prompt")
+		defer c.ui.ready(c)
+	}
+	blocks := []acp.ContentBlock{{Type: "text", Text: text}}
+	files := c.takeAttachments()
+	if len(files) > 0 {
+		blocks = make([]acp.ContentBlock, 0, len(files)+1)
+		for _, f := range files {
+			res := f.Resource
+			blocks = append(blocks, acp.ContentBlock{
+				Type: "resource",
+				Resource: &acp.EmbeddedResource{
+					URI:      "file://" + res.Path,
+					MimeType: res.MimeType,
+					Text:     renderAttachedResource(res),
+				},
+			})
+		}
+		blocks = append(blocks, acp.ContentBlock{Type: "text", Text: text})
+	}
 	var out acp.PromptResponse
 	err := c.Call(ctx, "session/prompt", acp.PromptParams{
 		SessionID: sessionID,
 		MessageID: "msg_" + time.Now().Format("20060102150405.000000000"),
-		Prompt:    []acp.ContentBlock{{Type: "text", Text: text}},
+		Prompt:    blocks,
 	}, &out)
 	if err != nil {
+		c.restoreAttachments(files)
 		return err
 	}
 	fmt.Fprintln(c.stdout)
@@ -314,6 +422,31 @@ func (c *client) Prompt(ctx context.Context, sessionID, text string) error {
 		fmt.Fprintf(c.stderr, "stop: %s\n", out.StopReason)
 	}
 	return nil
+}
+
+func renderAttachedResource(res filecontext.Resource) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "<attached_file name=%q path=%q mime=%q size=%d truncated=%v>\n", res.Name, res.Path, res.MimeType, res.Size, res.Truncated)
+	b.WriteString(res.Text)
+	b.WriteString("\n</attached_file>")
+	return b.String()
+}
+
+func (c *client) takeAttachments() []attachment {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	out := append([]attachment(nil), c.files...)
+	c.files = nil
+	return out
+}
+
+func (c *client) restoreAttachments(files []attachment) {
+	if len(files) == 0 {
+		return
+	}
+	c.mu.Lock()
+	c.files = append(files, c.files...)
+	c.mu.Unlock()
 }
 
 func (c *client) setSessionState(addr, cwd string, session acp.NewSessionResponse) {
@@ -364,6 +497,27 @@ func (c *client) Call(ctx context.Context, method string, params any, result any
 			return c.err
 		}
 		return errors.New("connection closed")
+	}
+}
+
+func (c *client) Notify(ctx context.Context, method string, params any) error {
+	rawParams, err := json.Marshal(params)
+	if err != nil {
+		return err
+	}
+	if err := c.write(rpcMessage{JSONRPC: "2.0", Method: method, Params: rawParams}); err != nil {
+		return err
+	}
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-c.done:
+		if c.err != nil {
+			return c.err
+		}
+		return errors.New("connection closed")
+	default:
+		return nil
 	}
 }
 
@@ -439,9 +593,40 @@ func (c *client) handleInbound(msg rpcMessage) {
 		_ = json.Unmarshal(msg.Params, &p)
 		resp, err := c.permission(p)
 		respond(resp, err)
+	case "client/run_lua":
+		var p runLuaParams
+		_ = json.Unmarshal(msg.Params, &p)
+		go func() {
+			resp, err := c.runLua(context.Background(), p)
+			c.respond(msg.ID, resp, err)
+		}()
+	case "client/call_tool":
+		var p clientToolCallParams
+		_ = json.Unmarshal(msg.Params, &p)
+		go func() {
+			resp, err := c.callClientTool(context.Background(), p)
+			c.respond(msg.ID, resp, err)
+		}()
 	default:
 		respond(nil, fmt.Errorf("method not found: %s", msg.Method))
 	}
+}
+
+func (c *client) respond(id json.RawMessage, result any, err error) {
+	out := rpcMessage{JSONRPC: "2.0", ID: id}
+	if err != nil {
+		out.Error = &acp.RPCError{Code: -32000, Message: err.Error()}
+	} else if result != nil {
+		raw, mErr := json.Marshal(result)
+		if mErr != nil {
+			out.Error = &acp.RPCError{Code: -32603, Message: mErr.Error()}
+		} else {
+			out.Result = raw
+		}
+	} else {
+		out.Result = json.RawMessage(`null`)
+	}
+	_ = c.write(out)
 }
 
 func (c *client) write(msg rpcMessage) error {
@@ -462,20 +647,46 @@ func (c *client) permission(p acp.RequestPermissionParams) (acp.RequestPermissio
 	if title == "" {
 		title = "tool permission"
 	}
+	command := commandFromToolCall(p.ToolCall)
 	c.mu.Lock()
 	mode := c.opts.Permission
+	if command != "" && c.allowCommands[command] {
+		c.mu.Unlock()
+		return acp.RequestPermissionResponse{Outcome: acp.PermissionOutcome{Outcome: "selected", OptionID: "allow"}}, nil
+	}
 	c.mu.Unlock()
 	switch mode {
 	case "", "prompt":
-		fmt.Fprintf(c.stderr, "\npermission requested: %s\n", title)
-		fmt.Fprint(c.stderr, "allow? [y/N] ")
-		line, err := c.stdin.ReadString('\n')
-		if err != nil && !errors.Is(err, io.EOF) {
+		options := []choiceOption{{Key: "1", Label: "yes"}}
+		if command != "" {
+			options = append(options, choiceOption{Key: "2", Label: "yes (same command)"})
+		}
+		options = append(options,
+			choiceOption{Key: "3", Label: "no"},
+			choiceOption{Key: "0", Label: "yolo"},
+		)
+		detail := ""
+		if command != "" {
+			detail = "command: " + command
+		}
+		choice, err := c.choose("permission requested: "+title, detail, options)
+		if err != nil {
 			return acp.RequestPermissionResponse{}, err
 		}
-		if strings.EqualFold(strings.TrimSpace(line), "y") || strings.EqualFold(strings.TrimSpace(line), "yes") {
+		switch choice {
+		case "1", "y", "yes":
 			mode = "allow"
-		} else {
+		case "2":
+			if command != "" {
+				c.rememberAllowedCommand(command)
+				mode = "allow"
+			} else {
+				mode = "reject"
+			}
+		case "0":
+			c.setPermissionMode("allow")
+			mode = "allow"
+		default:
 			mode = "reject"
 		}
 	}
@@ -489,10 +700,46 @@ func (c *client) permission(p acp.RequestPermissionParams) (acp.RequestPermissio
 	}
 }
 
+func commandFromToolCall(toolCall map[string]any) string {
+	raw, ok := toolCall["rawInput"].(map[string]any)
+	if !ok {
+		return ""
+	}
+	return strings.TrimSpace(stringFromAny(raw["command"]))
+}
+
+func (c *client) rememberAllowedCommand(command string) {
+	command = strings.TrimSpace(command)
+	if command == "" {
+		return
+	}
+	c.mu.Lock()
+	if c.allowCommands == nil {
+		c.allowCommands = map[string]bool{}
+	}
+	c.allowCommands[command] = true
+	c.mu.Unlock()
+}
+
+func (c *client) commandAllowed(command string) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.allowCommands != nil && c.allowCommands[strings.TrimSpace(command)]
+}
+
+func (c *client) setPermissionMode(mode string) {
+	c.mu.Lock()
+	c.opts.Permission = mode
+	c.mu.Unlock()
+}
+
 func (c *client) printUpdate(p acp.SessionUpdateParams) {
 	update := p.Update
 	switch update["sessionUpdate"] {
 	case "agent_message_chunk":
+		if c.ui != nil {
+			c.ui.beginAnswer()
+		}
 		if text := updateText(update); text != "" {
 			fmt.Fprint(c.stdout, text)
 			flush(c.stdout)
@@ -503,6 +750,9 @@ func (c *client) printUpdate(p acp.SessionUpdateParams) {
 		c.mu.Unlock()
 		if show {
 			if text := updateText(update); text != "" {
+				if c.ui != nil {
+					c.ui.clear()
+				}
 				fmt.Fprintf(c.stderr, "\n[thinking] %s\n", text)
 				flush(c.stderr)
 			}
@@ -516,7 +766,13 @@ func (c *client) printUpdate(p acp.SessionUpdateParams) {
 		}
 		title, _ := update["title"].(string)
 		status, _ := update["status"].(string)
+		if c.ui != nil && title != "" {
+			c.ui.setActivity(c, firstNonEmpty(status, "tool")+" "+title)
+		}
 		if title != "" {
+			if c.ui != nil {
+				c.ui.clear()
+			}
 			fmt.Fprintf(c.stderr, "\n[tool:%s] %s\n", firstNonEmpty(status, "start"), title)
 			flush(c.stderr)
 		}
@@ -528,11 +784,28 @@ func (c *client) printUpdate(p acp.SessionUpdateParams) {
 			return
 		}
 		status, _ := update["status"].(string)
+		if c.ui != nil && status != "" {
+			c.ui.setActivity(c, "tool "+status)
+		}
 		if status != "" {
+			if c.ui != nil {
+				c.ui.clear()
+			}
 			fmt.Fprintf(c.stderr, "[tool:%s]\n", status)
 			flush(c.stderr)
 		}
 	case "session_info_update":
+		c.applySessionInfoUpdate(update)
+		return
+	case "current_mode_update":
+		if mode, _ := update["currentModeId"].(string); mode != "" {
+			c.mu.Lock()
+			c.state.Mode = mode
+			c.mu.Unlock()
+			if c.ui != nil {
+				c.ui.ready(c)
+			}
+		}
 		return
 	default:
 		c.mu.Lock()
@@ -543,6 +816,85 @@ func (c *client) printUpdate(p acp.SessionUpdateParams) {
 			fmt.Fprintf(c.stderr, "\n[update] %s\n", raw)
 			flush(c.stderr)
 		}
+	}
+}
+
+func (c *client) applySessionInfoUpdate(update map[string]any) {
+	c.mu.Lock()
+	if model, _ := update["model"].(string); model != "" {
+		c.state.Model = model
+	}
+	if ctxMap, ok := update["context"].(map[string]any); ok {
+		c.state.Context = parseContextState(ctxMap)
+	}
+	c.mu.Unlock()
+	if c.ui != nil {
+		c.ui.ready(c)
+	}
+}
+
+func parseContextState(m map[string]any) contextState {
+	return contextState{
+		Tokens:       intFromAny(m["tokens"]),
+		Window:       intFromAny(m["window"]),
+		UsedPercent:  floatFromAny(m["used_percent"]),
+		LeftPercent:  floatFromAny(m["left_percent"]),
+		Messages:     intFromAny(m["messages"]),
+		Checkpoints:  intFromAny(m["checkpoints"]),
+		CacheEpoch:   intFromAny(m["cache_epoch"]),
+		CompactionOn: boolFromAny(m["compaction_enabled"]),
+	}
+}
+
+func intFromAny(v any) int {
+	switch x := v.(type) {
+	case int:
+		return x
+	case int64:
+		return int(x)
+	case float64:
+		return int(x)
+	case json.Number:
+		n, _ := x.Int64()
+		return int(n)
+	case string:
+		n, _ := strconv.Atoi(strings.TrimSpace(x))
+		return n
+	default:
+		return 0
+	}
+}
+
+func floatFromAny(v any) float64 {
+	switch x := v.(type) {
+	case float64:
+		return x
+	case float32:
+		return float64(x)
+	case int:
+		return float64(x)
+	case int64:
+		return float64(x)
+	case json.Number:
+		n, _ := x.Float64()
+		return n
+	case string:
+		n, _ := strconv.ParseFloat(strings.TrimSpace(x), 64)
+		return n
+	default:
+		return 0
+	}
+}
+
+func boolFromAny(v any) bool {
+	switch x := v.(type) {
+	case bool:
+		return x
+	case string:
+		b, _ := strconv.ParseBool(strings.TrimSpace(x))
+		return b
+	default:
+		return false
 	}
 }
 
@@ -570,10 +922,23 @@ func updateText(update map[string]any) string {
 
 func repl(ctx context.Context, c *client) error {
 	for {
+		select {
+		case <-ctx.Done():
+			return nil
+		default:
+		}
+		if c.ui != nil {
+			c.ui.ready(c)
+			c.ui.clear()
+		}
 		fmt.Fprint(c.stderr, "\nacp> ")
 		line, err := c.stdin.ReadString('\n')
 		if err != nil {
 			if errors.Is(err, io.EOF) {
+				fmt.Fprintln(c.stderr)
+				return nil
+			}
+			if ctx.Err() != nil {
 				return nil
 			}
 			return err
@@ -582,40 +947,82 @@ func repl(ctx context.Context, c *client) error {
 		if line == "" {
 			continue
 		}
-		switch {
-		case line == "/help":
-			c.printHelp()
-		case line == "/status":
-			c.printStatus()
-		case line == "/sessions":
-			c.commandSessions(ctx)
-		case line == "/exit" || line == "/quit":
+		if line == "/exit" || line == "/quit" {
 			return nil
-		case line == "/model" || strings.HasPrefix(line, "/model "):
-			c.commandModel(ctx, strings.TrimSpace(strings.TrimPrefix(line, "/model")))
-		case line == "/mode" || strings.HasPrefix(line, "/mode "):
-			c.commandMode(ctx, strings.TrimSpace(strings.TrimPrefix(line, "/mode")))
-		case strings.HasPrefix(line, "/resume "):
-			c.commandResume(ctx, strings.TrimSpace(strings.TrimPrefix(line, "/resume ")), false)
-		case strings.HasPrefix(line, "/load "):
-			c.commandResume(ctx, strings.TrimSpace(strings.TrimPrefix(line, "/load ")), true)
-		case line == "/permission" || strings.HasPrefix(line, "/permission "):
-			c.commandPermission(strings.TrimSpace(strings.TrimPrefix(line, "/permission")))
-		case line == "/thinking" || strings.HasPrefix(line, "/thinking "):
-			c.commandBool("thinking", strings.TrimSpace(strings.TrimPrefix(line, "/thinking")), &c.opts.ShowThinking)
-		case line == "/tools" || strings.HasPrefix(line, "/tools "):
-			c.commandBool("tools", strings.TrimSpace(strings.TrimPrefix(line, "/tools")), &c.opts.ShowTools)
-		case line == "/raw" || strings.HasPrefix(line, "/raw "):
-			c.commandBool("raw", strings.TrimSpace(strings.TrimPrefix(line, "/raw")), &c.opts.RawUpdates)
-		default:
-			c.mu.Lock()
-			sessionID := c.state.SessionID
-			c.mu.Unlock()
-			if err := c.Prompt(ctx, sessionID, line); err != nil {
-				return err
-			}
+		}
+		if err := c.runCommand(ctx, line); err != nil {
+			return err
 		}
 	}
+}
+
+func (c *client) runCommand(ctx context.Context, line string) error {
+	switch {
+	case line == "/help":
+		c.printHelp()
+	case line == "/status":
+		c.printStatus()
+	case line == "/sessions":
+		c.commandSessions(ctx)
+	case line == "/list":
+		c.commandServerPrompt(ctx, "/btw list")
+	case line == "/new":
+		c.commandNew(ctx)
+	case line == "/stop":
+		c.commandStop(ctx)
+	case line == "/compact" || strings.HasPrefix(line, "/compact "):
+		c.commandServerPrompt(ctx, line)
+	case line == "/context":
+		c.commandServerPrompt(ctx, line)
+	case line == "/files":
+		c.commandFiles()
+	case line == "/clear-files":
+		c.commandClearFiles()
+	case line == "/structure":
+		c.commandStructure()
+	case line == "/attach" || strings.HasPrefix(line, "/attach "):
+		c.commandAttach(strings.TrimSpace(strings.TrimPrefix(line, "/attach")))
+	case line == "/lua" || strings.HasPrefix(line, "/lua "):
+		c.commandLua(ctx, strings.Fields(line))
+	case line == "/save" || strings.HasPrefix(line, "/save "):
+		name := strings.TrimSpace(strings.TrimPrefix(line, "/save"))
+		if name == "" {
+			fmt.Fprintln(c.stderr, "usage: /save NAME")
+			return nil
+		}
+		c.commandServerPrompt(ctx, "/btw mark "+name)
+	case line == "/load" || strings.HasPrefix(line, "/load "):
+		name := strings.TrimSpace(strings.TrimPrefix(line, "/load"))
+		if name == "" {
+			fmt.Fprintln(c.stderr, "usage: /load CHECKPOINT_NAME_OR_ID")
+			return nil
+		}
+		c.commandServerPrompt(ctx, "/btw back "+name)
+	case line == "/model" || strings.HasPrefix(line, "/model "):
+		c.commandModel(ctx, strings.TrimSpace(strings.TrimPrefix(line, "/model")))
+	case line == "/mode" || strings.HasPrefix(line, "/mode "):
+		c.commandMode(ctx, strings.TrimSpace(strings.TrimPrefix(line, "/mode")))
+	case strings.HasPrefix(line, "/resume "):
+		c.commandResume(ctx, strings.TrimSpace(strings.TrimPrefix(line, "/resume ")), false)
+	case strings.HasPrefix(line, "/session-load "):
+		c.commandResume(ctx, strings.TrimSpace(strings.TrimPrefix(line, "/session-load ")), true)
+	case line == "/permission" || strings.HasPrefix(line, "/permission "):
+		c.commandPermission(strings.TrimSpace(strings.TrimPrefix(line, "/permission")))
+	case line == "/thinking" || strings.HasPrefix(line, "/thinking "):
+		c.commandBool("thinking", strings.TrimSpace(strings.TrimPrefix(line, "/thinking")), &c.opts.ShowThinking)
+	case line == "/tools" || strings.HasPrefix(line, "/tools "):
+		c.commandBool("tools", strings.TrimSpace(strings.TrimPrefix(line, "/tools")), &c.opts.ShowTools)
+	case line == "/raw" || strings.HasPrefix(line, "/raw "):
+		c.commandBool("raw", strings.TrimSpace(strings.TrimPrefix(line, "/raw")), &c.opts.RawUpdates)
+	default:
+		c.mu.Lock()
+		sessionID := c.state.SessionID
+		c.mu.Unlock()
+		if err := c.Prompt(ctx, sessionID, line); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (c *client) printHelp() {
@@ -623,7 +1030,20 @@ func (c *client) printHelp() {
   /status
   /sessions
   /resume SESSION_ID
-  /load SESSION_ID
+  /session-load SESSION_ID
+  /save NAME
+  /list
+  /load CHECKPOINT_NAME_OR_ID
+  /compact [TARGET_TOKENS]
+  /context
+  /attach PATH [...]
+  /files
+  /clear-files
+  /structure
+  /lua FILE [args...]
+  /new
+  /stop
+  /skill list|status|clear|NAME
   /model [MODEL]
   /mode [MODE]
   /permission [prompt|allow|reject|cancel]
@@ -634,13 +1054,160 @@ func (c *client) printHelp() {
 `)
 }
 
+func (c *client) commandAttach(args string) {
+	if args == "" {
+		fmt.Fprintln(c.stderr, "usage: /attach PATH [...]")
+		return
+	}
+	var added int
+	for _, path := range strings.Fields(args) {
+		res, err := c.attachPath(path)
+		if err != nil {
+			fmt.Fprintf(c.stderr, "attach failed for %s: %v\n", path, err)
+			continue
+		}
+		added++
+		fmt.Fprintf(c.stderr, "attached %s chars=%d truncated=%v\n", res.Path, len(res.Text), res.Truncated)
+	}
+	if added == 0 {
+		fmt.Fprintln(c.stderr, "no files attached")
+	}
+}
+
+func (c *client) attachPath(path string) (filecontext.Resource, error) {
+	if !filepath.IsAbs(path) {
+		c.mu.Lock()
+		cwd := c.state.Cwd
+		c.mu.Unlock()
+		path = filepath.Join(cwd, path)
+	}
+	res, err := filecontext.Extract(path)
+	if err != nil {
+		return filecontext.Resource{}, err
+	}
+	c.mu.Lock()
+	c.files = append(c.files, attachment{Resource: res})
+	c.mu.Unlock()
+	return res, nil
+}
+
+func (c *client) commandFiles() {
+	c.mu.Lock()
+	files := append([]attachment(nil), c.files...)
+	c.mu.Unlock()
+	if len(files) == 0 {
+		fmt.Fprintln(c.stderr, "queued files: none")
+		return
+	}
+	fmt.Fprintln(c.stderr, "queued files:")
+	for i, f := range files {
+		res := f.Resource
+		fmt.Fprintf(c.stderr, "%d. %s mime=%s chars=%d truncated=%v\n", i+1, res.Path, res.MimeType, len(res.Text), res.Truncated)
+	}
+}
+
+func (c *client) commandClearFiles() {
+	c.mu.Lock()
+	n := len(c.files)
+	c.files = nil
+	c.mu.Unlock()
+	fmt.Fprintf(c.stderr, "cleared %d queued files\n", n)
+}
+
+func (c *client) commandStructure() {
+	fmt.Fprint(c.stderr, c.structureString())
+}
+
+func (c *client) structureString() string {
+	c.mu.Lock()
+	state := c.state
+	files := append([]attachment(nil), c.files...)
+	c.mu.Unlock()
+	contextFile := systemprompt.ProjectContextPath(state.Cwd)
+	if contextFile == "" {
+		contextFile = "(none)"
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "session:\n  id: %s\n  cwd: %s\n  model: %s\n  mode: %s\ncontext:\n  project_file: %s\n  queued_files: %d\n",
+		state.SessionID, state.Cwd, state.Model, state.Mode, contextFile, len(files))
+	for i, f := range files {
+		res := f.Resource
+		fmt.Fprintf(&b, "  %d. %s (%s, chars=%d, truncated=%v)\n", i+1, res.Path, res.MimeType, len(res.Text), res.Truncated)
+	}
+	return b.String()
+}
+
+func (c *client) commandLua(ctx context.Context, fields []string) {
+	if len(fields) < 2 {
+		fmt.Fprintln(c.stderr, "usage: /lua FILE [args...]")
+		return
+	}
+	result, err := c.runLua(ctx, runLuaParams{Path: fields[1], Args: fields[2:]})
+	if err != nil {
+		fmt.Fprintln(c.stderr, "lua failed:", err)
+		return
+	}
+	if strings.TrimSpace(result.Output) != "" {
+		fmt.Fprintln(c.stdout, result.Output)
+	}
+}
+
+func (c *client) commandServerPrompt(ctx context.Context, prompt string) {
+	c.mu.Lock()
+	sessionID := c.state.SessionID
+	c.mu.Unlock()
+	if err := c.Prompt(ctx, sessionID, prompt); err != nil {
+		fmt.Fprintln(c.stderr, "command failed:", err)
+	}
+}
+
+func (c *client) commandNew(ctx context.Context) {
+	c.mu.Lock()
+	cwd := c.state.Cwd
+	c.mu.Unlock()
+	session, err := c.NewSession(ctx, cwd)
+	if err != nil {
+		fmt.Fprintln(c.stderr, "session/new failed:", err)
+		return
+	}
+	c.mu.Lock()
+	addr := c.state.Addr
+	c.mu.Unlock()
+	c.setSessionState(addr, cwd, session)
+	fmt.Fprintf(c.stderr, "new session %s cwd=%s\n", session.SessionID, cwd)
+}
+
+func (c *client) commandStop(ctx context.Context) {
+	c.mu.Lock()
+	sessionID := c.state.SessionID
+	c.mu.Unlock()
+	if sessionID == "" {
+		fmt.Fprintln(c.stderr, "no active session")
+		return
+	}
+	if err := c.Cancel(ctx, sessionID); err != nil {
+		fmt.Fprintln(c.stderr, "session/cancel failed:", err)
+		return
+	}
+	fmt.Fprintln(c.stderr, "stop requested")
+}
+
 func (c *client) printStatus() {
+	fmt.Fprint(c.stderr, c.statusString())
+}
+
+func (c *client) statusString() string {
 	c.mu.Lock()
 	state := c.state
 	opts := c.opts
 	c.mu.Unlock()
-	fmt.Fprintf(c.stderr, "addr=%s\nsession=%s\ncwd=%s\nmodel=%s\nmode=%s\npermission=%s\nthinking=%v\ntools=%v\nraw=%v\n",
-		state.Addr, state.SessionID, state.Cwd, state.Model, state.Mode,
+	contextFile := systemprompt.ProjectContextPath(state.Cwd)
+	if contextFile == "" {
+		contextFile = "(none)"
+	}
+	return fmt.Sprintf("addr=%s\nsession=%s\ncwd=%s\ncontext=%s\ncontext_usage=%s\nmessages=%d\ncheckpoints=%d\ncache_epoch=%d\nmodel=%s\nmode=%s\npermission=%s\nthinking=%v\ntools=%v\nraw=%v\n",
+		state.Addr, state.SessionID, state.Cwd, contextFile, contextLabel(state.Context),
+		state.Context.Messages, state.Context.Checkpoints, state.Context.CacheEpoch, state.Model, state.Mode,
 		firstNonEmpty(opts.Permission, "prompt"), opts.ShowThinking, opts.ShowTools, opts.RawUpdates)
 }
 
@@ -666,7 +1233,7 @@ func (c *client) commandSessions(ctx context.Context) {
 func (c *client) commandResume(ctx context.Context, sessionID string, replay bool) {
 	if sessionID == "" {
 		if replay {
-			fmt.Fprintln(c.stderr, "usage: /load SESSION_ID")
+			fmt.Fprintln(c.stderr, "usage: /session-load SESSION_ID")
 		} else {
 			fmt.Fprintln(c.stderr, "usage: /resume SESSION_ID")
 		}

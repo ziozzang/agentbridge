@@ -51,6 +51,7 @@ import (
 	_ "github.com/ziozzang/agentbridge/internal/provider/openairesp" // register openai-responses
 	"github.com/ziozzang/agentbridge/internal/provider/pipeline"
 	_ "github.com/ziozzang/agentbridge/internal/provider/router" // register model router
+	"github.com/ziozzang/agentbridge/internal/tools/clienttools"
 	"github.com/ziozzang/agentbridge/internal/tools/definitions"
 	"github.com/ziozzang/agentbridge/internal/tools/executor"
 	"github.com/ziozzang/agentbridge/internal/tools/sessionmcp"
@@ -103,6 +104,7 @@ type Agent struct {
 	// clientCapabilities captured at `initialize` time. Used to gate the
 	// agent's advertised tool surface and downstream tool behaviour.
 	clientCapabilities map[string]any
+	clientTools        []definitions.Tool
 
 	mu       sync.Mutex
 	sessions map[string]*sessionState
@@ -110,14 +112,17 @@ type Agent struct {
 
 // sessionState is the in-memory state for a session.
 type sessionState struct {
-	ID          string
-	Cwd         string
-	Model       string
-	Mode        string
-	Messages    []glm.Message
-	Title       *string
-	UpdatedAt   string
-	NativeAgent bool
+	ID           string
+	Cwd          string
+	Model        string
+	Mode         string
+	Messages     []glm.Message
+	Title        *string
+	UpdatedAt    string
+	NativeAgent  bool
+	Checkpoints  []sessionstore.Checkpoint
+	ActiveSkills []sessionstore.ActiveSkill
+	CacheEpoch   int
 
 	// Per-session locks: promptMu serializes prompts; cancelMu protects
 	// cancelCurrent; promptDone unblocks waiters when a prompt finishes.
@@ -169,6 +174,7 @@ func (a *Agent) SetConn(c *acp.Conn) { a.Conn = c }
 func (a *Agent) Initialize(_ context.Context, p acp.InitializeParams) (acp.InitializeResponse, error) {
 	a.mu.Lock()
 	a.clientCapabilities = p.ClientCapabilities
+	a.clientTools = parseClientTools(p.ClientCapabilities)
 	a.mu.Unlock()
 
 	imageAllowed := !disabledByEnv("AGENTBRIDGE_GLM_PROMPT_IMAGES", "ACP_GLM_PROMPT_IMAGES")
@@ -343,6 +349,7 @@ func (a *Agent) LoadSession(ctx context.Context, p acp.LoadSessionParams) (acp.L
 	a.sessions[p.SessionID] = &sessionState{
 		ID: p.SessionID, Cwd: p.Cwd, Model: model, Mode: mode,
 		Messages: persisted.Messages, Title: persisted.Title, UpdatedAt: persisted.UpdatedAt,
+		Checkpoints: persisted.Checkpoints, ActiveSkills: persisted.ActiveSkills, CacheEpoch: persisted.CacheEpoch,
 		tools: tools, sessionMcp: mcpClient, NativeAgent: nativeAgent,
 	}
 	a.mu.Unlock()
@@ -406,6 +413,7 @@ func (a *Agent) ResumeSession(_ context.Context, p acp.LoadSessionParams) (acp.L
 	a.sessions[p.SessionID] = &sessionState{
 		ID: p.SessionID, Cwd: p.Cwd, Model: model, Mode: mode,
 		Messages: persisted.Messages, Title: persisted.Title, UpdatedAt: persisted.UpdatedAt,
+		Checkpoints: persisted.Checkpoints, ActiveSkills: persisted.ActiveSkills, CacheEpoch: persisted.CacheEpoch,
 		tools: tools, sessionMcp: mcpClient, NativeAgent: nativeAgent,
 	}
 	a.mu.Unlock()
@@ -424,12 +432,18 @@ func (a *Agent) ForkSession(_ context.Context, p acp.LoadSessionParams) (acp.For
 
 	var msgs []glm.Message
 	var title *string
+	var checkpoints []sessionstore.Checkpoint
+	var activeSkills []sessionstore.ActiveSkill
+	var cacheEpoch int
 	model := a.defaultModel()
 	mode := ModeDefault
 	nativeAgent := provider.UsesNativeAgentLoop(a.Provider)
 	if inMem {
 		msgs = append([]glm.Message(nil), source.Messages...)
 		title = source.Title
+		checkpoints = append([]sessionstore.Checkpoint(nil), source.Checkpoints...)
+		activeSkills = append([]sessionstore.ActiveSkill(nil), source.ActiveSkills...)
+		cacheEpoch = source.CacheEpoch
 		if source.Model != "" {
 			model = source.Model
 		}
@@ -444,6 +458,9 @@ func (a *Agent) ForkSession(_ context.Context, p acp.LoadSessionParams) (acp.For
 		}
 		msgs = append([]glm.Message(nil), persisted.Messages...)
 		title = persisted.Title
+		checkpoints = append([]sessionstore.Checkpoint(nil), persisted.Checkpoints...)
+		activeSkills = append([]sessionstore.ActiveSkill(nil), persisted.ActiveSkills...)
+		cacheEpoch = persisted.CacheEpoch
 		if persisted.Model != "" {
 			model = persisted.Model
 		}
@@ -465,9 +482,12 @@ func (a *Agent) ForkSession(_ context.Context, p acp.LoadSessionParams) (acp.For
 	a.mu.Lock()
 	a.sessions[id] = &sessionState{
 		ID: id, Cwd: p.Cwd, Model: model, Mode: mode,
-		Messages:  msgs,
-		Title:     title,
-		UpdatedAt: now,
+		Messages:     msgs,
+		Title:        title,
+		UpdatedAt:    now,
+		Checkpoints:  checkpoints,
+		ActiveSkills: activeSkills,
+		CacheEpoch:   cacheEpoch,
 		tools: func() []definitions.Tool {
 			if nativeAgent {
 				return nil
@@ -478,10 +498,7 @@ func (a *Agent) ForkSession(_ context.Context, p acp.LoadSessionParams) (acp.For
 	}
 	a.mu.Unlock()
 	a.recordSessionSnapshot(id)
-	_ = a.Store.Save(sessionstore.PersistedSession{
-		SessionID: id, Cwd: p.Cwd, Messages: msgs,
-		Title: title, UpdatedAt: now, Model: model, Mode: mode,
-	})
+	_ = a.persistSession(a.sessions[id])
 	return acp.ForkSessionResponse{SessionID: id, Models: a.modelState(model), Modes: a.sessionModes(mode)}, nil
 }
 
@@ -509,10 +526,7 @@ func (a *Agent) CloseSession(_ context.Context, p acp.CloseSessionParams) (any, 
 	if s.sessionMcp != nil {
 		s.sessionMcp.Dispose()
 	}
-	_ = a.Store.Save(sessionstore.PersistedSession{
-		SessionID: s.ID, Cwd: s.Cwd, Messages: s.Messages,
-		Title: s.Title, UpdatedAt: s.UpdatedAt, Model: s.Model, Mode: s.Mode,
-	})
+	_ = a.persistSession(s)
 	return map[string]any{}, nil
 }
 
@@ -574,10 +588,7 @@ func (a *Agent) SetSessionMode(_ context.Context, p acp.SetModeParams) (any, err
 	s.UpdatedAt = nowRFC3339()
 	a.mu.Unlock()
 	a.recordSessionSnapshot(p.SessionID)
-	_ = a.Store.Save(sessionstore.PersistedSession{
-		SessionID: s.ID, Cwd: s.Cwd, Messages: s.Messages,
-		Title: s.Title, UpdatedAt: s.UpdatedAt, Model: s.Model, Mode: s.Mode,
-	})
+	_ = a.persistSession(s)
 	a.notifyUpdate(p.SessionID, map[string]any{
 		"sessionUpdate": "current_mode_update",
 		"currentModeId": p.ModeID,
@@ -602,6 +613,7 @@ func (a *Agent) SetSessionModel(_ context.Context, p acp.SetModelParams) (any, e
 	a.notifyUpdate(p.SessionID, map[string]any{
 		"sessionUpdate": "session_info_update",
 		"updatedAt":     updatedAt,
+		"context":       a.contextSnapshot(s),
 	})
 	return map[string]any{}, nil
 }
@@ -632,6 +644,9 @@ func (a *Agent) Prompt(ctx context.Context, p acp.PromptParams) (acp.PromptRespo
 	a.mu.Unlock()
 	if !ok {
 		return acp.PromptResponse{}, &acp.RPCError{Code: -32001, Message: "session not found: " + p.SessionID}
+	}
+	if handled, resp, err := a.handleRuntimeCommand(ctx, s, p); handled || err != nil {
+		return resp, err
 	}
 	if s.NativeAgent {
 		return a.promptWithNativeProvider(ctx, s, p)
@@ -696,6 +711,9 @@ func (a *Agent) Prompt(ctx context.Context, p acp.PromptParams) (acp.PromptRespo
 		AgentsMD: systemprompt.LoadProjectContext(s.Cwd),
 		Profile:  a.profilePrompt(s.Model),
 	})
+	if skillPrompt := a.activeSkillPrompt(s); skillPrompt != "" {
+		system += "\n\n" + skillPrompt
+	}
 	messages := append([]glm.Message{{Role: "system", Content: system}}, s.Messages...)
 
 	maxTurns := a.MaxTurns
@@ -840,16 +858,14 @@ func (a *Agent) Prompt(ctx context.Context, p acp.PromptParams) (acp.PromptRespo
 	infoUpdate := map[string]any{
 		"sessionUpdate": "session_info_update",
 		"updatedAt":     s.UpdatedAt,
+		"context":       a.contextSnapshot(s),
 	}
 	for k, v := range titleUpdate {
 		infoUpdate[k] = v
 	}
 	a.notifyUpdate(p.SessionID, infoUpdate)
 
-	_ = a.Store.Save(sessionstore.PersistedSession{
-		SessionID: s.ID, Cwd: s.Cwd, Messages: s.Messages,
-		Title: s.Title, UpdatedAt: s.UpdatedAt, Model: s.Model, Mode: s.Mode,
-	})
+	_ = a.persistSession(s)
 
 	resp := acp.PromptResponse{StopReason: stop, UserMessageID: p.MessageID}
 	if lastUsage != nil {
@@ -948,11 +964,9 @@ func (a *Agent) promptWithNativeProvider(ctx context.Context, s *sessionState, p
 			"sessionUpdate": "session_info_update",
 			"updatedAt":     s.UpdatedAt,
 			"title":         s.Title,
+			"context":       a.contextSnapshot(s),
 		})
-		_ = a.Store.Save(sessionstore.PersistedSession{
-			SessionID: s.ID, Cwd: s.Cwd, Messages: s.Messages,
-			Title: s.Title, UpdatedAt: s.UpdatedAt, Model: s.Model, Mode: s.Mode,
-		})
+		_ = a.persistSession(s)
 		a.recordSessionSnapshot(p.SessionID)
 		resp := acp.PromptResponse{StopReason: stop, UserMessageID: p.MessageID}
 		if lastUsage != nil {
@@ -1145,16 +1159,24 @@ func modesState(current string) *acp.SessionModeState {
 //
 //   - read_file / list_files: always included.
 //   - write_file: included unless fs.writeTextFile == false in clientCaps.
-//   - run_command: always included (we run locally, no client need).
 //   - web_search / web_reader: always included.
 //   - image_analysis: included when a Vision client is configured.
+//   - client_run_lua: included when client capabilities advertise lua support.
+//   - client__*: included when the ACP client advertises client-owned tools.
 func (a *Agent) availableTools() []definitions.Tool {
 	wantImage := a.Vision != nil
 	wantWrite := true
+	wantLua := false
 	if cap, ok := a.clientCapabilities["fs"].(map[string]any); ok {
 		if v, ok := cap["writeTextFile"].(bool); ok && !v {
 			wantWrite = false
 		}
+	}
+	if v, ok := a.clientCapabilities["lua"].(bool); ok && v {
+		wantLua = true
+	}
+	if v, ok := a.clientCapabilities["clientRunLua"].(bool); ok && v {
+		wantLua = true
 	}
 	all := definitions.All()
 	out := make([]definitions.Tool, 0, len(all))
@@ -1166,12 +1188,38 @@ func (a *Agent) availableTools() []definitions.Tool {
 		if name == "write_file" && !wantWrite {
 			continue
 		}
+		if name == "client_run_lua" && !wantLua {
+			continue
+		}
 		out = append(out, t)
 	}
 	if a.Plugins != nil {
 		out = append(out, a.Plugins.Tools()...)
 	}
+	out = append(out, a.clientTools...)
 	return out
+}
+
+func parseClientTools(caps map[string]any) []definitions.Tool {
+	if len(caps) == 0 {
+		return nil
+	}
+	raw, ok := caps["tools"]
+	if !ok {
+		raw, ok = caps["clientTools"]
+	}
+	if !ok {
+		return nil
+	}
+	body, err := json.Marshal(raw)
+	if err != nil {
+		return nil
+	}
+	var advertised []clienttools.AdvertisedTool
+	if err := json.Unmarshal(body, &advertised); err != nil {
+		return nil
+	}
+	return clienttools.ToolDefinitions(advertised)
 }
 
 func (a *Agent) recordSessionSnapshot(sessionID string) {

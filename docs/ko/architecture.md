@@ -137,6 +137,46 @@ native thread에 upstream `thread/compact/start`를 호출한 뒤, 로컬 mirror
 transcript를 checkpoint message와 최근 turn으로 교체합니다. 깊은 session state의
 source of truth는 upstream thread입니다.
 
+## Runtime Commands
+
+ACP text prompt가 runtime command로 시작하면 model 호출 전에 처리합니다.
+Provider-native agent session에서도 동일하게 먼저 처리되며, LLM transcript에 user
+message로 추가하지 않습니다.
+
+- `/btw mark NAME`과 CLI alias `/save NAME`은 현재 message index, model, mode,
+  active skill, timestamp, cache epoch를 checkpoint로 저장합니다.
+- `/btw list`와 CLI alias `/list`는 checkpoint 목록을 보여줍니다.
+- `/btw back NAME|ID`와 CLI alias `/load NAME|ID`는 local transcript를
+  checkpoint 지점으로 자르고, checkpoint의 active skill을 복원하며,
+  stale prompt-cache 가정을 피하기 위해 `cacheEpoch`를 증가시킵니다.
+- `/context`는 추정 context 사용량, provider context window, 설정된 compaction
+  threshold/target, message 수, checkpoint 수, cache epoch를 보여줍니다.
+- `/compact [TARGET_TOKENS]`는 proactive/overflow compaction에서 쓰는 같은 경로를
+  수동으로 실행합니다. Rollback이 아니라 continuation 동작입니다. 오래된 turn은
+  summary 또는 provider-native compaction으로 줄이고 최근 turn은 유지하며,
+  transcript가 바뀌면 `cacheEpoch`를 증가시킵니다.
+- `/subagent [--model MODEL] TASK`는 child session id로 bounded child provider
+  call을 실행하고 결과를 현재 session에 돌려줍니다. Lua/client orchestration이
+  위임 작업에 사용할 primitive입니다.
+- `/skill list|status|clear|NAME`은 markdown skill을 관리합니다. Skill은
+  `<cwd>/.agentbridge/skills/*.md`를 먼저 보고, 그 다음
+  `$XDG_CONFIG_HOME/agentbridge/skills/*.md`에서 찾습니다. Active skill은 content
+  hash와 함께 `<skill>` block으로 system prompt에 주입됩니다.
+
+## CLI Lua Runtime
+
+Lua orchestration은 client-owned harness layer입니다. AgentBridge는
+client-owned tool을 `client__<name>` namespace로 model에 노출하고, 호출을
+`client/call_tool`로 ACP client에 다시 라우팅합니다. `acp-agent`는 `run_lua`와
+`run_command`를 광고하므로 model은 `client__run_lua`, `client__run_command`를
+보게 됩니다. Shell execution은 client-owned입니다. AgentBridge 서버는 shell
+command나 script를 server-owned tool로 실행하지 않습니다.
+
+상세한 placement model, primitive/composition API, memory layer, goal/autoresearch
+대표 사례는 [CLI Orchestration 설계](cli-orchestration.md)에 정리합니다.
+Tool ownership과 permission boundary는 [Tool Placement](tool-placement.md)에
+정리합니다.
+
 ## Safety Pipeline
 
 Safety 기능이 켜진 경우 provider 생성은 `internal/provider/pipeline` wrapper를
