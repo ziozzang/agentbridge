@@ -35,7 +35,7 @@ func (m tuiModel) View() string {
 	}
 	statusSurface := m.statusSurface()
 	notice := tuiNoticeStyle.Width(m.width).Render(statusSurface.Notice())
-	composer := tuiComposerStyle.Width(m.width).Render(m.input.View())
+	composer := m.composerSurface().View()
 	status := tuiStatusStyle.Width(m.width).Render(statusSurface.Status())
 	return lipgloss.JoinVertical(lipgloss.Left, transcript, notice, composer, status)
 }
@@ -49,69 +49,7 @@ func (m tuiModel) progressLine() string {
 }
 
 func (m tuiModel) completionHint() string {
-	if m.overlay != nil {
-		return ""
-	}
-	value := m.input.Value()
-	switch {
-	case strings.HasPrefix(value, "/permission "):
-		return "/permission allow|deny|reject|prompt|cancel"
-	case strings.HasPrefix(value, "/goal "):
-		return "/goal status|set|run|clear"
-	case strings.HasPrefix(value, "/thinking "):
-		return "/thinking on|off|toggle"
-	case strings.HasPrefix(value, "/tools "):
-		return "/tools on|off|toggle"
-	case strings.HasPrefix(value, "/raw "):
-		return "/raw on|off|toggle"
-	case strings.HasPrefix(value, "/mode "):
-		return "/mode default|accept_edits|bypass_permissions"
-	}
-	matches := m.input.MatchedSuggestions()
-	if len(matches) == 0 {
-		return ""
-	}
-	if group := compactSlashHint(value, matches); group != "" {
-		return group
-	}
-	visible := matches
-	if len(visible) > 5 {
-		visible = visible[:5]
-	}
-	return "tab complete: " + strings.Join(visible, "  ")
-}
-
-func compactSlashHint(value string, matches []string) string {
-	value = strings.TrimSpace(value)
-	if value == "" {
-		return ""
-	}
-	if !strings.HasPrefix(value, "/") {
-		return ""
-	}
-	root := value
-	if i := strings.IndexByte(strings.TrimPrefix(root, "/"), ' '); i >= 0 {
-		root = root[:i+1]
-	}
-	seen := map[string]bool{}
-	var args []string
-	for _, item := range matches {
-		if item == root {
-			continue
-		}
-		if strings.HasPrefix(item, root+" ") {
-			arg := strings.TrimSpace(strings.TrimPrefix(item, root))
-			if arg == "" || strings.Contains(arg, " ") || seen[arg] {
-				continue
-			}
-			seen[arg] = true
-			args = append(args, arg)
-		}
-	}
-	if len(args) == 0 {
-		return ""
-	}
-	return root + " " + strings.Join(args, "|")
+	return m.completionSurface().Hint()
 }
 
 func (m tuiModel) statusLine() string {

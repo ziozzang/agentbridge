@@ -41,6 +41,10 @@ shell script를 실행하지 않습니다.
   identity를 frame layout과 분리해서 계산합니다.
 - Permission approval overlay도 별도 surface입니다. Choice list 렌더링과
   number/arrow/yes/no key를 ACP permission reply로 매핑하는 책임을 가집니다.
+- Completion hint도 별도 surface입니다. Slash-command argument hint와 compact
+  suggestion text를 소유하고, composer는 text input만 소유합니다.
+- Bottom composer도 별도 surface입니다. Fixed-width input rendering을 frame
+  assembly에서 분리해서 transcript와 독립적으로 발전시킬 수 있습니다.
 - TUI component construction은 runtime update loop 밖에 둡니다. 그래서 composer,
   spinner, viewport, 초기 model state를 terminal program 실행 없이 테스트할 수 있습니다.
 - Keyboard handling은 작은 key layer로 분리합니다. Global interrupt/exit key가

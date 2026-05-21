@@ -42,6 +42,10 @@ The broader ownership and permission rules are documented in
   quota, permission mode, and session identity separately from the frame layout.
 - Permission approval overlays are a dedicated surface for rendering choice
   lists and mapping number/arrow/yes/no keys to ACP permission replies.
+- Completion hints are a dedicated surface. It owns slash-command argument
+  hints and compact suggestion text, while the composer only owns text input.
+- The bottom composer is a dedicated surface, so fixed-width input rendering is
+  separate from frame assembly and can evolve independently of the transcript.
 - TUI component construction lives outside the runtime update loop, so the
   composer, spinner, viewport, and initial model state can be tested without
   launching a terminal program.

@@ -261,6 +261,39 @@ func TestTUIPermissionArgumentSuggestions(t *testing.T) {
 	}
 }
 
+func TestTUICompletionSurfaceOwnsSlashHints(t *testing.T) {
+	surface := tuiCompletionSurface{
+		value:   "/mode ",
+		matches: []string{"/mode", "/mode default", "/mode accept_edits", "/mode bypass_permissions"},
+		active:  true,
+	}
+	if got := surface.Hint(); got != "/mode default|accept_edits|bypass_permissions" {
+		t.Fatalf("mode hint=%q", got)
+	}
+	surface = tuiCompletionSurface{
+		value:   "/sk",
+		matches: []string{"/skill list", "/skill status", "/skill clear", "/skill "},
+		active:  true,
+	}
+	if got := surface.Hint(); !strings.Contains(got, "/skill") {
+		t.Fatalf("slash hint=%q", got)
+	}
+	if got := (tuiCompletionSurface{value: "/goal ", matches: []string{"/goal run"}, active: false}).Hint(); got != "" {
+		t.Fatalf("inactive hint=%q", got)
+	}
+}
+
+func TestTUIComposerSurfaceRendersBottomInput(t *testing.T) {
+	surface := tuiComposerSurface{width: 80, input: " › hello"}
+	got := stripANSI(surface.View())
+	if !strings.Contains(got, " › hello") {
+		t.Fatalf("composer surface missing input: %q", got)
+	}
+	if width := len(got); width < 80 {
+		t.Fatalf("composer surface should occupy width, got %d", width)
+	}
+}
+
 func TestTUIStatusLineShowsActivityAndPermission(t *testing.T) {
 	start := time.Now().Add(-75 * time.Second)
 	m := tuiModel{width: 180, activity: "tool: Read file", turnAt: start, now: start.Add(75 * time.Second), state: clientState{
