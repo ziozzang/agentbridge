@@ -295,6 +295,44 @@ func TestTUIComposerSurfaceRendersBottomInput(t *testing.T) {
 	}
 }
 
+func TestTUIFrameSurfaceComposesFixedShellRows(t *testing.T) {
+	surface := tuiFrameSurface{
+		width:      100,
+		height:     12,
+		transcript: "assistant\nhello",
+		notice:     "Ctrl-D: exit",
+		composer:   tuiComposerSurface{width: 100, input: " › prompt"}.View(),
+		status:     "Ready · glm-5.1",
+	}
+	got := stripANSI(surface.View())
+	for _, want := range []string{"assistant", "hello", "Ctrl-D: exit", " › prompt", "Ready"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("frame missing %q: %q", want, got)
+		}
+	}
+	if first := strings.Index(got, "assistant"); first < 0 || strings.Index(got, "Ready") < first {
+		t.Fatalf("frame order is wrong: %q", got)
+	}
+}
+
+func TestTUIFrameSurfaceAppliesOverlayOverTranscript(t *testing.T) {
+	surface := tuiFrameSurface{
+		width:      80,
+		height:     8,
+		transcript: strings.Repeat("line\n", 6),
+		overlay:    "approval requested\n1. yes\n3. no",
+		notice:     "approval requested",
+		composer:   tuiComposerSurface{width: 80, input: " › "}.View(),
+		status:     "Ready",
+	}
+	got := stripANSI(surface.View())
+	for _, want := range []string{"approval requested", "1. yes", "3. no", "Ready"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("overlay frame missing %q: %q", want, got)
+		}
+	}
+}
+
 func TestTUIStatusLineShowsActivityAndPermission(t *testing.T) {
 	start := time.Now().Add(-75 * time.Second)
 	m := tuiModel{width: 180, activity: "tool: Read file", turnAt: start, now: start.Add(75 * time.Second), state: clientState{

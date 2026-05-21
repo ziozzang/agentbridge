@@ -26,18 +26,7 @@ var (
 )
 
 func (m tuiModel) View() string {
-	if m.width <= 0 {
-		return ""
-	}
-	transcript := m.viewport.View()
-	if m.overlay != nil {
-		transcript = overlayBlock(m.width, m.height, transcript, m.overlaySurface().View())
-	}
-	statusSurface := m.statusSurface()
-	notice := tuiNoticeStyle.Width(m.width).Render(statusSurface.Notice())
-	composer := m.composerSurface().View()
-	status := tuiStatusStyle.Width(m.width).Render(statusSurface.Status())
-	return lipgloss.JoinVertical(lipgloss.Left, transcript, notice, composer, status)
+	return m.frameSurface().View()
 }
 
 func (m tuiModel) noticeLine() string {

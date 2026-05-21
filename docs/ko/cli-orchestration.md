@@ -45,6 +45,8 @@ shell script를 실행하지 않습니다.
   suggestion text를 소유하고, composer는 text input만 소유합니다.
 - Bottom composer도 별도 surface입니다. Fixed-width input rendering을 frame
   assembly에서 분리해서 transcript와 독립적으로 발전시킬 수 있습니다.
+- 최상위 frame도 별도 surface입니다. Transcript, overlay, notice, composer,
+  status row를 조립하지만 transport나 command behavior는 소유하지 않습니다.
 - TUI component construction은 runtime update loop 밖에 둡니다. 그래서 composer,
   spinner, viewport, 초기 model state를 terminal program 실행 없이 테스트할 수 있습니다.
 - Keyboard handling은 작은 key layer로 분리합니다. Global interrupt/exit key가

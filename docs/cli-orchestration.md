@@ -46,6 +46,9 @@ The broader ownership and permission rules are documented in
   hints and compact suggestion text, while the composer only owns text input.
 - The bottom composer is a dedicated surface, so fixed-width input rendering is
   separate from frame assembly and can evolve independently of the transcript.
+- The top-level frame is also a dedicated surface. It assembles transcript,
+  overlay, notice, composer, and status rows without owning any transport or
+  command behavior.
 - TUI component construction lives outside the runtime update loop, so the
   composer, spinner, viewport, and initial model state can be tested without
   launching a terminal program.
