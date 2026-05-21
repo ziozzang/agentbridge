@@ -78,6 +78,8 @@ Useful flags:
   `session/request_permission`.
 - `--yolo`: shorthand for `--mode bypass_permissions --permission allow`.
 - `--read-only`: shorthand for `--mode default --permission reject`.
+- `--show-thinking`: print ACP `agent_thought_chunk` updates to stderr. Hidden
+  by default.
 
 Interactive commands:
 

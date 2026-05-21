@@ -58,6 +58,30 @@ func TestUpdateText(t *testing.T) {
 	}
 }
 
+func TestPrintUpdateHidesThinkingByDefault(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	c := &client{stdout: &stdout, stderr: &stderr}
+	c.printUpdate(acp.SessionUpdateParams{Update: map[string]any{
+		"sessionUpdate": "agent_thought_chunk",
+		"content":       map[string]any{"type": "text", "text": "<think>hidden</think>"},
+	}})
+	if stdout.Len() != 0 || stderr.Len() != 0 {
+		t.Fatalf("thinking should be hidden by default stdout=%q stderr=%q", stdout.String(), stderr.String())
+	}
+}
+
+func TestPrintUpdateShowsThinkingWhenRequested(t *testing.T) {
+	var stderr bytes.Buffer
+	c := &client{stdout: ioDiscard{}, stderr: &stderr, opts: clientOptions{ShowThinking: true}}
+	c.printUpdate(acp.SessionUpdateParams{Update: map[string]any{
+		"sessionUpdate": "agent_thought_chunk",
+		"content":       map[string]any{"type": "text", "text": "hidden"},
+	}})
+	if !strings.Contains(stderr.String(), "[thinking] hidden") {
+		t.Fatalf("thinking not printed: %q", stderr.String())
+	}
+}
+
 type ioDiscard struct{}
 
 func (ioDiscard) Write(p []byte) (int, error) { return len(p), nil }

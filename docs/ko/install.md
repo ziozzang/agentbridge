@@ -76,6 +76,8 @@ acp-agent --addr 127.0.0.1:8765 --model codex-agent \
   terminal client가 응답하는 방식.
 - `--yolo`: `--mode bypass_permissions --permission allow` 축약.
 - `--read-only`: `--mode default --permission reject` 축약.
+- `--show-thinking`: ACP `agent_thought_chunk` update를 stderr에 출력합니다.
+  기본값은 숨김입니다.
 
 대화형 command:
 

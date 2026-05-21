@@ -38,6 +38,7 @@ Flags:
   --permission MODE    permission handling: prompt, allow, reject, cancel (default prompt)
   --yolo               shorthand for --mode bypass_permissions --permission allow
   --read-only          shorthand for --mode default --permission reject
+  --show-thinking      print ACP agent_thought_chunk updates to stderr
   --raw-updates        print raw non-text session/update payloads to stderr
   --version            print version and exit
 
@@ -56,6 +57,7 @@ func main() {
 	permission := flag.String("permission", "prompt", "permission handling: prompt, allow, reject, cancel")
 	yolo := flag.Bool("yolo", false, "allow edits and commands without prompting")
 	readOnly := flag.Bool("read-only", false, "reject edit and command permission requests")
+	showThinking := flag.Bool("show-thinking", false, "print agent_thought_chunk updates")
 	rawUpdates := flag.Bool("raw-updates", false, "print raw non-text session/update payloads")
 	version := flag.Bool("version", false, "print version and exit")
 	help := flag.Bool("help", false, "show help")
@@ -91,8 +93,9 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	cli, err := dialClient(ctx, *addr, os.Stdin, os.Stdout, os.Stderr, clientOptions{
-		Permission: strings.ToLower(strings.TrimSpace(*permission)),
-		RawUpdates: *rawUpdates,
+		Permission:   strings.ToLower(strings.TrimSpace(*permission)),
+		ShowThinking: *showThinking,
+		RawUpdates:   *rawUpdates,
 	})
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "connect failed:", err)
@@ -154,8 +157,9 @@ type pendingResponse struct {
 }
 
 type clientOptions struct {
-	Permission string
-	RawUpdates bool
+	Permission   string
+	ShowThinking bool
+	RawUpdates   bool
 }
 
 type client struct {
@@ -318,7 +322,7 @@ func (c *client) dispatch(msg rpcMessage) {
 		}
 		return
 	}
-	go c.handleInbound(msg)
+	c.handleInbound(msg)
 }
 
 func (c *client) handleInbound(msg rpcMessage) {
@@ -404,20 +408,30 @@ func (c *client) permission(p acp.RequestPermissionParams) (acp.RequestPermissio
 func (c *client) printUpdate(p acp.SessionUpdateParams) {
 	update := p.Update
 	switch update["sessionUpdate"] {
-	case "agent_message_chunk", "agent_thought_chunk":
+	case "agent_message_chunk":
 		if text := updateText(update); text != "" {
 			fmt.Fprint(c.stdout, text)
+			flush(c.stdout)
+		}
+	case "agent_thought_chunk":
+		if c.opts.ShowThinking {
+			if text := updateText(update); text != "" {
+				fmt.Fprintf(c.stderr, "\n[thinking] %s\n", text)
+				flush(c.stderr)
+			}
 		}
 	case "tool_call":
 		title, _ := update["title"].(string)
 		status, _ := update["status"].(string)
 		if title != "" {
 			fmt.Fprintf(c.stderr, "\n[%s] %s\n", firstNonEmpty(status, "tool"), title)
+			flush(c.stderr)
 		}
 	case "tool_call_update":
 		status, _ := update["status"].(string)
 		if status != "" {
 			fmt.Fprintf(c.stderr, "[tool] %s\n", status)
+			flush(c.stderr)
 		}
 	case "session_info_update":
 		return
@@ -425,7 +439,14 @@ func (c *client) printUpdate(p acp.SessionUpdateParams) {
 		if c.opts.RawUpdates {
 			raw, _ := json.Marshal(update)
 			fmt.Fprintf(c.stderr, "\n[update] %s\n", raw)
+			flush(c.stderr)
 		}
+	}
+}
+
+func flush(w io.Writer) {
+	if f, ok := w.(interface{ Flush() error }); ok {
+		_ = f.Flush()
 	}
 }
 
