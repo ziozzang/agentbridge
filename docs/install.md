@@ -72,8 +72,8 @@ cursor-selectable choices. During a running prompt, `Ctrl-C` first sends
 Additional prompts entered while one is running are queued and can be inspected
 with `/queue`. Shell execution remains a client-owned tool.
 
-Use `--plain` to run the legacy line-oriented UI. This is mainly useful for
-minimal terminals and debugging.
+Use `--plain` to run the minimal line-oriented fallback. This bypasses Bubble
+Tea and prints plain text for minimal terminals and debugging.
 
 One-shot prompt:
 

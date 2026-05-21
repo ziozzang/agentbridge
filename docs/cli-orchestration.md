@@ -35,8 +35,8 @@ The broader ownership and permission rules are documented in
 - Transport updates are normalized into `uiEvent` values.
 - The Bubble Tea model owns the viewport, composer, status surface, permission
   overlay, and transcript cells.
-- The legacy ANSI/line-oriented UI remains available behind `--plain` for
-  debugging and minimal terminals.
+- A minimal line-oriented fallback remains available behind `--plain` for
+  debugging and minimal terminals. It does not own terminal layout.
 
 This split keeps terminal control out of the ACP transport. The server emits
 structured events; the client decides how those events are rendered.

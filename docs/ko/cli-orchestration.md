@@ -34,8 +34,8 @@ shell script를 실행하지 않습니다.
 - Transport update는 `uiEvent` 값으로 정규화됩니다.
 - Bubble Tea model은 viewport, composer, status surface, permission overlay,
   transcript cell을 소유합니다.
-- 기존 ANSI/line-oriented UI는 `--plain` 뒤에 debugging/minimal terminal용
-  fallback으로 남깁니다.
+- 최소 line-oriented fallback은 `--plain` 뒤에 debugging/minimal terminal용으로
+  남깁니다. 이 경로는 terminal layout을 소유하지 않습니다.
 
 이 분리는 terminal control을 ACP transport에서 떼어냅니다. 서버는 구조화된
 event를 내리고, client가 이를 어떻게 렌더링할지 결정합니다.

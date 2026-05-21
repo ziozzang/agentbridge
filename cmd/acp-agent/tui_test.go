@@ -94,3 +94,34 @@ func TestTUISlashCommandSuggestions(t *testing.T) {
 		t.Fatalf("hint missing /goal: %q", m.completionHint())
 	}
 }
+
+func TestTUIPermissionArgumentSuggestions(t *testing.T) {
+	m := tuiModel{width: 160}
+	m.input.SetValue("/permission ")
+	m.input.ShowSuggestions = true
+	m.input.SetSuggestions(slashCommandSuggestions)
+	got := strings.Join(m.input.MatchedSuggestions(), " ")
+	for _, want := range []string{"/permission allow", "/permission deny", "/permission reject", "/permission prompt", "/permission cancel"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("missing %q in suggestions: %q", want, got)
+		}
+	}
+	if hint := m.completionHint(); hint != "/permission allow|deny|reject|prompt|cancel" {
+		t.Fatalf("compact hint=%q", hint)
+	}
+}
+
+func TestTUIStatusLineShowsActivityAndPermission(t *testing.T) {
+	m := tuiModel{width: 180, activity: "tool: Read file", state: clientState{
+		Busy:    true,
+		Model:   "glm-5.1",
+		Mode:    "default",
+		Context: contextState{Tokens: 64000, Window: 128000, UsedPercent: 50, LeftPercent: 50},
+	}, opts: clientOptions{Permission: "reject"}}
+	got := stripANSI(m.statusLine())
+	for _, want := range []string{"Working: tool: Read file", "Context 50% left", "Read Only", "glm-5.1"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("status missing %q: %q", want, got)
+		}
+	}
+}

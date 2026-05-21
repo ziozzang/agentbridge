@@ -275,7 +275,6 @@ type client struct {
 	stdin         *bufio.Reader
 	stdout        io.Writer
 	stderr        io.Writer
-	ui            *cliUI
 	stream        *streamBuffer
 	opts          clientOptions
 	state         clientState
@@ -302,10 +301,8 @@ func dialClient(ctx context.Context, addr string, stdin io.Reader, stdout, stder
 	if err != nil {
 		return nil, err
 	}
-	var ui *cliUI
 	var stream *streamBuffer
 	if opts.LegacyUI {
-		ui = newCLIUI(stderr)
 		stream = newStreamBuffer(stdout)
 	}
 	c := &client{
@@ -314,7 +311,6 @@ func dialClient(ctx context.Context, addr string, stdin io.Reader, stdout, stder
 		stdin:         bufio.NewReader(stdin),
 		stdout:        stdout,
 		stderr:        stderr,
-		ui:            ui,
 		stream:        stream,
 		opts:          opts,
 		allowCommands: map[string]bool{},
@@ -328,9 +324,6 @@ func dialClient(ctx context.Context, addr string, stdin io.Reader, stdout, stder
 }
 
 func (c *client) Close() error {
-	if c.ui != nil {
-		c.ui.restoreTerminal()
-	}
 	c.close(nil)
 	return c.conn.Close()
 }
@@ -469,18 +462,11 @@ func (c *client) Prompt(ctx context.Context, sessionID, text string) error {
 		c.state.Busy = false
 		c.mu.Unlock()
 		c.emitState()
-		if c.ui != nil {
-			c.ui.refresh(c)
-		}
 	}()
 	c.emit(uiUserEvent{Text: text})
-	if c.ui != nil {
-		c.ui.userMessage(text)
-		c.ui.start(c, "prompt")
-		if c.stream != nil {
-			c.stream.start()
-		}
-		defer c.ui.finishAnswer(c)
+	if c.stream != nil {
+		c.stream.start()
+		defer c.stream.finish()
 	}
 	blocks := []acp.ContentBlock{{Type: "text", Text: text}}
 	files := c.takeAttachments()
@@ -509,18 +495,14 @@ func (c *client) Prompt(ctx context.Context, sessionID, text string) error {
 		c.restoreAttachments(files)
 		return err
 	}
-	if c.events == nil && (c.ui == nil || !c.ui.active()) {
+	if c.events == nil {
 		fmt.Fprintln(c.stdout)
 	}
 	if out.StopReason != "" && out.StopReason != "end_turn" && out.StopReason != "stop" {
 		if c.emitInfo("stop", out.StopReason) {
 			return nil
 		}
-		if c.ui != nil && c.ui.active() {
-			c.ui.infoCell("stop", out.StopReason)
-		} else {
-			fmt.Fprintf(c.stderr, "stop: %s\n", out.StopReason)
-		}
+		fmt.Fprintf(c.stderr, "stop: %s\n", out.StopReason)
 	}
 	return nil
 }
@@ -540,12 +522,7 @@ func (c *client) SubmitPrompt(ctx context.Context, text string) {
 		if c.emitInfo("queued", fmt.Sprintf("%d prompt(s) waiting", queued)) {
 			return
 		}
-		if c.ui != nil && c.ui.active() {
-			c.ui.infoCell("queued", fmt.Sprintf("%d prompt(s) waiting", queued))
-			c.ui.refresh(c)
-		} else {
-			fmt.Fprintf(c.stderr, "queued %d prompt(s)\n", queued)
-		}
+		fmt.Fprintf(c.stderr, "queued %d prompt(s)\n", queued)
 		return
 	}
 	c.mu.Unlock()
@@ -892,15 +869,7 @@ func repl(ctx context.Context, c *client) error {
 			return nil
 		default:
 		}
-		if c.ui != nil && c.ui.active() {
-			c.ui.prompt(c)
-		} else if c.ui != nil {
-			c.ui.ready(c)
-			c.ui.clear()
-			fmt.Fprint(c.stderr, "\nacp> ")
-		} else {
-			fmt.Fprint(c.stderr, "\nacp> ")
-		}
+		fmt.Fprint(c.stderr, "\nacp> ")
 		line, err := c.stdin.ReadString('\n')
 		if err != nil {
 			if errors.Is(err, io.EOF) {
@@ -911,9 +880,6 @@ func repl(ctx context.Context, c *client) error {
 				return nil
 			}
 			return err
-		}
-		if c.ui != nil && c.ui.active() {
-			c.ui.acceptComposer()
 		}
 		line = strings.TrimSpace(line)
 		if line == "" {
@@ -1031,10 +997,6 @@ func (c *client) printHelp() {
   /raw [on|off]
   /quit
 `
-	if c.ui != nil && c.ui.active() {
-		c.ui.infoCell("help", strings.TrimRight(body, "\n"))
-		return
-	}
 	if c.emitInfo("help", strings.TrimRight(body, "\n")) {
 		return
 	}
@@ -1266,20 +1228,12 @@ func (c *client) printQueue() {
 		if c.emitInfo("queue", "empty") {
 			return
 		}
-		if c.ui != nil && c.ui.active() {
-			c.ui.infoCell("queue", "empty")
-		} else {
-			fmt.Fprintln(c.stderr, "queue: empty")
-		}
+		fmt.Fprintln(c.stderr, "queue: empty")
 		return
 	}
 	var b strings.Builder
 	for i, item := range queue {
 		fmt.Fprintf(&b, "%d. %s\n", i+1, item)
-	}
-	if c.ui != nil && c.ui.active() {
-		c.ui.infoCell("queue", strings.TrimRight(b.String(), "\n"))
-		return
 	}
 	if c.emitInfo("queue", strings.TrimRight(b.String(), "\n")) {
 		return
@@ -1289,10 +1243,6 @@ func (c *client) printQueue() {
 
 func (c *client) printStatus() {
 	body := c.statusString()
-	if c.ui != nil && c.ui.active() {
-		c.ui.statusCard(c, body)
-		return
-	}
 	if c.emitInfo("status", strings.TrimRight(body, "\n")) {
 		return
 	}
@@ -1461,7 +1411,10 @@ func (c *client) commandPermission(mode string) {
 		return
 	}
 	switch strings.ToLower(mode) {
-	case "prompt", "allow", "reject", "cancel", "cancelled":
+	case "prompt", "allow", "reject", "deny", "cancel", "cancelled":
+		if strings.ToLower(mode) == "deny" {
+			mode = "reject"
+		}
 		c.mu.Lock()
 		c.opts.Permission = strings.ToLower(mode)
 		permission := c.opts.Permission

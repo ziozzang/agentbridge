@@ -20,23 +20,16 @@ func (c *client) choose(title, detail string, options []choiceOption) (string, e
 		choice := <-reply
 		return normalizeChoice(choice, options), nil
 	}
-	if c.ui != nil && c.ui.active() {
-		c.ui.overlay(title, detail, options)
-	} else if c.ui != nil {
-		c.ui.clear()
+	fmt.Fprintf(c.stderr, "\n%s\n", title)
+	if strings.TrimSpace(detail) != "" {
+		fmt.Fprintln(c.stderr, detail)
 	}
-	if c.ui == nil || !c.ui.active() {
-		fmt.Fprintf(c.stderr, "\n%s\n", title)
-		if strings.TrimSpace(detail) != "" {
-			fmt.Fprintln(c.stderr, detail)
+	for i, opt := range options {
+		key := opt.Key
+		if key == "" {
+			key = strconv.Itoa(i + 1)
 		}
-		for i, opt := range options {
-			key := opt.Key
-			if key == "" {
-				key = strconv.Itoa(i + 1)
-			}
-			fmt.Fprintf(c.stderr, "%s: %s\n", key, opt.Label)
-		}
+		fmt.Fprintf(c.stderr, "%s: %s\n", key, opt.Label)
 	}
 	fmt.Fprint(c.stderr, "select: ")
 	line, err := c.stdin.ReadString('\n')
