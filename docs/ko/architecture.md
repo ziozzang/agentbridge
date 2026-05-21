@@ -157,7 +157,15 @@ message로 추가하지 않습니다.
   transcript가 바뀌면 `cacheEpoch`를 증가시킵니다.
 - `/subagent [--model MODEL] TASK`는 child session id로 bounded child provider
   call을 실행하고 결과를 현재 session에 돌려줍니다. Lua/client orchestration이
-  위임 작업에 사용할 primitive입니다.
+  위임 작업에 사용할 primitive입니다. Subagent는 부모의 tool/permission 경로를
+  사용하고 active skill과 project context를 상속하며, tool call trace를 부모
+  결과/update stream에 남깁니다. 또한 proactive/overflow compaction을 수행하고,
+  context overflow 후 1회 재시도하며, 설정된 depth를 넘는 recursive nesting은
+  거부합니다. `maxTurns`를 소진하면 명시적 실패로 처리합니다. 장기 multi-agent
+  scheduling은 server subagent가 아니라 CLI Lua orchestration layer에서
+  조립합니다. Provider-native session에서 이 command는 child session id를 쓰는
+  명시적 server-side delegation call이며, provider의 native parent thread에
+  병합되지 않습니다.
 - `/skill list|status|clear|NAME`은 markdown skill을 관리합니다. Skill은
   `<cwd>/.agentbridge/skills/*.md`를 먼저 보고, 그 다음
   `$XDG_CONFIG_HOME/agentbridge/skills/*.md`에서 찾습니다. Active skill은 content

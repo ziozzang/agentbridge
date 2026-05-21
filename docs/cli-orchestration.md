@@ -150,6 +150,17 @@ A goal loop stores a current goal, creates a plan, runs jobs, uses `judge` to
 create goal-specific evaluation prompts, updates `jobs`, and fires a trigger
 that steers the loop to stop when enough work is done.
 
+`acp-agent` ships a small local goal harness on top of this design:
+
+- `/goal` or `/goal status` reads `cli.goal.status()`.
+- `/goal set TEXT` stores the goal in the local orchestration KV store.
+- `/goal run` sends a goal-specific prompt through the current ACP session.
+- `/goal clear` removes the local goal.
+
+Goal judgment is deliberately CLI-owned. The server sees only the resulting ACP
+prompt/tool traffic; it does not store a canonical goal field on the ACP
+session.
+
 ### Autoresearch
 
 Autoresearch creates a source plan with `research_source`, stores the plan in
@@ -172,6 +183,10 @@ when context pressure or risk conditions appear.
 - Client-owned tools are namespaced as `client__*`.
 - Shell commands and shell scripts are client-owned. Use
   `client__run_command`; do not add server-owned shell execution.
+- The terminal UI is intentionally a client surface. User messages, assistant
+  streams, thinking, tool lifecycle updates, status cards, and approval
+  overlays are rendered locally from ACP updates; the server should keep
+  emitting structured events instead of terminal control sequences.
 - Scripts should avoid recursive `cli.prompt(...)` while an active prompt is in
   flight.
 - `sql_query` is read-only. `sql_exec` mutates only the local orchestration DB.

@@ -202,7 +202,8 @@ func TestRuntimeSubagentCommandUsesProvider(t *testing.T) {
 }
 
 type subagentToolProvider struct {
-	calls int
+	calls        int
+	firstRequest []provider.Message
 }
 
 func (p *subagentToolProvider) Name() string { return "subagent-tool-test" }
@@ -214,6 +215,9 @@ func (p *subagentToolProvider) DefaultModel() string     { return "tool-model" }
 func (p *subagentToolProvider) ContextWindow(string) int { return 100000 }
 func (p *subagentToolProvider) StreamChat(_ context.Context, messages []provider.Message, _ provider.StreamOptions) (<-chan provider.Chunk, <-chan error) {
 	p.calls++
+	if p.calls == 1 {
+		p.firstRequest = append([]provider.Message(nil), messages...)
+	}
 	chunks := make(chan provider.Chunk, 2)
 	errs := make(chan error, 1)
 	go func() {
@@ -268,6 +272,173 @@ func TestRuntimeSubagentToolCallsUseParentPermissionPath(t *testing.T) {
 	}
 	if r.countUpdates("tool_call") < 2 {
 		t.Fatalf("expected subagent and write_file tool updates, got %d", r.countUpdates("tool_call"))
+	}
+	if update := r.findUpdate("tool_call_update"); update == nil {
+		t.Fatalf("expected subagent updates")
+	}
+}
+
+func TestRuntimeSubagentRejectsRecursiveCommand(t *testing.T) {
+	a := New(sessionstore.NewIn(t.TempDir()))
+	a.Provider = &nativeTestProvider{}
+	a.Conn = &recorderConn{}
+	s := &sessionState{ID: "s1", Cwd: t.TempDir(), Model: "m", Mode: ModeDefault}
+	a.sessions["s1"] = s
+	ctx := context.WithValue(context.Background(), subagentDepthKey{}, maxSubagentDepth)
+	handled, _, err := a.handleRuntimeCommand(ctx, s, acp.PromptParams{
+		SessionID: "s1",
+		Prompt:    []acp.ContentBlock{{Type: "text", Text: "/subagent recurse"}},
+	})
+	if err != nil || !handled {
+		t.Fatalf("subagent handled=%v err=%v", handled, err)
+	}
+	if a.Provider.(*nativeTestProvider).calls != 0 {
+		t.Fatalf("recursive subagent should not call provider")
+	}
+}
+
+func TestRuntimeSubagentInjectsActiveSkillsAndToolNames(t *testing.T) {
+	cwd := t.TempDir()
+	dir := filepath.Join(cwd, ".agentbridge", "skills")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "sub.md"), []byte("Always preserve subagent skill context."), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	p := &subagentToolProvider{}
+	a := New(sessionstore.NewIn(t.TempDir()))
+	a.Provider = p
+	a.Conn = &recorderConn{}
+	s := &sessionState{
+		ID:           "s1",
+		Cwd:          cwd,
+		Model:        "tool-model",
+		Mode:         ModeBypassPerms,
+		ActiveSkills: []sessionstore.ActiveSkill{{Name: "sub", Path: filepath.Join(dir, "sub.md")}},
+	}
+	a.sessions["s1"] = s
+	handled, _, err := a.handleRuntimeCommand(context.Background(), s, acp.PromptParams{
+		SessionID: "s1",
+		Prompt:    []acp.ContentBlock{{Type: "text", Text: "/subagent check skills"}},
+	})
+	if err != nil || !handled {
+		t.Fatalf("subagent handled=%v err=%v", handled, err)
+	}
+	if len(p.firstRequest) == 0 {
+		t.Fatalf("provider did not receive subagent request")
+	}
+	system := fmt.Sprint(p.firstRequest[0].Content)
+	if !strings.Contains(system, "Always preserve subagent skill context.") {
+		t.Fatalf("missing active skill in subagent system prompt:\n%s", system)
+	}
+	if !strings.Contains(system, "write_file") {
+		t.Fatalf("missing tool names in subagent system prompt:\n%s", system)
+	}
+}
+
+type subagentOverflowProvider struct {
+	calls int
+}
+
+func (p *subagentOverflowProvider) Name() string { return "subagent-overflow-test" }
+func (p *subagentOverflowProvider) Kind() string { return "subagent-overflow-test" }
+func (p *subagentOverflowProvider) AvailableModels() []provider.ModelInfo {
+	return []provider.ModelInfo{{ModelID: "overflow-model", Name: "overflow-model"}}
+}
+func (p *subagentOverflowProvider) DefaultModel() string     { return "overflow-model" }
+func (p *subagentOverflowProvider) ContextWindow(string) int { return 4096 }
+func (p *subagentOverflowProvider) StreamChat(_ context.Context, _ []provider.Message, _ provider.StreamOptions) (<-chan provider.Chunk, <-chan error) {
+	p.calls++
+	chunks := make(chan provider.Chunk)
+	errs := make(chan error, 1)
+	go func() {
+		close(chunks)
+		if p.calls == 1 {
+			errs <- &provider.ContextOverflowError{Provider: p.Name(), Model: "overflow-model", Message: "too long"}
+			close(errs)
+			return
+		}
+		errs <- nil
+		close(errs)
+	}()
+	return chunks, errs
+}
+
+func TestRuntimeSubagentRetriesOnceAfterContextOverflow(t *testing.T) {
+	p := &subagentOverflowProvider{}
+	a := New(sessionstore.NewIn(t.TempDir()))
+	a.Provider = p
+	a.Conn = &recorderConn{}
+	s := &sessionState{ID: "s1", Cwd: t.TempDir(), Model: "overflow-model", Mode: ModeDefault}
+	a.sessions["s1"] = s
+	handled, _, err := a.handleRuntimeCommand(context.Background(), s, acp.PromptParams{
+		SessionID: "s1",
+		Prompt:    []acp.ContentBlock{{Type: "text", Text: "/subagent survive overflow"}},
+	})
+	if err != nil || !handled {
+		t.Fatalf("subagent handled=%v err=%v", handled, err)
+	}
+	if p.calls != 2 {
+		t.Fatalf("provider calls = %d, want retry", p.calls)
+	}
+}
+
+type subagentLoopProvider struct {
+	calls int
+}
+
+func (p *subagentLoopProvider) Name() string { return "subagent-loop-test" }
+func (p *subagentLoopProvider) Kind() string { return "subagent-loop-test" }
+func (p *subagentLoopProvider) AvailableModels() []provider.ModelInfo {
+	return []provider.ModelInfo{{ModelID: "loop-model", Name: "loop-model"}}
+}
+func (p *subagentLoopProvider) DefaultModel() string     { return "loop-model" }
+func (p *subagentLoopProvider) ContextWindow(string) int { return 100000 }
+func (p *subagentLoopProvider) StreamChat(_ context.Context, _ []provider.Message, _ provider.StreamOptions) (<-chan provider.Chunk, <-chan error) {
+	p.calls++
+	chunks := make(chan provider.Chunk, 1)
+	errs := make(chan error, 1)
+	go func() {
+		defer close(chunks)
+		defer close(errs)
+		chunks <- provider.Chunk{ToolCall: &provider.ToolCall{ID: "loop", Name: "list_files", Arguments: `{}`}}
+		errs <- nil
+	}()
+	return chunks, errs
+}
+
+func TestRuntimeSubagentMaxTurnsReturnsError(t *testing.T) {
+	p := &subagentLoopProvider{}
+	r := &recorderConn{}
+	a := New(sessionstore.NewIn(t.TempDir()))
+	a.Provider = p
+	a.Conn = r
+	a.MaxTurns = 1
+	s := &sessionState{ID: "s1", Cwd: t.TempDir(), Model: "loop-model", Mode: ModeBypassPerms}
+	a.sessions["s1"] = s
+	handled, _, err := a.handleRuntimeCommand(context.Background(), s, acp.PromptParams{
+		SessionID: "s1",
+		Prompt:    []acp.ContentBlock{{Type: "text", Text: "/subagent loop"}},
+	})
+	if err != nil || !handled {
+		t.Fatalf("subagent handled=%v err=%v", handled, err)
+	}
+	update := r.findUpdate("tool_call_update")
+	if update == nil {
+		t.Fatalf("missing failed subagent update")
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	found := false
+	for _, u := range r.updates {
+		if strings.Contains(fmt.Sprint(u), "max turns") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("missing max turns error update: %#v", r.updates)
 	}
 }
 

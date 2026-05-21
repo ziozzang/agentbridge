@@ -123,6 +123,53 @@ func TestPrintUpdateSeparatesToolStatus(t *testing.T) {
 	}
 }
 
+func TestStreamBufferFlushesOnToolUpdate(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	c := &client{
+		stdout: &stdout,
+		stderr: &stderr,
+		stream: newStreamBuffer(&stdout),
+		opts:   clientOptions{ShowTools: true},
+	}
+	c.stream.start()
+	c.printUpdate(acp.SessionUpdateParams{Update: map[string]any{
+		"sessionUpdate": "agent_message_chunk",
+		"content":       map[string]any{"type": "text", "text": "partial"},
+	}})
+	if stdout.String() != "" {
+		t.Fatalf("stream flushed too early: %q", stdout.String())
+	}
+	c.printUpdate(acp.SessionUpdateParams{Update: map[string]any{
+		"sessionUpdate": "tool_call_update",
+		"status":        "completed",
+	}})
+	if !strings.Contains(stdout.String(), "partial") {
+		t.Fatalf("stream did not flush before tool update: stdout=%q stderr=%q", stdout.String(), stderr.String())
+	}
+}
+
+func TestToolSurfaceTracksSubagents(t *testing.T) {
+	c := &client{stderr: ioDiscard{}, opts: clientOptions{ShowTools: true}, activeTools: map[string]string{}, activeAgents: map[string]string{}}
+	c.printUpdate(acp.SessionUpdateParams{Update: map[string]any{
+		"sessionUpdate": "tool_call",
+		"toolCallId":    "s1/sub/abcd",
+		"kind":          "agent",
+		"title":         "Subagent: inspect",
+		"status":        "in_progress",
+	}})
+	if c.state.Subagents != 1 || c.state.Tools != 0 || c.state.LastTool != "Subagent: inspect" {
+		t.Fatalf("state after subagent start = %#v", c.state)
+	}
+	c.printUpdate(acp.SessionUpdateParams{Update: map[string]any{
+		"sessionUpdate": "tool_call_update",
+		"toolCallId":    "s1/sub/abcd",
+		"status":        "completed",
+	}})
+	if c.state.Subagents != 0 {
+		t.Fatalf("state after subagent done = %#v", c.state)
+	}
+}
+
 func TestPrintUpdateStoresContextSnapshot(t *testing.T) {
 	c := &client{}
 	c.printUpdate(acp.SessionUpdateParams{Update: map[string]any{
@@ -137,12 +184,45 @@ func TestPrintUpdateStoresContextSnapshot(t *testing.T) {
 			"cache_epoch":        float64(2),
 			"compaction_enabled": true,
 		},
+		"limits": map[string]any{
+			"5h":     float64(94),
+			"weekly": float64(84),
+		},
 	}})
 	if c.state.Context.Tokens != 35 || c.state.Context.Window != 100 || c.state.Context.LeftPercent != 65 {
 		t.Fatalf("context state = %#v", c.state.Context)
 	}
+	if c.state.Limits.FiveHourPercent != 94 || c.state.Limits.WeeklyPercent != 84 {
+		t.Fatalf("limits = %#v", c.state.Limits)
+	}
 	if got := contextLabel(c.state.Context); !strings.Contains(got, "65% left") || !strings.Contains(got, "35% used") {
 		t.Fatalf("context label = %q", got)
+	}
+}
+
+func TestLimitLabelsShowUnknownSlots(t *testing.T) {
+	got := strings.Join(limitLabels(limitState{}), " ")
+	if !strings.Contains(got, "5h ?") || !strings.Contains(got, "weekly ?") {
+		t.Fatalf("limit labels = %q", got)
+	}
+	got = strings.Join(limitLabels(limitState{FiveHourPercent: 94, WeeklyPercent: 84}), " ")
+	if !strings.Contains(got, "5h 94%") || !strings.Contains(got, "weekly 84%") {
+		t.Fatalf("limit labels = %q", got)
+	}
+}
+
+func TestSubmitPromptQueuesWhileBusy(t *testing.T) {
+	var stderr bytes.Buffer
+	c := &client{
+		stderr: &stderr,
+		state:  clientState{Busy: true},
+	}
+	c.SubmitPrompt(context.Background(), "second prompt")
+	if c.state.QueueLen != 1 || len(c.promptQueue) != 1 {
+		t.Fatalf("queue state = %d %#v", c.state.QueueLen, c.promptQueue)
+	}
+	if !strings.Contains(stderr.String(), "queued 1") {
+		t.Fatalf("queue message = %q", stderr.String())
 	}
 }
 
@@ -259,6 +339,18 @@ func TestClientRunCommandSameCommandRemembered(t *testing.T) {
 	}
 	if strings.Count(stderr.String(), "permission requested") != 1 {
 		t.Fatalf("same command should prompt once, stderr=%q", stderr.String())
+	}
+}
+
+func TestLuaGoalCommandStoresGoal(t *testing.T) {
+	t.Setenv("AGENTBRIDGE_CLI_ORCH_DB", filepath.Join(t.TempDir(), "orch.sqlite"))
+	var stdout bytes.Buffer
+	c := &client{stdout: &stdout, stderr: ioDiscard{}}
+	c.commandGoal(context.Background(), "set ship robust permissions")
+	c.commandGoal(context.Background(), "status")
+	got := stdout.String()
+	if !strings.Contains(got, "goal set: ship robust permissions") || !strings.Contains(got, "goal: ship robust permissions") {
+		t.Fatalf("goal output = %q", got)
 	}
 }
 

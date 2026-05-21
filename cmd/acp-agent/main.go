@@ -13,7 +13,6 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -64,8 +63,10 @@ Interactive commands:
   /clear-files         clear queued file attachments
   /structure           show session/context/attachment structure
   /lua FILE [args...]  run a local Lua controller script
+  /goal [CMD]          local Lua goal harness: status, set TEXT, run, clear
   /new                 start a new session in the current cwd
   /stop                cancel the current session prompt
+  /queue               show queued prompts waiting behind current prompt
   /skill COMMAND       run server-side skill commands
   /exit, /quit         leave the session
   /model [MODEL]       show or switch model with session/set_model
@@ -136,11 +137,17 @@ func main() {
 	}
 	defer cli.Close()
 	go func() {
-		<-sigCh
-		cancel()
-		fmt.Fprintln(os.Stderr, "\ninterrupted")
-		_ = cli.Close()
-		os.Exit(130)
+		for {
+			<-sigCh
+			if cli.Interrupt(ctx) {
+				fmt.Fprintln(os.Stderr, "\ninterrupt: cancelled current session prompt")
+				continue
+			}
+			cancel()
+			fmt.Fprintln(os.Stderr, "\ninterrupted")
+			_ = cli.Close()
+			os.Exit(130)
+		}
 	}()
 
 	if err := cli.Initialize(ctx); err != nil {
@@ -212,6 +219,12 @@ type clientState struct {
 	Model     string
 	Mode      string
 	Context   contextState
+	Limits    limitState
+	Busy      bool
+	QueueLen  int
+	Tools     int
+	Subagents int
+	LastTool  string
 }
 
 type contextState struct {
@@ -225,6 +238,13 @@ type contextState struct {
 	CompactionOn bool
 }
 
+type limitState struct {
+	FiveHourPercent float64
+	WeeklyPercent   float64
+	MonthlyPercent  float64
+	Refreshing      bool
+}
+
 type attachment struct {
 	Resource filecontext.Resource
 }
@@ -236,10 +256,14 @@ type client struct {
 	stdout        io.Writer
 	stderr        io.Writer
 	ui            *cliUI
+	stream        *streamBuffer
 	opts          clientOptions
 	state         clientState
 	files         []attachment
 	allowCommands map[string]bool
+	promptQueue   []string
+	activeTools   map[string]string
+	activeAgents  map[string]string
 
 	writeMu sync.Mutex
 	nextID  atomic.Int64
@@ -263,8 +287,11 @@ func dialClient(ctx context.Context, addr string, stdin io.Reader, stdout, stder
 		stdout:        stdout,
 		stderr:        stderr,
 		ui:            newCLIUI(stderr),
+		stream:        newStreamBuffer(stdout),
 		opts:          opts,
 		allowCommands: map[string]bool{},
+		activeTools:   map[string]string{},
+		activeAgents:  map[string]string{},
 		pending:       map[int64]*pendingResponse{},
 		done:          make(chan struct{}),
 	}
@@ -273,6 +300,9 @@ func dialClient(ctx context.Context, addr string, stdin io.Reader, stdout, stder
 }
 
 func (c *client) Close() error {
+	if c.ui != nil {
+		c.ui.restoreTerminal()
+	}
 	c.close(nil)
 	return c.conn.Close()
 }
@@ -385,10 +415,37 @@ func (c *client) Cancel(ctx context.Context, sessionID string) error {
 	return c.Notify(ctx, "session/cancel", acp.CancelParams{SessionID: sessionID})
 }
 
+func (c *client) Interrupt(ctx context.Context) bool {
+	c.mu.Lock()
+	sessionID := c.state.SessionID
+	busy := c.state.Busy
+	c.mu.Unlock()
+	if !busy || sessionID == "" {
+		return false
+	}
+	_ = c.Cancel(ctx, sessionID)
+	return true
+}
+
 func (c *client) Prompt(ctx context.Context, sessionID, text string) error {
+	c.mu.Lock()
+	c.state.Busy = true
+	c.mu.Unlock()
+	defer func() {
+		c.mu.Lock()
+		c.state.Busy = false
+		c.mu.Unlock()
+		if c.ui != nil {
+			c.ui.refresh(c)
+		}
+	}()
 	if c.ui != nil {
+		c.ui.userMessage(text)
 		c.ui.start(c, "prompt")
-		defer c.ui.ready(c)
+		if c.stream != nil {
+			c.stream.start()
+		}
+		defer c.ui.finishAnswer(c)
 	}
 	blocks := []acp.ContentBlock{{Type: "text", Text: text}}
 	files := c.takeAttachments()
@@ -417,11 +474,62 @@ func (c *client) Prompt(ctx context.Context, sessionID, text string) error {
 		c.restoreAttachments(files)
 		return err
 	}
-	fmt.Fprintln(c.stdout)
+	if c.ui == nil || !c.ui.active() {
+		fmt.Fprintln(c.stdout)
+	}
 	if out.StopReason != "" && out.StopReason != "end_turn" && out.StopReason != "stop" {
-		fmt.Fprintf(c.stderr, "stop: %s\n", out.StopReason)
+		if c.ui != nil && c.ui.active() {
+			c.ui.infoCell("stop", out.StopReason)
+		} else {
+			fmt.Fprintf(c.stderr, "stop: %s\n", out.StopReason)
+		}
 	}
 	return nil
+}
+
+func (c *client) SubmitPrompt(ctx context.Context, text string) {
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return
+	}
+	c.mu.Lock()
+	if c.state.Busy {
+		c.promptQueue = append(c.promptQueue, text)
+		c.state.QueueLen = len(c.promptQueue)
+		queued := c.state.QueueLen
+		c.mu.Unlock()
+		if c.ui != nil && c.ui.active() {
+			c.ui.infoCell("queued", fmt.Sprintf("%d prompt(s) waiting", queued))
+			c.ui.refresh(c)
+		} else {
+			fmt.Fprintf(c.stderr, "queued %d prompt(s)\n", queued)
+		}
+		return
+	}
+	c.mu.Unlock()
+	go c.runPromptQueue(ctx, text)
+}
+
+func (c *client) runPromptQueue(ctx context.Context, first string) {
+	next := first
+	for strings.TrimSpace(next) != "" {
+		c.mu.Lock()
+		sessionID := c.state.SessionID
+		c.mu.Unlock()
+		if err := c.Prompt(ctx, sessionID, next); err != nil {
+			fmt.Fprintln(c.stderr, "prompt failed:", err)
+		}
+		c.mu.Lock()
+		if len(c.promptQueue) == 0 {
+			c.state.QueueLen = 0
+			c.mu.Unlock()
+			return
+		}
+		next = c.promptQueue[0]
+		c.promptQueue = c.promptQueue[1:]
+		c.state.QueueLen = len(c.promptQueue)
+		c.mu.Unlock()
+	}
 }
 
 func renderAttachedResource(res filecontext.Resource) string {
@@ -733,193 +841,6 @@ func (c *client) setPermissionMode(mode string) {
 	c.mu.Unlock()
 }
 
-func (c *client) printUpdate(p acp.SessionUpdateParams) {
-	update := p.Update
-	switch update["sessionUpdate"] {
-	case "agent_message_chunk":
-		if c.ui != nil {
-			c.ui.beginAnswer()
-		}
-		if text := updateText(update); text != "" {
-			fmt.Fprint(c.stdout, text)
-			flush(c.stdout)
-		}
-	case "agent_thought_chunk":
-		c.mu.Lock()
-		show := c.opts.ShowThinking
-		c.mu.Unlock()
-		if show {
-			if text := updateText(update); text != "" {
-				if c.ui != nil {
-					c.ui.clear()
-				}
-				fmt.Fprintf(c.stderr, "\n[thinking] %s\n", text)
-				flush(c.stderr)
-			}
-		}
-	case "tool_call":
-		c.mu.Lock()
-		show := c.opts.ShowTools
-		c.mu.Unlock()
-		if !show {
-			return
-		}
-		title, _ := update["title"].(string)
-		status, _ := update["status"].(string)
-		if c.ui != nil && title != "" {
-			c.ui.setActivity(c, firstNonEmpty(status, "tool")+" "+title)
-		}
-		if title != "" {
-			if c.ui != nil {
-				c.ui.clear()
-			}
-			fmt.Fprintf(c.stderr, "\n[tool:%s] %s\n", firstNonEmpty(status, "start"), title)
-			flush(c.stderr)
-		}
-	case "tool_call_update":
-		c.mu.Lock()
-		show := c.opts.ShowTools
-		c.mu.Unlock()
-		if !show {
-			return
-		}
-		status, _ := update["status"].(string)
-		if c.ui != nil && status != "" {
-			c.ui.setActivity(c, "tool "+status)
-		}
-		if status != "" {
-			if c.ui != nil {
-				c.ui.clear()
-			}
-			fmt.Fprintf(c.stderr, "[tool:%s]\n", status)
-			flush(c.stderr)
-		}
-	case "session_info_update":
-		c.applySessionInfoUpdate(update)
-		return
-	case "current_mode_update":
-		if mode, _ := update["currentModeId"].(string); mode != "" {
-			c.mu.Lock()
-			c.state.Mode = mode
-			c.mu.Unlock()
-			if c.ui != nil {
-				c.ui.ready(c)
-			}
-		}
-		return
-	default:
-		c.mu.Lock()
-		rawUpdates := c.opts.RawUpdates
-		c.mu.Unlock()
-		if rawUpdates {
-			raw, _ := json.Marshal(update)
-			fmt.Fprintf(c.stderr, "\n[update] %s\n", raw)
-			flush(c.stderr)
-		}
-	}
-}
-
-func (c *client) applySessionInfoUpdate(update map[string]any) {
-	c.mu.Lock()
-	if model, _ := update["model"].(string); model != "" {
-		c.state.Model = model
-	}
-	if ctxMap, ok := update["context"].(map[string]any); ok {
-		c.state.Context = parseContextState(ctxMap)
-	}
-	c.mu.Unlock()
-	if c.ui != nil {
-		c.ui.ready(c)
-	}
-}
-
-func parseContextState(m map[string]any) contextState {
-	return contextState{
-		Tokens:       intFromAny(m["tokens"]),
-		Window:       intFromAny(m["window"]),
-		UsedPercent:  floatFromAny(m["used_percent"]),
-		LeftPercent:  floatFromAny(m["left_percent"]),
-		Messages:     intFromAny(m["messages"]),
-		Checkpoints:  intFromAny(m["checkpoints"]),
-		CacheEpoch:   intFromAny(m["cache_epoch"]),
-		CompactionOn: boolFromAny(m["compaction_enabled"]),
-	}
-}
-
-func intFromAny(v any) int {
-	switch x := v.(type) {
-	case int:
-		return x
-	case int64:
-		return int(x)
-	case float64:
-		return int(x)
-	case json.Number:
-		n, _ := x.Int64()
-		return int(n)
-	case string:
-		n, _ := strconv.Atoi(strings.TrimSpace(x))
-		return n
-	default:
-		return 0
-	}
-}
-
-func floatFromAny(v any) float64 {
-	switch x := v.(type) {
-	case float64:
-		return x
-	case float32:
-		return float64(x)
-	case int:
-		return float64(x)
-	case int64:
-		return float64(x)
-	case json.Number:
-		n, _ := x.Float64()
-		return n
-	case string:
-		n, _ := strconv.ParseFloat(strings.TrimSpace(x), 64)
-		return n
-	default:
-		return 0
-	}
-}
-
-func boolFromAny(v any) bool {
-	switch x := v.(type) {
-	case bool:
-		return x
-	case string:
-		b, _ := strconv.ParseBool(strings.TrimSpace(x))
-		return b
-	default:
-		return false
-	}
-}
-
-func flush(w io.Writer) {
-	if f, ok := w.(interface{ Flush() error }); ok {
-		_ = f.Flush()
-	}
-}
-
-func updateText(update map[string]any) string {
-	content, ok := update["content"].(map[string]any)
-	if !ok {
-		return ""
-	}
-	if text, _ := content["text"].(string); text != "" {
-		return text
-	}
-	nested, ok := content["content"].(map[string]any)
-	if !ok {
-		return ""
-	}
-	text, _ := nested["text"].(string)
-	return text
-}
-
 func repl(ctx context.Context, c *client) error {
 	for {
 		select {
@@ -927,11 +848,15 @@ func repl(ctx context.Context, c *client) error {
 			return nil
 		default:
 		}
-		if c.ui != nil {
+		if c.ui != nil && c.ui.active() {
+			c.ui.prompt(c)
+		} else if c.ui != nil {
 			c.ui.ready(c)
 			c.ui.clear()
+			fmt.Fprint(c.stderr, "\nacp> ")
+		} else {
+			fmt.Fprint(c.stderr, "\nacp> ")
 		}
-		fmt.Fprint(c.stderr, "\nacp> ")
 		line, err := c.stdin.ReadString('\n')
 		if err != nil {
 			if errors.Is(err, io.EOF) {
@@ -942,6 +867,9 @@ func repl(ctx context.Context, c *client) error {
 				return nil
 			}
 			return err
+		}
+		if c.ui != nil && c.ui.active() {
+			c.ui.acceptComposer()
 		}
 		line = strings.TrimSpace(line)
 		if line == "" {
@@ -970,6 +898,8 @@ func (c *client) runCommand(ctx context.Context, line string) error {
 		c.commandNew(ctx)
 	case line == "/stop":
 		c.commandStop(ctx)
+	case line == "/queue":
+		c.printQueue()
 	case line == "/compact" || strings.HasPrefix(line, "/compact "):
 		c.commandServerPrompt(ctx, line)
 	case line == "/context":
@@ -984,6 +914,8 @@ func (c *client) runCommand(ctx context.Context, line string) error {
 		c.commandAttach(strings.TrimSpace(strings.TrimPrefix(line, "/attach")))
 	case line == "/lua" || strings.HasPrefix(line, "/lua "):
 		c.commandLua(ctx, strings.Fields(line))
+	case line == "/goal" || strings.HasPrefix(line, "/goal "):
+		c.commandGoal(ctx, strings.TrimSpace(strings.TrimPrefix(line, "/goal")))
 	case line == "/save" || strings.HasPrefix(line, "/save "):
 		name := strings.TrimSpace(strings.TrimPrefix(line, "/save"))
 		if name == "" {
@@ -1015,18 +947,13 @@ func (c *client) runCommand(ctx context.Context, line string) error {
 	case line == "/raw" || strings.HasPrefix(line, "/raw "):
 		c.commandBool("raw", strings.TrimSpace(strings.TrimPrefix(line, "/raw")), &c.opts.RawUpdates)
 	default:
-		c.mu.Lock()
-		sessionID := c.state.SessionID
-		c.mu.Unlock()
-		if err := c.Prompt(ctx, sessionID, line); err != nil {
-			return err
-		}
+		c.SubmitPrompt(ctx, line)
 	}
 	return nil
 }
 
 func (c *client) printHelp() {
-	fmt.Fprint(c.stderr, `commands:
+	body := `commands:
   /status
   /sessions
   /resume SESSION_ID
@@ -1041,8 +968,10 @@ func (c *client) printHelp() {
   /clear-files
   /structure
   /lua FILE [args...]
+  /goal [status|set TEXT|run|clear]
   /new
   /stop
+  /queue
   /skill list|status|clear|NAME
   /model [MODEL]
   /mode [MODE]
@@ -1051,7 +980,12 @@ func (c *client) printHelp() {
   /tools [on|off]
   /raw [on|off]
   /quit
-`)
+`
+	if c.ui != nil && c.ui.active() {
+		c.ui.infoCell("help", strings.TrimRight(body, "\n"))
+		return
+	}
+	fmt.Fprint(c.stderr, body)
 }
 
 func (c *client) commandAttach(args string) {
@@ -1152,6 +1086,18 @@ func (c *client) commandLua(ctx context.Context, fields []string) {
 	}
 }
 
+func (c *client) commandGoal(ctx context.Context, args string) {
+	body, _ := json.Marshal(args)
+	result, err := c.runLua(ctx, runLuaParams{Code: "cli.say(cli.goal.command(" + string(body) + "))"})
+	if err != nil {
+		fmt.Fprintln(c.stderr, "goal failed:", err)
+		return
+	}
+	if strings.TrimSpace(result.Output) != "" {
+		fmt.Fprintln(c.stdout, result.Output)
+	}
+}
+
 func (c *client) commandServerPrompt(ctx context.Context, prompt string) {
 	c.mu.Lock()
 	sessionID := c.state.SessionID
@@ -1192,8 +1138,36 @@ func (c *client) commandStop(ctx context.Context) {
 	fmt.Fprintln(c.stderr, "stop requested")
 }
 
+func (c *client) printQueue() {
+	c.mu.Lock()
+	queue := append([]string(nil), c.promptQueue...)
+	c.mu.Unlock()
+	if len(queue) == 0 {
+		if c.ui != nil && c.ui.active() {
+			c.ui.infoCell("queue", "empty")
+		} else {
+			fmt.Fprintln(c.stderr, "queue: empty")
+		}
+		return
+	}
+	var b strings.Builder
+	for i, item := range queue {
+		fmt.Fprintf(&b, "%d. %s\n", i+1, item)
+	}
+	if c.ui != nil && c.ui.active() {
+		c.ui.infoCell("queue", strings.TrimRight(b.String(), "\n"))
+		return
+	}
+	fmt.Fprint(c.stderr, b.String())
+}
+
 func (c *client) printStatus() {
-	fmt.Fprint(c.stderr, c.statusString())
+	body := c.statusString()
+	if c.ui != nil && c.ui.active() {
+		c.ui.statusCard(c, body)
+		return
+	}
+	fmt.Fprint(c.stderr, body)
 }
 
 func (c *client) statusString() string {
@@ -1205,10 +1179,19 @@ func (c *client) statusString() string {
 	if contextFile == "" {
 		contextFile = "(none)"
 	}
-	return fmt.Sprintf("addr=%s\nsession=%s\ncwd=%s\ncontext=%s\ncontext_usage=%s\nmessages=%d\ncheckpoints=%d\ncache_epoch=%d\nmodel=%s\nmode=%s\npermission=%s\nthinking=%v\ntools=%v\nraw=%v\n",
+	return fmt.Sprintf("addr=%s\nsession=%s\ncwd=%s\ncontext=%s\ncontext_usage=%s\n5h_limit=%s\nweekly_limit=%s\nmonthly_limit=%s\nmessages=%d\ncheckpoints=%d\ncache_epoch=%d\nmodel=%s\nmode=%s\nbusy=%v\nqueue=%d\nactive_tools=%d\nactive_subagents=%d\nlast_tool=%s\npermission=%s\nthinking=%v\ntools=%v\nraw=%v\n",
 		state.Addr, state.SessionID, state.Cwd, contextFile, contextLabel(state.Context),
+		percentOrUnknown(state.Limits.FiveHourPercent), percentOrUnknown(state.Limits.WeeklyPercent), percentOrUnknown(state.Limits.MonthlyPercent),
 		state.Context.Messages, state.Context.Checkpoints, state.Context.CacheEpoch, state.Model, state.Mode,
+		state.Busy, state.QueueLen, state.Tools, state.Subagents, state.LastTool,
 		firstNonEmpty(opts.Permission, "prompt"), opts.ShowThinking, opts.ShowTools, opts.RawUpdates)
+}
+
+func percentOrUnknown(v float64) string {
+	if v <= 0 {
+		return "?"
+	}
+	return fmt.Sprintf("%.0f%%", v)
 }
 
 func (c *client) commandSessions(ctx context.Context) {

@@ -1,6 +1,8 @@
 package sessionstore
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -57,6 +59,30 @@ func TestLoadMissingReturnsNil(t *testing.T) {
 	got, err := s.Load("nope")
 	if err != nil || got != nil {
 		t.Errorf("got (%v,%v)", got, err)
+	}
+}
+
+func TestLoadInvalidJSONReturnsError(t *testing.T) {
+	dir := t.TempDir()
+	s := NewIn(dir)
+	if err := os.WriteFile(filepath.Join(dir, "bad.json"), []byte("{"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	got, err := s.Load("bad")
+	if err == nil || got != nil {
+		t.Fatalf("got (%v,%v), want decode error", got, err)
+	}
+}
+
+func TestLoadUnsupportedSchemaReturnsError(t *testing.T) {
+	dir := t.TempDir()
+	s := NewIn(dir)
+	if err := os.WriteFile(filepath.Join(dir, "future.json"), []byte(`{"sessionId":"future","schemaVersion":99}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	got, err := s.Load("future")
+	if err == nil || got != nil {
+		t.Fatalf("got (%v,%v), want schema error", got, err)
 	}
 }
 

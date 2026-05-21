@@ -26,6 +26,10 @@ English documentation: [README.md](README.md)
 - **플러그인**: SQLite와 DuckDB 확장 표면.
 - **런타임 제어**: ACP session에서 terminal/runtime command로 checkpoint,
   rollback, markdown skill injection을 지원합니다.
+- **터미널 ACP 클라이언트**: `acp-agent`는 streaming 출력, context/status bar,
+  숫자 기반 permission overlay, message/tool/status history cell, Lua
+  orchestration, local goal, attachment, checkpoint, prompt queue, Ctrl-C prompt
+  cancellation을 제공하는 Codex/Claude 스타일 터미널 client입니다.
 - **하위 호환성**: 기존 `ACP_HARNESS_*`, `ACP_GLM_*`, `Z_AI_API_KEY`를 계속
   허용합니다.
 
@@ -62,18 +66,35 @@ ACP TCP, HTTP, gRPC를 함께 실행:
   --grpc-listen 127.0.0.1:8767
 ```
 
+터미널 ACP client로 접속:
+
+```bash
+go build -o acp-agent ./cmd/acp-agent
+./agentbridge --server --listen 127.0.0.1:8765
+./acp-agent --addr 127.0.0.1:8765 --model glm-5.1
+```
+
 ## HTTP 라우트
 
 - `POST /v1/chat/completions`
 - `POST /v1/responses`
+- `POST /v1/responses/compact`
 - `GET /v1/responses/{id}`
 - `POST /v1/messages`
+- `POST /v1/embeddings`
+- `POST /v1/rerank`
+- `GET /v1/models`
+- `GET /v1/providers/status`
 - `POST /v1/a2a/rpc`
 - `GET /.well-known/agent-card.json`
 - `POST /v1/mcp`
+- `GET /v1/mcp/catalog`
+- `GET /v1/tool-catalog`
+- `POST /v1/tools/{tool-name}`
 - `POST /v1/agui/run`
 - `GET /openapi.json`
 - `GET /swagger`
+- `GET /ui/`
 - `GET /metrics`
 - `GET /health`
 

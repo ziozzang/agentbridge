@@ -68,6 +68,9 @@ func (a *Agent) handleSubagentCommand(ctx context.Context, s *sessionState, args
 	if args == "" {
 		return "", fmt.Errorf("usage: /subagent [--model MODEL] TASK")
 	}
+	if subagentDepth(ctx) >= maxSubagentDepth {
+		return "", fmt.Errorf("subagent recursion depth exceeded")
+	}
 	fields := strings.Fields(args)
 	model := ""
 	if len(fields) >= 3 && fields[0] == "--model" {

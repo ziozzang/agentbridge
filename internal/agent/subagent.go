@@ -2,13 +2,21 @@ package agent
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
+	contextcompact "github.com/ziozzang/agentbridge/internal/compaction"
+	"github.com/ziozzang/agentbridge/internal/logger"
 	"github.com/ziozzang/agentbridge/internal/protocol/systemprompt"
+	"github.com/ziozzang/agentbridge/internal/provider"
 	"github.com/ziozzang/agentbridge/internal/provider/glm"
 	"github.com/ziozzang/agentbridge/internal/tools/executor"
 )
+
+const maxSubagentDepth = 1
+
+type subagentDepthKey struct{}
 
 type subagentOptions struct {
 	Model string
@@ -27,12 +35,24 @@ func (a *Agent) runSubagent(ctx context.Context, parent *sessionState, opts suba
 	if model == "" {
 		model = a.defaultModel()
 	}
+	tools := parent.tools
+	if len(tools) == 0 {
+		tools = a.availableTools()
+	}
+	tools = a.profileTools(model, tools)
+	toolNames := make([]string, len(tools))
+	for i, t := range tools {
+		toolNames[i] = t.Function.Name
+	}
 	system := systemprompt.Build(systemprompt.Input{
 		Cwd:      parent.Cwd,
-		Tools:    nil,
+		Tools:    toolNames,
 		AgentsMD: systemprompt.LoadProjectContext(parent.Cwd),
 		Profile:  a.profilePrompt(model),
 	})
+	if skillPrompt := a.activeSkillPrompt(parent); skillPrompt != "" {
+		system += "\n\n" + skillPrompt
+	}
 	childID := parent.ID + "/sub/" + randomHex(4)
 	title := "Subagent"
 	if task != "" {
@@ -46,15 +66,10 @@ func (a *Agent) runSubagent(ctx context.Context, parent *sessionState, opts suba
 		"status":        "in_progress",
 		"rawInput":      map[string]any{"model": model, "task": task},
 	})
-	messages := []glm.Message{
+	messages := []provider.Message{
 		{Role: "system", Content: system + "\n\nYou are a bounded subagent. Complete only the delegated task and return a concise result for the parent agent."},
 		{Role: "user", Content: task},
 	}
-	tools := parent.tools
-	if len(tools) == 0 {
-		tools = a.availableTools()
-	}
-	tools = a.profileTools(model, tools)
 	exec := &executor.Executor{
 		Conn:       a.Conn,
 		SessionID:  parent.ID,
@@ -70,18 +85,34 @@ func (a *Agent) runSubagent(ctx context.Context, parent *sessionState, opts suba
 	if maxTurns <= 0 {
 		maxTurns = DefaultMaxTurns
 	}
+	compactSettings := loadCompactionSettings()
+	overflowRetries := 0
+	trace := make([]string, 0)
+	childCtx := context.WithValue(ctx, subagentDepthKey{}, subagentDepth(ctx)+1)
+	completed := false
 	for iter := 0; iter < maxTurns; iter++ {
-		if ctx.Err() != nil {
+		if childCtx.Err() != nil {
 			a.notifyUpdate(parent.ID, map[string]any{
 				"sessionUpdate": "tool_call_update",
 				"toolCallId":    childID,
 				"status":        "failed",
-				"rawOutput":     map[string]any{"error": ctx.Err().Error()},
+				"rawOutput":     map[string]any{"error": childCtx.Err().Error()},
 			})
-			return "", ctx.Err()
+			return "", childCtx.Err()
+		}
+		window := a.contextWindow(a.effectiveModel(model))
+		if compactSettings.Enabled && contextcompact.EstimateTokens(messages) > compactSettings.ProactiveThreshold(window) {
+			result := a.compactPromptMessages(childCtx, messages, a.effectiveModel(model), tools, compactSettings, compactSettings.TargetTokens(window), "subagent proactive context compaction")
+			if result.Compacted {
+				messages = result.Messages
+				trace = append(trace, fmt.Sprintf("compacted context: %d -> %d tokens", result.TokensBefore, contextcompact.EstimateTokens(result.Messages)))
+			} else if compactSettings.PruneFallbackEnabled {
+				messages = contextcompact.PruneMessages(messages, compactSettings.TargetTokens(window), compactSettings.PreserveTurns)
+				trace = append(trace, "pruned context after proactive threshold")
+			}
 		}
 		exec.Mode = parent.Mode
-		chunks, errs := a.streamChat(ctx, messages, glm.StreamOptions{
+		chunks, errs := a.streamChat(childCtx, messages, glm.StreamOptions{
 			Model:     a.effectiveModel(model),
 			Tools:     tools,
 			SessionID: childID,
@@ -97,6 +128,23 @@ func (a *Agent) runSubagent(ctx context.Context, parent *sessionState, opts suba
 			}
 		}
 		if err := <-errs; err != nil {
+			var apiErr *glm.APIError
+			isOverflow := provider.IsContextOverflow(err) || (errors.As(err, &apiErr) && apiErr.IsContextOverflow())
+			if isOverflow && overflowRetries < 1 {
+				window := a.contextWindow(a.effectiveModel(model))
+				result := a.compactPromptMessages(childCtx, messages, a.effectiveModel(model), tools, compactSettings, compactSettings.OverflowTargetTokens(window), "subagent context overflow retry")
+				if result.Compacted {
+					logger.Debugf("subagent: emergency compacted context tokens_before=%d tokens_after=%d", result.TokensBefore, contextcompact.EstimateTokens(result.Messages))
+					messages = result.Messages
+					trace = append(trace, fmt.Sprintf("emergency compacted context: %d -> %d tokens", result.TokensBefore, contextcompact.EstimateTokens(result.Messages)))
+				} else if compactSettings.PruneFallbackEnabled {
+					messages = contextcompact.PruneMessages(messages, compactSettings.OverflowTargetTokens(window), compactSettings.PreserveTurns)
+					trace = append(trace, "pruned context after context overflow")
+				}
+				overflowRetries++
+				iter--
+				continue
+			}
 			a.notifyUpdate(parent.ID, map[string]any{
 				"sessionUpdate": "tool_call_update",
 				"toolCallId":    childID,
@@ -105,14 +153,14 @@ func (a *Agent) runSubagent(ctx context.Context, parent *sessionState, opts suba
 			})
 			return "", fmt.Errorf("subagent stream failed: %w", err)
 		}
-		assistantMsg := glm.Message{Role: "assistant", Content: assistantText}
+		assistantMsg := provider.Message{Role: "assistant", Content: assistantText}
 		if len(toolCalls) > 0 {
-			tcs := make([]glm.ToolCallMsg, len(toolCalls))
+			tcs := make([]provider.ToolCallMsg, len(toolCalls))
 			for i, t := range toolCalls {
-				tcs[i] = glm.ToolCallMsg{
+				tcs[i] = provider.ToolCallMsg{
 					ID:   t.ID,
 					Type: "function",
-					Function: glm.ToolCallMsgFunction{
+					Function: provider.ToolCallMsgFunction{
 						Name:      t.Name,
 						Arguments: t.Arguments,
 					},
@@ -123,25 +171,64 @@ func (a *Agent) runSubagent(ctx context.Context, parent *sessionState, opts suba
 		messages = append(messages, assistantMsg)
 		if len(toolCalls) == 0 {
 			out.WriteString(assistantText)
+			completed = true
 			break
 		}
 		for _, tc := range toolCalls {
-			res := exec.Execute(ctx, tc.ID, tc.Name, tc.Arguments)
-			messages = append(messages, glm.Message{Role: "tool", ToolCallID: tc.ID, Content: res.Content})
+			trace = append(trace, fmt.Sprintf("tool %s(%s)", tc.Name, truncateStatusText(tc.Arguments, 120)))
+			a.notifyUpdate(parent.ID, map[string]any{
+				"sessionUpdate": "tool_call_update",
+				"toolCallId":    childID,
+				"status":        "in_progress",
+				"rawOutput":     map[string]any{"event": "subagent_tool_call", "tool": tc.Name, "arguments": tc.Arguments},
+			})
+			res := exec.Execute(childCtx, tc.ID, tc.Name, tc.Arguments)
+			trace = append(trace, fmt.Sprintf("tool %s result: %s", tc.Name, truncateStatusText(res.Content, 160)))
+			messages = append(messages, provider.Message{Role: "tool", ToolCallID: tc.ID, Content: res.Content})
 		}
+	}
+	if !completed {
+		rawOutput := map[string]any{"model": model, "error": "subagent reached max turns"}
+		if len(trace) > 0 {
+			rawOutput["trace"] = trace
+		}
+		a.notifyUpdate(parent.ID, map[string]any{
+			"sessionUpdate": "tool_call_update",
+			"toolCallId":    childID,
+			"status":        "failed",
+			"rawOutput":     rawOutput,
+		})
+		return "", fmt.Errorf("subagent reached max turns")
 	}
 	text := strings.TrimSpace(out.String())
 	if text == "" {
 		text = "(subagent returned no text)"
+	}
+	rawOutput := map[string]any{"model": model, "output": text}
+	if len(trace) > 0 {
+		rawOutput["trace"] = trace
 	}
 	a.notifyUpdate(parent.ID, map[string]any{
 		"sessionUpdate": "tool_call_update",
 		"toolCallId":    childID,
 		"status":        "completed",
 		"content":       []any{map[string]any{"type": "content", "content": map[string]any{"type": "text", "text": text}}},
-		"rawOutput":     map[string]any{"model": model, "output": text},
+		"rawOutput":     rawOutput,
 	})
-	return text, nil
+	if len(trace) == 0 {
+		return text, nil
+	}
+	return text + "\n\nsubagent trace:\n- " + strings.Join(trace, "\n- "), nil
+}
+
+func subagentDepth(ctx context.Context) int {
+	if ctx == nil {
+		return 0
+	}
+	if v, ok := ctx.Value(subagentDepthKey{}).(int); ok {
+		return v
+	}
+	return 0
 }
 
 func truncateStatusText(s string, n int) string {

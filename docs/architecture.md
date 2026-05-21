@@ -160,7 +160,16 @@ LLM transcript as user messages.
   turns are kept, and `cacheEpoch` is incremented when the transcript changes.
 - `/subagent [--model MODEL] TASK` runs a bounded child provider call with a
   child session id and returns the result to the current session. It is the
-  primitive Lua/client orchestration can use for delegated work.
+  primitive Lua/client orchestration can use for delegated work. Subagents use
+  the parent tool/permission path, inherit active skills and project context,
+  emit a trace of tool calls into the parent result/update stream, run
+  proactive and overflow compaction, retry once on context overflow, and reject
+  recursive nesting beyond the configured depth. Exhausting `maxTurns` is an
+  explicit failure. They are still a lightweight child-call primitive;
+  long-lived multi-agent scheduling belongs in the CLI Lua orchestration layer.
+  In provider-native sessions this command is an explicit server-side
+  delegation call with a child session id; it does not merge into the
+  provider's native parent thread.
 - `/skill list|status|clear|NAME` manages markdown skills. Skills are loaded
   from `<cwd>/.agentbridge/skills/*.md` first, then
   `$XDG_CONFIG_HOME/agentbridge/skills/*.md`. Active skills are injected into

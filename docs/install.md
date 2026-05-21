@@ -61,6 +61,15 @@ agentbridge --server --listen 127.0.0.1:8765
 acp-agent --addr 127.0.0.1:8765 --model glm-5.1
 ```
 
+The interactive UI streams answer tokens directly, keeps a compact status bar
+with model/mode/session/context state, and renders user messages, assistant
+streams, thinking, tools, status, and approvals as separate terminal history
+cells. Permission prompts use a Codex-style overlay with numbered choices.
+During a running prompt, `Ctrl-C` first sends `session/cancel`; pressing it when
+no prompt is active exits the client. Additional prompts entered while one is
+running are queued and can be inspected with `/queue`. Shell execution remains
+a client-owned tool.
+
 One-shot prompt:
 
 ```bash
@@ -113,15 +122,21 @@ Interactive commands:
   `cli.command(line)`. Orchestration helpers are available under `cli.orch`,
   including `plan`, `fetch_next_job`, `run`, `check_status`, `trigger`,
   `steer`, `control_loop`, and `cron`.
+- `/goal [status|set TEXT|run|clear]`: use the local Lua goal harness. Goals
+  live in the CLI orchestration store, not in the server session; `/goal run`
+  sends a goal-specific prompt through the current ACP session.
 - `/compact [TARGET_TOKENS]`: manually compact the current transcript. This
   keeps the session going, replaces older turns with a summary when possible,
   and bumps the cache epoch.
 - `/new`: create a fresh session in the same cwd.
 - `/stop`: send `session/cancel` for the current session. In the current
-  terminal client this is most useful for external/scripted control; true
-  mid-prompt interactive interrupt requires a separate input loop.
+  terminal client this is also what `Ctrl-C` does while a prompt is active.
+- `/queue`: show prompts waiting behind the current active prompt.
 - `/subagent [--model MODEL] TASK`: ask the server to run a bounded child
-  provider call and return the result to the current session.
+  provider call and return the result to the current session. Subagents inherit
+  active skills and tool names, emit tool traces, use the same compaction path
+  as the parent loop, retry once after context-overflow compaction, and reject
+  recursive nesting beyond the configured depth.
 - `/skill list|status|clear|NAME`: list, inspect, clear, or activate markdown
   skills from `.agentbridge/skills` or `$XDG_CONFIG_HOME/agentbridge/skills`.
 - `/model [MODEL]`: show or switch model.

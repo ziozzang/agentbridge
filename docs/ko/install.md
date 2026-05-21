@@ -59,6 +59,14 @@ agentbridge --server --listen 127.0.0.1:8765
 acp-agent --addr 127.0.0.1:8765 --model glm-5.1
 ```
 
+Interactive UI는 answer token을 직접 streaming하고, model/mode/session/context
+상태를 compact status bar로 유지합니다. User message, assistant stream,
+thinking, tool, status, approval은 별도 terminal history cell로 렌더링합니다.
+Tool permission은 Codex 스타일 overlay와 숫자 선택지로 묻습니다. Prompt 실행 중
+`Ctrl-C`는 먼저 `session/cancel`을 보내고, active prompt가 없을 때는 client를
+종료합니다. Prompt 실행 중 입력된 추가 prompt는 queue에 들어가며 `/queue`로
+확인할 수 있습니다. Shell 실행은 계속 client-owned tool입니다.
+
 단발 prompt:
 
 ```bash
@@ -107,14 +115,20 @@ acp-agent --addr 127.0.0.1:8765 --model codex-agent \
   다시 라우팅합니다. Lua API는 `cli.say(text)`, `cli.status()`,
   `cli.structure()`, `cli.prompt(text)`, `cli.attach(path)`, `cli.files()`,
   `cli.clear_files()`, `cli.command(line)`입니다.
+- `/goal [status|set TEXT|run|clear]`: local Lua goal harness를 사용합니다.
+  Goal은 server session이 아니라 CLI orchestration store에 저장됩니다.
+  `/goal run`은 현재 ACP session으로 goal-specific prompt를 보냅니다.
 - `/compact [TARGET_TOKENS]`: 현재 transcript를 수동 compaction합니다. 가능한 경우
   오래된 turn을 summary로 교체하고 cache epoch를 올립니다.
 - `/new`: 같은 cwd에서 새 session을 만듭니다.
-- `/stop`: 현재 session에 `session/cancel`을 보냅니다. 현재 terminal client 구조에서는
-  외부/scripted 제어에 주로 유효하며, prompt 중 실시간 interrupt는 별도 입력 루프가
-  필요합니다.
+- `/stop`: 현재 session에 `session/cancel`을 보냅니다. Prompt가 실행 중일 때
+  `Ctrl-C`도 같은 동작을 합니다.
+- `/queue`: 현재 active prompt 뒤에서 대기 중인 prompt queue를 보여줍니다.
 - `/subagent [--model MODEL] TASK`: 서버에 bounded child provider call을 실행하게 하고
-  결과를 현재 session으로 돌려받습니다.
+  결과를 현재 session으로 돌려받습니다. Subagent는 active skill과 tool name을
+  상속하고, tool trace를 남기며, 부모 loop와 같은 compaction 경로를 사용합니다.
+  Context overflow 후에는 compaction 뒤 1회 재시도하고, 설정된 depth를 넘는
+  recursive nesting은 거부합니다.
 - `/skill list|status|clear|NAME`: `.agentbridge/skills` 또는
   `$XDG_CONFIG_HOME/agentbridge/skills`의 markdown skill을 목록/상태/해제/활성화합니다.
 - `/model [MODEL]`: model 확인 또는 변경.

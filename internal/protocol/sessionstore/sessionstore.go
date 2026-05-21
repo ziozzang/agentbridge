@@ -138,14 +138,14 @@ func (s *Store) Load(sessionID string) (*PersistedSession, error) {
 		if errors.Is(err, os.ErrNotExist) {
 			return nil, nil
 		}
-		return nil, nil // mirror TS swallow
+		return nil, err
 	}
 	var sess PersistedSession
 	if err := json.Unmarshal(raw, &sess); err != nil {
-		return nil, nil
+		return nil, fmt.Errorf("decode session %s: %w", sessionID, err)
 	}
 	if sess.SchemaVersion != 0 && sess.SchemaVersion != SchemaVersion {
-		return nil, nil
+		return nil, fmt.Errorf("unsupported session schema version %d", sess.SchemaVersion)
 	}
 	return &sess, nil
 }

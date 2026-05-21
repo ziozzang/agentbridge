@@ -129,8 +129,11 @@ the LLM transcript.
   making it interrupt a running terminal prompt requires a concurrent input
   loop, not only a server handler.
 - `/subagent [--model MODEL] TASK` is the server-side bounded child-call
-  primitive. It should stay small and avoid mutating parent transcript except
-  through the returned runtime-command text.
+  primitive. It uses the parent tool/permission path, inherits active skills,
+  emits tool traces, runs proactive/overflow compaction with one overflow
+  retry, and rejects recursive nesting beyond the depth limit. It should stay
+  small and avoid mutating parent transcript except through returned
+  runtime-command text and structured ACP updates.
 - `/attach` is a terminal-client feature. It extracts local files through
   `internal/harness/filecontext` and sends them as ACP `resource` blocks on the
   next prompt. Keep extraction bounded and text-only unless a provider-specific
@@ -141,6 +144,9 @@ the LLM transcript.
   `acp-agent` exposes `/lua FILE` and handles server-initiated
   `client/run_lua`. Keep the Lua API restricted to CLI flow/text/attachment
   control (`cli.prompt`, `cli.attach`, `cli.command`, `cli.status`, etc.).
+  `/goal` is implemented as a local Lua harness command over `cli.goal`; do not
+  add a canonical server-side goal field to ACP sessions unless the protocol
+  explicitly grows one.
 - Client-owned tools are advertised through `initialize.clientCapabilities`
   as `clientTools` and surfaced to the model under `client__<name>`. Executor
   must route those calls back to the ACP client with `client/call_tool`. This is

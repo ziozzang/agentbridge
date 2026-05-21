@@ -28,6 +28,11 @@ variables and on-disk paths are still accepted where practical.
 - **Plugins**: optional SQLite and DuckDB extension surface.
 - **Runtime controls**: ACP sessions support checkpoints, rollback, and
   markdown skill injection through terminal/runtime commands.
+- **Terminal ACP client**: `acp-agent` provides a Codex/Claude-style terminal
+  client with streaming output, context/status bars, numeric permission
+  overlays, history cells for messages/tools/status, Lua orchestration, local
+  goals, attachments, checkpoints, prompt queueing, and Ctrl-C prompt
+  cancellation.
 - **Backwards compatibility**: `ACP_HARNESS_*`, `ACP_GLM_*`,
   `Z_AI_API_KEY`, and old credential/session paths remain supported.
 
@@ -64,18 +69,35 @@ Run ACP TCP, HTTP, and gRPC together:
   --grpc-listen 127.0.0.1:8767
 ```
 
+Connect with the terminal ACP client:
+
+```bash
+go build -o acp-agent ./cmd/acp-agent
+./agentbridge --server --listen 127.0.0.1:8765
+./acp-agent --addr 127.0.0.1:8765 --model glm-5.1
+```
+
 ## HTTP Routes
 
 - `POST /v1/chat/completions`
 - `POST /v1/responses`
+- `POST /v1/responses/compact`
 - `GET /v1/responses/{id}`
 - `POST /v1/messages`
+- `POST /v1/embeddings`
+- `POST /v1/rerank`
+- `GET /v1/models`
+- `GET /v1/providers/status`
 - `POST /v1/a2a/rpc`
 - `GET /.well-known/agent-card.json`
 - `POST /v1/mcp`
+- `GET /v1/mcp/catalog`
+- `GET /v1/tool-catalog`
+- `POST /v1/tools/{tool-name}`
 - `POST /v1/agui/run`
 - `GET /openapi.json`
 - `GET /swagger`
+- `GET /ui/`
 - `GET /metrics`
 - `GET /health`
 
@@ -133,6 +155,7 @@ Legacy aliases such as `ACP_HARNESS_PROVIDER`, `ACP_HARNESS_API_KEY`,
 
 ```text
 cmd/agentbridge                 entrypoint binary
+cmd/acp-agent                   terminal ACP client and Lua orchestration
 internal/acp                    ACP protocol and JSON-RPC transport
 internal/agent                  ACP agent, sessions, prompt loop
 internal/config                 provider templates and config loader

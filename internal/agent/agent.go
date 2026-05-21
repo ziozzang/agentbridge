@@ -107,6 +107,7 @@ type Agent struct {
 	clientTools        []definitions.Tool
 
 	mu       sync.Mutex
+	visionMu sync.Mutex
 	sessions map[string]*sessionState
 }
 
@@ -142,6 +143,14 @@ type sessionMcpClient interface {
 	ToolDefinitions() []definitions.Tool
 	CallTool(ctx context.Context, fullName string, args map[string]any) (string, error)
 	Dispose()
+}
+
+type sessionSetup struct {
+	Model       string
+	Mode        string
+	NativeAgent bool
+	Tools       []definitions.Tool
+	MCPClient   sessionMcpClient
 }
 
 // New constructs an Agent. The GLM client is built lazily so `--setup` and
@@ -230,6 +239,40 @@ func (a *Agent) defaultModel() string {
 	return glm.DefaultModelEnv()
 }
 
+func (a *Agent) prepareSessionSetup(model, mode string, mcpServers []acp.MCPServerSpec, logPrefix string) sessionSetup {
+	if model == "" {
+		model = a.defaultModel()
+	}
+	nativeAgent := provider.UsesNativeAgentLoop(a.Provider)
+	if nativeAgent {
+		mode = ModeProviderNative
+	} else if mode == "" {
+		mode = ModeDefault
+	}
+	tools := a.availableTools()
+	var mcpClient sessionMcpClient
+	if nativeAgent {
+		tools = nil
+	} else if specs, err := configuredMCPServers(mcpServers); err != nil {
+		logger.Debugf("%s: failed to parse MCP servers: %v", logPrefix, err)
+	} else if len(specs) > 0 {
+		client, err := sessionmcp.New(specs)
+		if err != nil {
+			logger.Debugf("%s: failed to connect MCP servers: %v", logPrefix, err)
+		} else {
+			mcpClient = client
+			tools = append(tools, client.ToolDefinitions()...)
+		}
+	}
+	return sessionSetup{
+		Model:       model,
+		Mode:        mode,
+		NativeAgent: nativeAgent,
+		Tools:       tools,
+		MCPClient:   mcpClient,
+	}
+}
+
 // contextWindow returns the per-model context window for the active
 // provider, falling back to the legacy GLM table for test paths.
 func (a *Agent) contextWindow(model string) int {
@@ -260,42 +303,20 @@ func (a *Agent) NewSession(_ context.Context, p acp.NewSessionParams) (acp.NewSe
 		return acp.NewSessionResponse{}, err
 	}
 	id := newSessionID()
-	model := a.defaultModel()
-	mode := ModeDefault
-	nativeAgent := provider.UsesNativeAgentLoop(a.Provider)
-	if nativeAgent {
-		mode = ModeProviderNative
-	}
-	tools := a.availableTools()
-
-	// Connect to session-scoped MCP servers.
-	var mcpClient sessionMcpClient
-	if nativeAgent {
-		tools = nil
-	} else if specs, err := configuredMCPServers(p.MCPServers); err != nil {
-		logger.Debugf("session/new: failed to parse MCP servers: %v", err)
-	} else if len(specs) > 0 {
-		client, err := sessionmcp.New(specs)
-		if err != nil {
-			logger.Debugf("session/new: failed to connect MCP servers: %v", err)
-		} else {
-			mcpClient = client
-			tools = append(tools, client.ToolDefinitions()...)
-		}
-	}
+	setup := a.prepareSessionSetup("", "", p.MCPServers, "session/new")
 
 	a.mu.Lock()
 	a.sessions[id] = &sessionState{
-		ID: id, Cwd: p.Cwd, Model: model, Mode: mode,
-		Messages: nil, UpdatedAt: nowRFC3339(), tools: tools, sessionMcp: mcpClient, NativeAgent: nativeAgent,
+		ID: id, Cwd: p.Cwd, Model: setup.Model, Mode: setup.Mode,
+		Messages: nil, UpdatedAt: nowRFC3339(), tools: setup.Tools, sessionMcp: setup.MCPClient, NativeAgent: setup.NativeAgent,
 	}
 	a.mu.Unlock()
 	a.recordSessionSnapshot(id)
-	logger.Debugf("session/new id=%s cwd=%s model=%s tools=%d", id, p.Cwd, model, len(tools))
+	logger.Debugf("session/new id=%s cwd=%s model=%s tools=%d", id, p.Cwd, setup.Model, len(setup.Tools))
 	return acp.NewSessionResponse{
 		SessionID: id,
-		Models:    a.modelState(model),
-		Modes:     a.sessionModes(mode),
+		Models:    a.modelState(setup.Model),
+		Modes:     a.sessionModes(setup.Mode),
 	}, nil
 }
 
@@ -305,52 +326,21 @@ func (a *Agent) LoadSession(ctx context.Context, p acp.LoadSessionParams) (acp.L
 	if err := a.ensureClient(); err != nil {
 		return acp.LoadSessionResponse{}, err
 	}
-	persisted, _ := a.Store.Load(p.SessionID)
+	persisted, err := a.Store.Load(p.SessionID)
+	if err != nil {
+		return acp.LoadSessionResponse{}, fmt.Errorf("load session %s: %w", p.SessionID, err)
+	}
 	if persisted == nil {
 		return acp.LoadSessionResponse{}, &acp.RPCError{Code: -32001, Message: "session not found: " + p.SessionID}
 	}
-	model := persisted.Model
-	if model == "" {
-		model = a.defaultModel()
-	}
-	mode := persisted.Mode
-	nativeAgent := provider.UsesNativeAgentLoop(a.Provider)
-	if mode == "" {
-		if nativeAgent {
-			mode = ModeProviderNative
-		} else {
-			mode = ModeDefault
-		}
-	}
-	if nativeAgent {
-		mode = ModeProviderNative
-	} else if mode == "" {
-		mode = ModeDefault
-	}
-	tools := a.availableTools()
-
-	// Connect to session-scoped MCP servers.
-	var mcpClient sessionMcpClient
-	if nativeAgent {
-		tools = nil
-	} else if specs, err := configuredMCPServers(p.MCPServers); err != nil {
-		logger.Debugf("session/load: failed to parse MCP servers: %v", err)
-	} else if len(specs) > 0 {
-		client, err := sessionmcp.New(specs)
-		if err != nil {
-			logger.Debugf("session/load: failed to connect MCP servers: %v", err)
-		} else {
-			mcpClient = client
-			tools = append(tools, client.ToolDefinitions()...)
-		}
-	}
+	setup := a.prepareSessionSetup(persisted.Model, persisted.Mode, p.MCPServers, "session/load")
 
 	a.mu.Lock()
 	a.sessions[p.SessionID] = &sessionState{
-		ID: p.SessionID, Cwd: p.Cwd, Model: model, Mode: mode,
+		ID: p.SessionID, Cwd: p.Cwd, Model: setup.Model, Mode: setup.Mode,
 		Messages: persisted.Messages, Title: persisted.Title, UpdatedAt: persisted.UpdatedAt,
 		Checkpoints: persisted.Checkpoints, ActiveSkills: persisted.ActiveSkills, CacheEpoch: persisted.CacheEpoch,
-		tools: tools, sessionMcp: mcpClient, NativeAgent: nativeAgent,
+		tools: setup.Tools, sessionMcp: setup.MCPClient, NativeAgent: setup.NativeAgent,
 	}
 	a.mu.Unlock()
 	a.recordSessionSnapshot(p.SessionID)
@@ -358,8 +348,8 @@ func (a *Agent) LoadSession(ctx context.Context, p acp.LoadSessionParams) (acp.L
 	a.replayMessages(ctx, p.SessionID, persisted.Messages)
 
 	return acp.LoadSessionResponse{
-		Models: a.modelState(model),
-		Modes:  a.sessionModes(mode),
+		Models: a.modelState(setup.Model),
+		Modes:  a.sessionModes(setup.Mode),
 	}, nil
 }
 
@@ -369,56 +359,25 @@ func (a *Agent) ResumeSession(_ context.Context, p acp.LoadSessionParams) (acp.L
 	if err := a.ensureClient(); err != nil {
 		return acp.LoadSessionResponse{}, err
 	}
-	persisted, _ := a.Store.Load(p.SessionID)
+	persisted, err := a.Store.Load(p.SessionID)
+	if err != nil {
+		return acp.LoadSessionResponse{}, fmt.Errorf("resume session %s: %w", p.SessionID, err)
+	}
 	if persisted == nil {
 		return acp.LoadSessionResponse{}, &acp.RPCError{Code: -32001, Message: "session not found: " + p.SessionID}
 	}
-	model := persisted.Model
-	if model == "" {
-		model = a.defaultModel()
-	}
-	mode := persisted.Mode
-	nativeAgent := provider.UsesNativeAgentLoop(a.Provider)
-	if mode == "" {
-		if nativeAgent {
-			mode = ModeProviderNative
-		} else {
-			mode = ModeDefault
-		}
-	}
-	if nativeAgent {
-		mode = ModeProviderNative
-	} else if mode == "" {
-		mode = ModeDefault
-	}
-	tools := a.availableTools()
-
-	// Connect to session-scoped MCP servers.
-	var mcpClient sessionMcpClient
-	if nativeAgent {
-		tools = nil
-	} else if specs, err := configuredMCPServers(p.MCPServers); err != nil {
-		logger.Debugf("session/resume: failed to parse MCP servers: %v", err)
-	} else if len(specs) > 0 {
-		client, err := sessionmcp.New(specs)
-		if err != nil {
-			logger.Debugf("session/resume: failed to connect MCP servers: %v", err)
-		} else {
-			mcpClient = client
-			tools = append(tools, client.ToolDefinitions()...)
-		}
-	}
+	setup := a.prepareSessionSetup(persisted.Model, persisted.Mode, p.MCPServers, "session/resume")
 
 	a.mu.Lock()
 	a.sessions[p.SessionID] = &sessionState{
-		ID: p.SessionID, Cwd: p.Cwd, Model: model, Mode: mode,
+		ID: p.SessionID, Cwd: p.Cwd, Model: setup.Model, Mode: setup.Mode,
 		Messages: persisted.Messages, Title: persisted.Title, UpdatedAt: persisted.UpdatedAt,
 		Checkpoints: persisted.Checkpoints, ActiveSkills: persisted.ActiveSkills, CacheEpoch: persisted.CacheEpoch,
-		tools: tools, sessionMcp: mcpClient, NativeAgent: nativeAgent,
+		tools: setup.Tools, sessionMcp: setup.MCPClient, NativeAgent: setup.NativeAgent,
 	}
 	a.mu.Unlock()
 	a.recordSessionSnapshot(p.SessionID)
-	return acp.LoadSessionResponse{Models: a.modelState(model), Modes: a.sessionModes(mode)}, nil
+	return acp.LoadSessionResponse{Models: a.modelState(setup.Model), Modes: a.sessionModes(setup.Mode)}, nil
 }
 
 // ForkSession creates a new session from the messages of an existing one.
@@ -452,7 +411,10 @@ func (a *Agent) ForkSession(_ context.Context, p acp.LoadSessionParams) (acp.For
 		}
 		nativeAgent = source.NativeAgent
 	} else {
-		persisted, _ := a.Store.Load(p.SessionID)
+		persisted, err := a.Store.Load(p.SessionID)
+		if err != nil {
+			return acp.ForkSessionResponse{}, fmt.Errorf("fork session %s: %w", p.SessionID, err)
+		}
 		if persisted == nil {
 			return acp.ForkSessionResponse{}, &acp.RPCError{Code: -32001, Message: "session not found: " + p.SessionID}
 		}
@@ -471,6 +433,10 @@ func (a *Agent) ForkSession(_ context.Context, p acp.LoadSessionParams) (acp.For
 	if nativeAgent {
 		mode = ModeProviderNative
 	}
+	setup := a.prepareSessionSetup(model, mode, p.MCPServers, "session/fork")
+	nativeAgent = setup.NativeAgent
+	model = setup.Model
+	mode = setup.Mode
 	// Tag fork title.
 	if title != nil {
 		t := *title + " (fork)"
@@ -479,8 +445,7 @@ func (a *Agent) ForkSession(_ context.Context, p acp.LoadSessionParams) (acp.For
 
 	id := newSessionID()
 	now := nowRFC3339()
-	a.mu.Lock()
-	a.sessions[id] = &sessionState{
+	next := &sessionState{
 		ID: id, Cwd: p.Cwd, Model: model, Mode: mode,
 		Messages:     msgs,
 		Title:        title,
@@ -488,17 +453,15 @@ func (a *Agent) ForkSession(_ context.Context, p acp.LoadSessionParams) (acp.For
 		Checkpoints:  checkpoints,
 		ActiveSkills: activeSkills,
 		CacheEpoch:   cacheEpoch,
-		tools: func() []definitions.Tool {
-			if nativeAgent {
-				return nil
-			}
-			return a.availableTools()
-		}(),
-		NativeAgent: nativeAgent,
+		tools:        setup.Tools,
+		sessionMcp:   setup.MCPClient,
+		NativeAgent:  nativeAgent,
 	}
+	a.mu.Lock()
+	a.sessions[id] = next
 	a.mu.Unlock()
 	a.recordSessionSnapshot(id)
-	_ = a.persistSession(a.sessions[id])
+	_ = a.persistSession(next)
 	return acp.ForkSessionResponse{SessionID: id, Models: a.modelState(model), Modes: a.sessionModes(mode)}, nil
 }
 
@@ -1164,7 +1127,9 @@ func modesState(current string) *acp.SessionModeState {
 //   - client_run_lua: included when client capabilities advertise lua support.
 //   - client__*: included when the ACP client advertises client-owned tools.
 func (a *Agent) availableTools() []definitions.Tool {
+	a.visionMu.Lock()
 	wantImage := a.Vision != nil
+	a.visionMu.Unlock()
 	wantWrite := true
 	wantLua := false
 	if cap, ok := a.clientCapabilities["fs"].(map[string]any); ok {
@@ -1294,6 +1259,8 @@ func matchesAny(name string, patterns []string) bool {
 }
 
 func (a *Agent) visionClient() imagepre.VisionClient {
+	a.visionMu.Lock()
+	defer a.visionMu.Unlock()
 	if a.Vision == nil {
 		// Lazy-init stdio Vision MCP client if API key is present.
 		apiKey := credentials.Resolve()

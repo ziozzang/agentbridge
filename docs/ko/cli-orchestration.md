@@ -147,6 +147,16 @@ Goal loop는 현재 goal을 저장하고, plan을 만들고, job을 실행하며
 목표별 평가 prompt를 만들고, `jobs` table을 갱신합니다. 충분히 완료되면 trigger가
 steering directive를 쓰고 loop를 멈춥니다.
 
+`acp-agent`는 이 설계 위에 작은 local goal harness를 제공합니다.
+
+- `/goal` 또는 `/goal status`는 `cli.goal.status()`를 읽습니다.
+- `/goal set TEXT`는 local orchestration KV store에 goal을 저장합니다.
+- `/goal run`은 현재 ACP session으로 goal-specific prompt를 보냅니다.
+- `/goal clear`는 local goal을 제거합니다.
+
+Goal 판단은 의도적으로 CLI-owned입니다. 서버는 결과 ACP prompt/tool traffic만
+보며 ACP session에 canonical goal field를 저장하지 않습니다.
+
 ### Autoresearch
 
 Autoresearch는 `research_source`로 source plan을 만들고, KV와 memory에 저장하고,
@@ -168,6 +178,10 @@ Workflow는 context pressure나 risk condition이 보이면 trigger에서
 - Client-owned tool은 `client__*` namespace로 노출됩니다.
 - Shell command와 shell script는 client-owned입니다. `client__run_command`를
   사용하고 server-owned shell execution은 추가하지 않습니다.
+- Terminal UI는 의도적으로 client surface입니다. User message, assistant
+  stream, thinking, tool lifecycle update, status card, approval overlay는 ACP
+  update를 바탕으로 로컬에서 렌더링합니다. Server는 terminal control sequence가
+  아니라 structured event를 계속 내려야 합니다.
 - Active prompt 중에는 재귀적인 `cli.prompt(...)` 호출을 피해야 합니다.
 - `sql_query`는 read-only입니다. `sql_exec`는 local orchestration DB만 변경합니다.
 - Local file/attachment access는 의도적으로 client-local placement입니다.

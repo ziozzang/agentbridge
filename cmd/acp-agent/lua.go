@@ -883,6 +883,58 @@ function orch.delegate(task, opts)
   return cmd
 end
 
+local goal = {}
+
+function goal.key()
+  return "goal:current"
+end
+
+function goal.set(text)
+  text = tostring(text or "")
+  cli.kv_set(goal.key(), text)
+  return text
+end
+
+function goal.get()
+  return cli.kv_get(goal.key()) or ""
+end
+
+function goal.clear()
+  cli.kv_delete(goal.key())
+  return ""
+end
+
+function goal.status()
+  local g = goal.get()
+  if g == "" then return "goal: none" end
+  return "goal: " .. g
+end
+
+function goal.judge(evidence, opts)
+  return orch.judge(goal.get(), evidence or "", opts or {})
+end
+
+function goal.prompt(opts)
+  opts = opts or {}
+  local g = goal.get()
+  if g == "" then return "goal: none" end
+  local body = "Continue working toward this goal. Use available tools when needed and stop when the goal is satisfied.\n\n<goal>\n" .. g .. "\n</goal>"
+  if opts.context then body = body .. "\n<context>\n" .. tostring(opts.context) .. "\n</context>" end
+  if opts.run == false then return body end
+  cli.prompt(body)
+  return body
+end
+
+function goal.command(args)
+  args = tostring(args or "")
+  local trimmed = args:gsub("^%s+", ""):gsub("%s+$", "")
+  if trimmed == "" or trimmed == "status" then return goal.status() end
+  if trimmed == "clear" then goal.clear(); return "goal cleared" end
+  if trimmed == "run" then goal.prompt({ run = true }); return "goal prompt sent" end
+  if trimmed:sub(1, 4) == "set " then return "goal set: " .. goal.set(trimmed:sub(5)) end
+  return "goal set: " .. goal.set(trimmed)
+end
+
 cli.llm = {
   ask = orch.ask,
   reflect = orch.reflect,
@@ -937,4 +989,5 @@ cli.util = {
 }
 
 cli.orch = orch
+cli.goal = goal
 `
