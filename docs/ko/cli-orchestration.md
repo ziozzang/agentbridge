@@ -41,6 +41,8 @@ shell script를 실행하지 않습니다.
   identity를 frame layout과 분리해서 계산합니다.
 - Permission approval overlay도 별도 surface입니다. Choice list 렌더링과
   number/arrow/yes/no key를 ACP permission reply로 매핑하는 책임을 가집니다.
+- Approval reply는 같은 key event 안에서 overlay를 닫습니다. 다음 frame은 server
+  traffic을 기다리지 않고 transcript와 bottom composer 상태로 돌아옵니다.
 - Completion hint도 별도 surface입니다. Slash-command argument hint와 compact
   suggestion text를 소유하고, composer는 text input만 소유합니다.
 - Bottom composer도 별도 surface입니다. Fixed-width input rendering을 frame

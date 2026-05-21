@@ -203,6 +203,42 @@ func TestTUIOverlaySurfaceMapsChoicesAndRenders(t *testing.T) {
 	}
 }
 
+func TestTUIOverlayChoiceRestoresTranscriptFrame(t *testing.T) {
+	reply := make(chan string, 1)
+	m := newTUIModel(context.Background(), &client{events: make(chan uiEvent)})
+	m.width = 120
+	m.height = 12
+	m.appendCell(tuiCell{Kind: "assistant", Title: "assistant", Body: "visible answer"})
+	m.overlay = &uiPermissionRequest{
+		Title:   "tool permission",
+		Detail:  "command: date",
+		Options: []choiceOption{{Key: "1", Label: "yes"}, {Key: "3", Label: "no"}},
+		Reply:   reply,
+	}
+	m.reflow()
+	if got := stripANSI(m.View()); !strings.Contains(got, "tool permission") {
+		t.Fatalf("overlay should be visible before choice: %q", got)
+	}
+	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("1")})
+	if cmd != nil {
+		t.Fatalf("overlay choice should not launch command")
+	}
+	m = next.(tuiModel)
+	if m.overlay != nil {
+		t.Fatalf("overlay still active")
+	}
+	if got := <-reply; got != "1" {
+		t.Fatalf("reply=%q", got)
+	}
+	got := stripANSI(m.View())
+	if strings.Contains(got, "tool permission") {
+		t.Fatalf("overlay should be gone after choice: %q", got)
+	}
+	if !strings.Contains(got, "visible answer") || !strings.Contains(got, "Type a message or /help") {
+		t.Fatalf("frame did not restore transcript/composer: %q", got)
+	}
+}
+
 func TestTUIInterruptKeysBypassOverlay(t *testing.T) {
 	m := tuiModel{ctx: context.Background(), state: clientState{Busy: true}, overlay: &uiPermissionRequest{
 		Options: []choiceOption{{Key: "1", Label: "yes"}},
