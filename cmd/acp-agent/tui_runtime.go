@@ -36,48 +36,86 @@ func (m tuiModel) Init() tea.Cmd {
 
 func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmds []tea.Cmd
+	var handled bool
+	var out tea.Model
+	var cmd tea.Cmd
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
-		m.width = msg.Width
-		m.height = msg.Height
-		m.reflow()
+		m.handleWindowSize(msg)
 	case tea.KeyMsg:
-		keyName := tuiKeyName(msg)
-		switch {
-		case isGlobalInterruptKey(keyName):
-			return m.handleCtrlC()
-		case isGlobalExitKey(keyName):
-			return m, tea.Quit
-		}
-		if m.overlay != nil {
-			return m.updateOverlay(msg)
-		}
-		switch {
-		case keyName == "esc":
-			return m.handleEsc()
-		case isSubmitKey(keyName):
-			return m.submitInput(cmds)
-		case isViewportKey(keyName):
-			return m.updateViewport(msg)
+		out, cmd, handled = m.routeKey(msg, cmds)
+		if handled {
+			return out, cmd
 		}
 	case tuiEventMsg:
-		m.applyEvent(msg.Event)
-		cmds = append(cmds, waitTUIEvent(m.events))
+		cmds = m.handleTUIEvent(msg, cmds)
 	case commandDoneMsg:
-		if msg.Err != nil {
-			m.appendCell(tuiCell{Kind: "error", Title: "error", Body: msg.Err.Error()})
-		}
+		m.handleCommandDone(msg)
 	case spinner.TickMsg:
-		m.now = time.Now()
-		var cmd tea.Cmd
-		m.spinner, cmd = m.spinner.Update(msg)
+		m, cmd = m.handleSpinnerTick(msg)
 		cmds = append(cmds, cmd)
 	}
-	var cmd tea.Cmd
-	m.input, cmd = m.input.Update(msg)
+	m, cmd = m.updateComposer(msg)
 	cmds = append(cmds, cmd)
 	m.refreshViewport()
 	return m, tea.Batch(cmds...)
+}
+
+func (m *tuiModel) handleWindowSize(msg tea.WindowSizeMsg) {
+	m.width = msg.Width
+	m.height = msg.Height
+	m.reflow()
+}
+
+func (m tuiModel) routeKey(msg tea.KeyMsg, cmds []tea.Cmd) (tea.Model, tea.Cmd, bool) {
+	keyName := tuiKeyName(msg)
+	switch {
+	case isGlobalInterruptKey(keyName):
+		next, cmd := m.handleCtrlC()
+		return next, cmd, true
+	case isGlobalExitKey(keyName):
+		return m, tea.Quit, true
+	}
+	if m.overlay != nil {
+		next, cmd := m.updateOverlay(msg)
+		return next, cmd, true
+	}
+	switch {
+	case keyName == "esc":
+		next, cmd := m.handleEsc()
+		return next, cmd, true
+	case isSubmitKey(keyName):
+		next, cmd := m.submitInput(cmds)
+		return next, cmd, true
+	case isViewportKey(keyName):
+		next, cmd := m.updateViewport(msg)
+		return next, cmd, true
+	}
+	return m, nil, false
+}
+
+func (m *tuiModel) handleTUIEvent(msg tuiEventMsg, cmds []tea.Cmd) []tea.Cmd {
+	m.applyEvent(msg.Event)
+	return append(cmds, waitTUIEvent(m.events))
+}
+
+func (m *tuiModel) handleCommandDone(msg commandDoneMsg) {
+	if msg.Err != nil {
+		m.appendCell(tuiCell{Kind: "error", Title: "error", Body: msg.Err.Error()})
+	}
+}
+
+func (m tuiModel) handleSpinnerTick(msg spinner.TickMsg) (tuiModel, tea.Cmd) {
+	m.now = time.Now()
+	var cmd tea.Cmd
+	m.spinner, cmd = m.spinner.Update(msg)
+	return m, cmd
+}
+
+func (m tuiModel) updateComposer(msg tea.Msg) (tuiModel, tea.Cmd) {
+	var cmd tea.Cmd
+	m.input, cmd = m.input.Update(msg)
+	return m, cmd
 }
 
 func (m tuiModel) updateViewport(msg tea.KeyMsg) (tea.Model, tea.Cmd) {

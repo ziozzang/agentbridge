@@ -52,6 +52,10 @@ The broader ownership and permission rules are documented in
 - Keyboard handling is split into a small key layer: global interrupt/exit keys
   win first, overlays own selection keys, the transcript viewport owns scroll
   keys, and the composer keeps normal text navigation keys.
+- The Bubble Tea update loop routes messages through small handlers for window
+  resize, key routing, ACP UI events, command completion, spinner ticks, and
+  composer updates. This keeps the runtime event loop testable without starting
+  a terminal program.
 - A minimal line-oriented fallback remains available behind `--plain` for
   debugging and minimal terminals. It does not own terminal layout.
 

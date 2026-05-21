@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -382,6 +383,52 @@ func TestTUIKeyLayersKeepComposerNavigationOutOfViewport(t *testing.T) {
 	}
 	if !isGlobalExitKey("ctrl+d") {
 		t.Fatalf("ctrl+d should remain a global exit key")
+	}
+}
+
+func TestTUIRouteKeySeparatesGlobalOverlayViewportAndComposer(t *testing.T) {
+	reply := make(chan string, 1)
+	m := tuiModel{
+		ctx: context.Background(),
+		overlay: &uiPermissionRequest{
+			Options: []choiceOption{{Key: "1", Label: "yes"}, {Key: "3", Label: "no"}},
+			Reply:   reply,
+		},
+		input: newTUIComposer(),
+	}
+	next, cmd, handled := m.routeKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("3")}, nil)
+	if !handled || cmd != nil {
+		t.Fatalf("overlay numeric key should be handled without command")
+	}
+	m = next.(tuiModel)
+	if m.overlay != nil {
+		t.Fatalf("overlay should be closed")
+	}
+	if got := <-reply; got != "3" {
+		t.Fatalf("overlay reply=%q", got)
+	}
+
+	m = tuiModel{input: newTUIComposer()}
+	next, cmd, handled = m.routeKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("a")}, nil)
+	if handled || cmd != nil || next.(tuiModel).input.Value() != "" {
+		t.Fatalf("composer text key should fall through to composer update")
+	}
+
+	m = tuiModel{input: newTUIComposer(), viewport: newTUIModel(context.Background(), &client{events: make(chan uiEvent)}).viewport}
+	next, _, handled = m.routeKey(tea.KeyMsg{Type: tea.KeyPgUp}, nil)
+	if !handled {
+		t.Fatalf("viewport key should be handled by viewport layer")
+	}
+	if next.(tuiModel).input.Value() != "" {
+		t.Fatalf("viewport key should not mutate composer")
+	}
+}
+
+func TestTUICommandDoneAppendsErrorCell(t *testing.T) {
+	m := tuiModel{}
+	m.handleCommandDone(commandDoneMsg{Err: errors.New("boom")})
+	if len(m.cells) != 1 || m.cells[0].Kind != "error" || !strings.Contains(m.cells[0].Body, "boom") {
+		t.Fatalf("error cell=%#v", m.cells)
 	}
 }
 
