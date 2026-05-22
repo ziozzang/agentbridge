@@ -190,6 +190,10 @@ ownership boundary visible in code, tests, and this document.
   while holding that mutex can deadlock the Bubble Tea runtime.
 - A minimal line-oriented fallback remains available behind `--plain` for
   debugging and minimal terminals. It does not own terminal layout.
+- Run-mode selection is explicit: prompt text runs once and exits,
+  `--json-events`/`--json` owns the normalized event stream, `--plain` uses the
+  minimal line-oriented fallback, and the rich Bubble Tea shell is selected
+  only for interactive terminals without prompt or debug flags.
 
 This split keeps terminal control out of the ACP transport. The server emits
 structured events; the client decides how those events are rendered.

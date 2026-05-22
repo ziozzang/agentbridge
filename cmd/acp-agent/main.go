@@ -122,15 +122,7 @@ func main() {
 			*cwd = wd
 		}
 	}
-	text := strings.TrimSpace(*prompt)
-	if text == "" {
-		text = strings.TrimSpace(*promptShort)
-	}
-	if text == "" && flag.NArg() > 0 {
-		text = strings.Join(flag.Args(), " ")
-	}
-	debugJSON := *jsonEvents || *jsonEventsAlias
-	interactiveTUI := text == "" && !*plain && !debugJSON && isTerminalWriter(os.Stderr)
+	runMode := selectClientRunMode(*prompt, *promptShort, flag.Args(), *plain, *jsonEvents, *jsonEventsAlias, isTerminalWriter(os.Stderr))
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -139,10 +131,10 @@ func main() {
 	defer signal.Stop(sigCh)
 	cli, err := dialClient(ctx, *addr, os.Stdin, os.Stdout, os.Stderr, clientOptions{
 		Permission:   strings.ToLower(strings.TrimSpace(*permission)),
-		ShowThinking: *showThinking || interactiveTUI,
+		ShowThinking: *showThinking || runMode.InteractiveTUI,
 		ShowTools:    !*hideTools,
 		RawUpdates:   *rawUpdates,
-		LegacyUI:     !interactiveTUI && !debugJSON,
+		LegacyUI:     runMode.LegacyUI,
 	})
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "connect failed:", err)
@@ -150,11 +142,11 @@ func main() {
 	}
 	defer cli.Close()
 	var jsonSink *jsonEventSink
-	if debugJSON {
+	if runMode.DebugJSON {
 		jsonSink = startJSONEventSink(cli, os.Stdout)
 		defer jsonSink.Close()
 	}
-	if !interactiveTUI {
+	if !runMode.InteractiveTUI {
 		go func() {
 			for {
 				<-sigCh
@@ -181,7 +173,7 @@ func main() {
 	}
 	sessionID := session.SessionID
 	cli.setSessionState(*addr, *cwd, session)
-	if !interactiveTUI {
+	if !runMode.InteractiveTUI {
 		fmt.Fprintf(os.Stderr, "session %s cwd=%s\n", sessionID, *cwd)
 	}
 	if *model != "" {
@@ -189,7 +181,7 @@ func main() {
 			fmt.Fprintln(os.Stderr, "set model failed:", err)
 			os.Exit(1)
 		}
-		if !interactiveTUI {
+		if !runMode.InteractiveTUI {
 			fmt.Fprintf(os.Stderr, "model %s\n", *model)
 		}
 	}
@@ -198,26 +190,26 @@ func main() {
 			fmt.Fprintln(os.Stderr, "set mode failed:", err)
 			os.Exit(1)
 		}
-		if !interactiveTUI {
+		if !runMode.InteractiveTUI {
 			fmt.Fprintf(os.Stderr, "mode %s\n", *mode)
 		}
 	}
 
-	if text != "" {
-		if err := cli.Prompt(ctx, sessionID, text); err != nil {
+	if runMode.PromptText != "" {
+		if err := cli.Prompt(ctx, sessionID, runMode.PromptText); err != nil {
 			fmt.Fprintln(os.Stderr, "prompt failed:", err)
 			os.Exit(1)
 		}
 		return
 	}
-	if debugJSON {
+	if runMode.DebugJSON {
 		if err := jsonEventRepl(ctx, cli); err != nil {
 			fmt.Fprintln(os.Stderr, "json repl failed:", err)
 			os.Exit(1)
 		}
 		return
 	}
-	if interactiveTUI {
+	if runMode.InteractiveTUI {
 		if err := runBubbleTUI(ctx, cli); err != nil {
 			fmt.Fprintln(os.Stderr, "tui failed:", err)
 			os.Exit(1)
@@ -251,6 +243,31 @@ type clientOptions struct {
 	ShowTools    bool
 	RawUpdates   bool
 	LegacyUI     bool
+}
+
+type clientRunMode struct {
+	PromptText     string
+	DebugJSON      bool
+	InteractiveTUI bool
+	LegacyUI       bool
+}
+
+func selectClientRunMode(prompt, promptShort string, args []string, plain, jsonEvents, jsonAlias, terminal bool) clientRunMode {
+	text := strings.TrimSpace(prompt)
+	if text == "" {
+		text = strings.TrimSpace(promptShort)
+	}
+	if text == "" && len(args) > 0 {
+		text = strings.Join(args, " ")
+	}
+	debugJSON := jsonEvents || jsonAlias
+	interactiveTUI := text == "" && !plain && !debugJSON && terminal
+	return clientRunMode{
+		PromptText:     text,
+		DebugJSON:      debugJSON,
+		InteractiveTUI: interactiveTUI,
+		LegacyUI:       !interactiveTUI && !debugJSON,
+	}
 }
 
 type clientState struct {

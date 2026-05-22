@@ -173,6 +173,10 @@ streaming을 한 컴포넌트에 섞어서 동작만 맞춘 변경은 완료로 
   상태에서 emit하면 Bubble Tea runtime이 deadlock될 수 있습니다.
 - 최소 line-oriented fallback은 `--plain` 뒤에 debugging/minimal terminal용으로
   남깁니다. 이 경로는 terminal layout을 소유하지 않습니다.
+- Run-mode selection은 명시적입니다. Prompt text는 한 번 실행하고 종료하며,
+  `--json-events`/`--json`은 normalized event stream을 소유하고, `--plain`은 최소
+  line-oriented fallback을 사용합니다. Rich Bubble Tea shell은 prompt/debug flag가
+  없는 interactive terminal에서만 선택됩니다.
 
 이 분리는 terminal control을 ACP transport에서 떼어냅니다. 서버는 구조화된
 event를 내리고, client가 이를 어떻게 렌더링할지 결정합니다.

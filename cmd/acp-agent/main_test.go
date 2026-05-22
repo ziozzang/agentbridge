@@ -18,6 +18,75 @@ import (
 	"github.com/ziozzang/agentbridge/internal/tools/clienttools"
 )
 
+func TestSelectClientRunModeSeparatesRichPlainJSONAndPrompt(t *testing.T) {
+	tests := []struct {
+		name     string
+		prompt   string
+		short    string
+		args     []string
+		plain    bool
+		json     bool
+		alias    bool
+		terminal bool
+		want     clientRunMode
+	}{
+		{
+			name:     "rich tui",
+			terminal: true,
+			want:     clientRunMode{InteractiveTUI: true},
+		},
+		{
+			name:     "plain disables tui",
+			plain:    true,
+			terminal: true,
+			want:     clientRunMode{LegacyUI: true},
+		},
+		{
+			name:     "json events disable tui and legacy",
+			json:     true,
+			terminal: true,
+			want:     clientRunMode{DebugJSON: true},
+		},
+		{
+			name:     "json alias disables tui and legacy",
+			alias:    true,
+			terminal: true,
+			want:     clientRunMode{DebugJSON: true},
+		},
+		{
+			name:     "prompt wins over tui",
+			prompt:   " inspect ",
+			terminal: true,
+			want:     clientRunMode{PromptText: "inspect", LegacyUI: true},
+		},
+		{
+			name:     "short prompt wins before args",
+			short:    "short",
+			args:     []string{"arg", "prompt"},
+			terminal: true,
+			want:     clientRunMode{PromptText: "short", LegacyUI: true},
+		},
+		{
+			name:     "args become prompt",
+			args:     []string{"arg", "prompt"},
+			terminal: true,
+			want:     clientRunMode{PromptText: "arg prompt", LegacyUI: true},
+		},
+		{
+			name: "non terminal uses legacy",
+			want: clientRunMode{LegacyUI: true},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := selectClientRunMode(tt.prompt, tt.short, tt.args, tt.plain, tt.json, tt.alias, tt.terminal)
+			if got != tt.want {
+				t.Fatalf("mode=%#v want %#v", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestPermissionPromptAcceptsNumericYes(t *testing.T) {
 	var stderr bytes.Buffer
 	c := &client{
