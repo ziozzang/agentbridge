@@ -58,6 +58,8 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		cmds = m.handleTUIEvent(msg, cmds)
 	case commandDoneMsg:
 		m.handleCommandDone(msg)
+	case interruptDoneMsg:
+		m.handleInterruptDone(msg)
 	case spinner.TickMsg:
 		m, cmd = m.handleSpinnerTick(msg)
 		cmds = append(cmds, cmd)
@@ -115,6 +117,10 @@ func (m *tuiModel) handleCommandDone(msg commandDoneMsg) {
 	}
 }
 
+func (m *tuiModel) handleInterruptDone(msg interruptDoneMsg) {
+	_ = msg
+}
+
 func (m tuiModel) handleSpinnerTick(msg spinner.TickMsg) (tuiModel, tea.Cmd) {
 	m.now = time.Now()
 	var cmd tea.Cmd
@@ -163,10 +169,10 @@ func (m tuiModel) handleCtrlC() (tea.Model, tea.Cmd) {
 		if m.overlay != nil {
 			m.cancelOverlay()
 		}
-		m.requestStop("interrupt", "Ctrl-C cancelled current turn. Press Ctrl-C again to exit client.")
+		cmd := m.requestStop("interrupt", "Ctrl-C cancelled current turn. Press Ctrl-C again to exit client.")
 		m.ctrlCArmed = true
 		m.escArmed = false
-		return m, nil
+		return m, cmd
 	}
 	if m.overlay != nil {
 		m.cancelOverlay()
@@ -184,18 +190,23 @@ func (m tuiModel) handleEsc() (tea.Model, tea.Cmd) {
 		m.ctrlCArmed = false
 		return m, nil
 	}
-	m.requestStop("stop", "ESC stopped current turn.")
+	cmd := m.requestStop("stop", "ESC stopped current turn.")
 	m.escArmed = false
 	m.ctrlCArmed = false
-	return m, nil
+	return m, cmd
 }
 
-func (m *tuiModel) requestStop(title, body string) {
-	if m.client != nil {
-		_ = m.client.Interrupt(m.ctx)
-	}
+func (m *tuiModel) requestStop(title, body string) tea.Cmd {
+	client := m.client
+	ctx := m.ctx
 	m.appendCell(tuiCell{Kind: "info", Title: title, Body: body})
 	m.refreshViewport()
+	return func() tea.Msg {
+		if client == nil {
+			return interruptDoneMsg{}
+		}
+		return interruptDoneMsg{Stopped: client.Interrupt(ctx)}
+	}
 }
 
 func (m tuiModel) updateOverlay(msg tea.KeyMsg) (tea.Model, tea.Cmd) {

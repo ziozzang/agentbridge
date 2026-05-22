@@ -314,8 +314,8 @@ func TestTUICtrlCCancelsActiveOverlay(t *testing.T) {
 		Reply:   reply,
 	}}
 	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyCtrlC})
-	if cmd != nil {
-		t.Fatalf("first ctrl-c should stop, not quit")
+	if cmd == nil {
+		t.Fatalf("first ctrl-c should schedule async interrupt")
 	}
 	m = next.(tuiModel)
 	if m.overlay != nil {
@@ -399,8 +399,8 @@ func TestTUIInterruptKeysBypassOverlay(t *testing.T) {
 	}}
 	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyCtrlC})
 	m = next.(tuiModel)
-	if cmd != nil {
-		t.Fatalf("first ctrl-c should stop, not quit")
+	if cmd == nil {
+		t.Fatalf("first ctrl-c should schedule async interrupt")
 	}
 	if !m.ctrlCArmed {
 		t.Fatalf("ctrl-c was swallowed by overlay")
@@ -586,8 +586,8 @@ func TestTUIEscRequiresConfirmationBeforeStop(t *testing.T) {
 	}
 	next, cmd = m.handleEsc()
 	m = next.(tuiModel)
-	if cmd != nil {
-		t.Fatalf("second esc should not quit")
+	if cmd == nil {
+		t.Fatalf("second esc should schedule async stop")
 	}
 	if m.escArmed {
 		t.Fatalf("second esc should clear stop confirmation")
@@ -598,8 +598,8 @@ func TestTUICtrlCStopsThenExits(t *testing.T) {
 	m := tuiModel{state: clientState{Busy: true}}
 	next, cmd := m.handleCtrlC()
 	m = next.(tuiModel)
-	if cmd != nil {
-		t.Fatalf("first ctrl-c should not quit")
+	if cmd == nil {
+		t.Fatalf("first ctrl-c should schedule async interrupt")
 	}
 	if !m.ctrlCArmed {
 		t.Fatalf("first ctrl-c did not arm exit")
@@ -613,8 +613,8 @@ func TestTUICtrlCStopsThenExits(t *testing.T) {
 func TestTUICtrlCAddsSingleInterruptCell(t *testing.T) {
 	m := tuiModel{state: clientState{Busy: true}}
 	next, cmd := m.handleCtrlC()
-	if cmd != nil {
-		t.Fatalf("first ctrl-c should not quit")
+	if cmd == nil {
+		t.Fatalf("first ctrl-c should schedule async interrupt")
 	}
 	m = next.(tuiModel)
 	count := 0
@@ -628,6 +628,27 @@ func TestTUICtrlCAddsSingleInterruptCell(t *testing.T) {
 	}
 }
 
+func TestTUIInterruptCommandReportsCompletion(t *testing.T) {
+	m := tuiModel{state: clientState{Busy: true}}
+	next, cmd := m.handleCtrlC()
+	if cmd == nil {
+		t.Fatalf("interrupt command missing")
+	}
+	m = next.(tuiModel)
+	msg := cmd()
+	done, ok := msg.(interruptDoneMsg)
+	if !ok {
+		t.Fatalf("interrupt command msg=%T", msg)
+	}
+	if done.Stopped {
+		t.Fatalf("nil client should not report stopped")
+	}
+	m.handleInterruptDone(done)
+	if len(m.cells) != 1 || m.cells[0].Title != "interrupt" {
+		t.Fatalf("interrupt completion should not add noisy cells: %#v", m.cells)
+	}
+}
+
 func TestTUIStopFeedbackRefreshesFrameImmediately(t *testing.T) {
 	m := newTUIModel(context.Background(), &client{events: make(chan uiEvent)})
 	m.width = 120
@@ -635,8 +656,8 @@ func TestTUIStopFeedbackRefreshesFrameImmediately(t *testing.T) {
 	m.state = clientState{Busy: true, Model: "glm-5.1", Context: contextState{LeftPercent: 90}}
 	m.reflow()
 	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyCtrlC})
-	if cmd != nil {
-		t.Fatalf("first ctrl-c should stop current turn without quitting")
+	if cmd == nil {
+		t.Fatalf("first ctrl-c should schedule async interrupt")
 	}
 	m = next.(tuiModel)
 	got := stripANSI(m.View())

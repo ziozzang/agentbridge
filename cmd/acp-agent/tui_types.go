@@ -13,6 +13,8 @@ type tuiEventMsg struct{ Event uiEvent }
 
 type commandDoneMsg struct{ Err error }
 
+type interruptDoneMsg struct{ Stopped bool }
+
 type tuiCell struct {
 	Kind  string
 	Title string

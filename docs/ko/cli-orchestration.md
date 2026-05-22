@@ -87,6 +87,10 @@ streaming을 한 컴포넌트에 섞어서 동작만 맞춘 변경은 완료로 
 - Keyboard handling은 작은 key layer로 분리합니다. Global interrupt/exit key가
   가장 먼저 처리되고, overlay는 selection key를, transcript viewport는 scroll key를,
   composer는 일반 text navigation key를 소유합니다.
+- Interrupt key는 Bubble Tea update function 안에서 network cancellation을
+  동기 실행하면 안 됩니다. Key event는 local UI state를 즉시 바꾸고, cancellation은
+  Bubble Tea command로 예약해서 rendering과 이후 high-priority key가 계속 반응하도록
+  유지합니다.
 - Bubble Tea update loop는 window resize, key routing, ACP UI event, command
   completion, spinner tick, composer update용 작은 handler를 거쳐 message를
   처리합니다. 그래서 terminal program을 띄우지 않고 runtime event loop를 테스트할

@@ -96,6 +96,10 @@ ownership boundary visible in code, tests, and this document.
 - Keyboard handling is split into a small key layer: global interrupt/exit keys
   win first, overlays own selection keys, the transcript viewport owns scroll
   keys, and the composer keeps normal text navigation keys.
+- Interrupt keys must not perform network cancellation inline inside the Bubble
+  Tea update function. The key event updates local UI state immediately, then
+  schedules cancellation as a Bubble Tea command so rendering and subsequent
+  high-priority keys stay responsive.
 - The Bubble Tea update loop routes messages through small handlers for window
   resize, key routing, ACP UI events, command completion, spinner ticks, and
   composer updates. This keeps the runtime event loop testable without starting
