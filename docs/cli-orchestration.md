@@ -94,6 +94,9 @@ ownership boundary visible in code, tests, and this document.
 - Permission overlays and client-owned tool calls share the active prompt
   context. Ctrl-C cancels the pending prompt and any waiting permission/client
   tool request instead of leaving a goroutine blocked behind the UI.
+- Overlay replies must be non-blocking from the TUI event loop. If the reply
+  channel is already full during cleanup, the UI still closes the overlay and
+  continues processing high-priority exit or interrupt keys.
 - Completion hints are a dedicated surface. It owns slash-command argument
   hints and compact suggestion text, while the composer only owns text input.
 - Completion application is also a key-layer concern. Tab completes slash

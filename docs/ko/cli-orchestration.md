@@ -86,6 +86,9 @@ streaming을 한 컴포넌트에 섞어서 동작만 맞춘 변경은 완료로 
 - Permission overlay와 client-owned tool call은 active prompt context를 공유합니다.
   Ctrl-C는 pending prompt와 대기 중인 permission/client tool request를 함께 취소해서
   UI 뒤에 goroutine이 막힌 상태로 남지 않게 합니다.
+- Overlay reply는 TUI event loop에서 non-blocking이어야 합니다. Cleanup 중 reply
+  channel이 이미 차 있어도 UI는 overlay를 닫고 high-priority exit/interrupt key
+  처리를 계속해야 합니다.
 - Completion hint도 별도 surface입니다. Slash-command argument hint와 compact
   suggestion text를 소유하고, composer는 text input만 소유합니다.
 - Completion 적용도 key layer의 책임입니다. Tab은 일반 composer text handling 전에

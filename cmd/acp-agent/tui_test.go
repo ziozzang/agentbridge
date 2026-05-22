@@ -1320,6 +1320,26 @@ func TestTUIExitCancelsLocalCommandAndWaiters(t *testing.T) {
 	}
 }
 
+func TestTUIOverlayReplyDoesNotBlockWhenReplyBufferIsFull(t *testing.T) {
+	reply := make(chan string, 1)
+	reply <- "existing"
+	m := tuiModel{
+		overlay: &uiPermissionRequest{
+			Options: []choiceOption{{Key: "1", Label: "yes"}, {Key: "3", Label: "no"}},
+			Reply:   reply,
+		},
+		overlayTyping: true,
+		overlayInput:  newTUIOverlayInput(),
+	}
+	m.replyOverlay("3")
+	if m.overlay != nil || m.overlayTyping {
+		t.Fatalf("overlay cleanup should complete even when reply buffer is full")
+	}
+	if got := <-reply; got != "existing" {
+		t.Fatalf("full reply buffer should not be overwritten, got %q", got)
+	}
+}
+
 func TestTUIReflowReservesNoticeComposerStatusRows(t *testing.T) {
 	m := tuiModel{width: 100, height: 30, autoFollow: true}
 	m.reflow()

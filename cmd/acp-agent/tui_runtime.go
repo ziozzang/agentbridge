@@ -380,10 +380,20 @@ func (m *tuiModel) replyOverlay(key string) {
 	if key == "" {
 		key = "1"
 	}
-	m.overlay.Reply <- key
+	sendOverlayReply(m.overlay.Reply, key)
 	m.overlay = nil
 	m.overlayTyping = false
 	m.overlayInput.Reset()
+}
+
+func sendOverlayReply(reply chan string, key string) {
+	if reply == nil {
+		return
+	}
+	select {
+	case reply <- key:
+	default:
+	}
 }
 
 func (m tuiModel) runLine(ctx context.Context, line string) tea.Cmd {
