@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 )
@@ -1094,6 +1095,47 @@ func TestTUIRefreshViewportUsesWrappedTranscriptAndFollowsBottom(t *testing.T) {
 	}
 	if !strings.Contains(content, "segment/") {
 		t.Fatalf("wrapped viewport missing assistant content: %q", content)
+	}
+}
+
+func TestTUIRefreshViewportCachesTranscript(t *testing.T) {
+	m := newTUIModel(context.Background(), &client{events: make(chan uiEvent)})
+	m.width = 40
+	m.height = 8
+	m.reflow()
+	m.applyEvent(uiAssistantDeltaEvent{Text: "hello"})
+	if m.transcriptDirty {
+		t.Fatalf("transcript should be clean after refresh")
+	}
+	cached := m.transcriptView
+	m.refreshViewport()
+	if m.transcriptDirty || m.transcriptView != cached {
+		t.Fatalf("clean refresh should reuse cached transcript")
+	}
+	m.handleSpinnerTick(spinner.TickMsg{})
+	m.refreshViewport()
+	if m.transcriptDirty || m.transcriptView != cached {
+		t.Fatalf("spinner/status-only refresh should not rerender transcript")
+	}
+	m.applyEvent(uiAssistantDeltaEvent{Text: " world"})
+	if m.transcriptDirty || m.transcriptView == cached || !strings.Contains(m.transcriptView, "world") {
+		t.Fatalf("delta should invalidate and refresh cached transcript: dirty=%v view=%q", m.transcriptDirty, m.transcriptView)
+	}
+}
+
+func TestTUIReflowInvalidatesTranscriptOnWidthChange(t *testing.T) {
+	m := newTUIModel(context.Background(), &client{events: make(chan uiEvent)})
+	m.width = 80
+	m.height = 8
+	m.applyEvent(uiAssistantDeltaEvent{Text: strings.Repeat("wide ", 20)})
+	first := m.transcriptView
+	m.width = 24
+	m.reflow()
+	if m.transcriptWidth != 24 {
+		t.Fatalf("transcript width=%d", m.transcriptWidth)
+	}
+	if m.transcriptDirty || m.transcriptView == first {
+		t.Fatalf("width change should refresh transcript cache")
 	}
 }
 

@@ -16,17 +16,18 @@ func newTUIModel(ctx context.Context, c *client) tuiModel {
 	overlayInput := newTUIOverlayInput()
 	sp := newTUISpinner()
 	return tuiModel{
-		ctx:          ctx,
-		client:       c,
-		events:       c.events,
-		state:        c.state,
-		opts:         c.opts,
-		viewport:     viewport.New(80, 20),
-		autoFollow:   true,
-		input:        input,
-		overlayInput: overlayInput,
-		spinner:      sp,
-		now:          time.Now(),
+		ctx:             ctx,
+		client:          c,
+		events:          c.events,
+		state:           c.state,
+		opts:            c.opts,
+		viewport:        viewport.New(80, 20),
+		autoFollow:      true,
+		input:           input,
+		overlayInput:    overlayInput,
+		spinner:         sp,
+		now:             time.Now(),
+		transcriptDirty: true,
 	}
 }
 

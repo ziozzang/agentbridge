@@ -54,6 +54,9 @@ streaming을 한 컴포넌트에 섞어서 동작만 맞춘 변경은 완료로 
 - Viewport refresh는 wrapped transcript surface를 직접 사용합니다. 따라서
   auto-follow와 manual scroll preservation은 사용자가 보는 렌더링 결과와 같은
   content 기준으로 동작합니다.
+- Transcript rendering은 명시적인 dirty flag 뒤에 cache됩니다. Spinner tick,
+  status-only update, 기타 frame change는 cell이나 viewport width가 바뀌지 않았다면
+  전체 transcript를 다시 wrap하지 않아야 합니다.
 - Status/notice rendering도 별도 surface입니다. Running activity, token progress,
   queue/subagent/tool count, scroll state, context, quota, worker placement,
   permission mode, session identity를 frame layout과 분리해서 계산합니다.

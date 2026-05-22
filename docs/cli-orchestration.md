@@ -56,6 +56,9 @@ ownership boundary visible in code, tests, and this document.
 - Viewport refresh consumes the wrapped transcript surface directly, so
   auto-follow and manual scroll preservation operate on the same rendered
   content the user sees.
+- Transcript rendering is cached behind an explicit dirty flag. Spinner ticks,
+  status-only updates, and other frame changes must not re-wrap the full
+  transcript unless cells or viewport width changed.
 - Status and notice rendering is also a dedicated surface. It derives running
   activity, token progress, queue/subagent/tool counts, scroll state, context,
   quota, worker placement, permission mode, and session identity separately

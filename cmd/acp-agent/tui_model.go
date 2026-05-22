@@ -94,6 +94,7 @@ func (m *tuiModel) appendDelta(kind, title, text string) {
 	}
 	if len(m.cells) > 0 && m.cells[len(m.cells)-1].Kind == kind {
 		m.cells[len(m.cells)-1].Body += text
+		m.invalidateTranscript()
 		return
 	}
 	m.appendCell(tuiCell{Kind: kind, Title: title, Body: text})
@@ -107,6 +108,11 @@ func (m *tuiModel) appendCell(cell tuiCell) {
 	if len(m.cells) > 400 {
 		m.cells = append([]tuiCell(nil), m.cells[len(m.cells)-400:]...)
 	}
+	m.invalidateTranscript()
+}
+
+func (m *tuiModel) invalidateTranscript() {
+	m.transcriptDirty = true
 }
 
 func (m *tuiModel) reflow() {
@@ -115,14 +121,23 @@ func (m *tuiModel) reflow() {
 	}
 	m.input.Width = maxInt(1, m.width-3)
 	m.overlayInput.Width = maxInt(1, m.width-8)
+	if m.viewport.Width != m.width {
+		m.invalidateTranscript()
+	}
 	m.viewport.Width = m.width
 	m.viewport.Height = maxInt(1, m.height-3)
 	m.refreshViewport()
 }
 
 func (m *tuiModel) refreshViewport() {
+	if !m.transcriptDirty && m.transcriptWidth == m.viewport.Width {
+		return
+	}
 	shouldFollow := m.autoFollow || m.viewport.AtBottom()
-	m.viewport.SetContent(m.transcript().View())
+	m.transcriptView = m.transcript().View()
+	m.transcriptWidth = m.viewport.Width
+	m.transcriptDirty = false
+	m.viewport.SetContent(m.transcriptView)
 	if shouldFollow {
 		m.viewport.GotoBottom()
 		m.autoFollow = true
