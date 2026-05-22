@@ -759,6 +759,30 @@ func TestTUIScrollPositionIsPreservedWhenNotFollowing(t *testing.T) {
 	}
 }
 
+func TestTUIRefreshViewportUsesWrappedTranscriptAndFollowsBottom(t *testing.T) {
+	m := newTUIModel(context.Background(), &client{events: make(chan uiEvent)})
+	m.width = 32
+	m.height = 8
+	m.autoFollow = true
+	m.reflow()
+	m.applyEvent(uiAssistantDeltaEvent{Text: strings.Repeat("segment/", 20)})
+	if !m.autoFollow || !m.viewport.AtBottom() {
+		t.Fatalf("viewport should follow bottom after wrapped long content")
+	}
+	content := stripANSI(m.viewport.View())
+	for _, line := range strings.Split(content, "\n") {
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+		if width := lipgloss.Width(line); width > m.viewport.Width {
+			t.Fatalf("viewport line width=%d > %d: %q\ncontent=%q", width, m.viewport.Width, line, content)
+		}
+	}
+	if !strings.Contains(content, "segment/") {
+		t.Fatalf("wrapped viewport missing assistant content: %q", content)
+	}
+}
+
 func TestTUIViewIncludesNoticeComposerAndStatus(t *testing.T) {
 	start := time.Now().Add(-2 * time.Second)
 	m := tuiModel{

@@ -39,6 +39,9 @@ shell script를 실행하지 않습니다.
 - Transcript body text는 viewport 폭에 맞춰 wrap합니다. Assistant output,
   thinking, tool detail, error, info cell의 긴 provider/tool line이 terminal layout을
   가로로 깨지 않도록 합니다.
+- Viewport refresh는 wrapped transcript surface를 직접 사용합니다. 따라서
+  auto-follow와 manual scroll preservation은 사용자가 보는 렌더링 결과와 같은
+  content 기준으로 동작합니다.
 - Status/notice rendering도 별도 surface입니다. Running activity, token progress,
   queue/subagent/tool count, scroll state, context, quota, permission mode, session
   identity를 frame layout과 분리해서 계산합니다.
