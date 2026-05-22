@@ -72,6 +72,9 @@ streaming을 한 컴포넌트에 섞어서 동작만 맞춘 변경은 완료로 
 - Approval overlay는 자기 width와 wrapping을 소유합니다. 긴 title, command detail,
   choice label, replacement input은 transcript 위에 합성되기 전에 terminal width 안에
   들어가야 합니다.
+- Approval overlay는 transcript surface를 세로로 키울 수도 없습니다. 너무 긴
+  overlay는 사용 가능한 transcript row 수에 맞춰 clamp되어 notice, composer, 하단
+  고정 status line이 제자리에 남아야 합니다.
 - Approval reply는 같은 key event 안에서 overlay를 닫습니다. 다음 frame은 server
   traffic을 기다리지 않고 transcript와 bottom composer 상태로 돌아옵니다.
 - `other command`처럼 replacement text가 필요한 permission choice도 Bubble Tea

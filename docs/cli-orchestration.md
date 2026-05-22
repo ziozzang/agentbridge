@@ -77,6 +77,9 @@ ownership boundary visible in code, tests, and this document.
 - Approval overlays own their width and wrapping. Long titles, command details,
   choice labels, and replacement input must fit inside the terminal width
   before the overlay is composed over the transcript.
+- Approval overlays also cannot grow the transcript surface vertically. Tall
+  overlays are clamped to the available transcript rows so the notice,
+  composer, and fixed bottom status line stay in place.
 - Approval replies close the overlay in the same key event; the next frame
   returns to the transcript and bottom composer without waiting for server
   traffic.

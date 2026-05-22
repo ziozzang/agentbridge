@@ -144,14 +144,18 @@ func overlayBlock(width, height int, base, overlay string) string {
 	}
 	lines := strings.Split(base, "\n")
 	overlayLines := strings.Split(overlay, "\n")
+	if len(overlayLines) > len(lines) {
+		overlayLines = overlayLines[:len(lines)]
+	}
 	start := maxInt(0, (len(lines)-len(overlayLines))/2)
 	for i, line := range overlayLines {
 		idx := start + i
 		if idx >= len(lines) {
-			lines = append(lines, "")
+			break
 		}
+		line = truncateStatusLine(line, width)
 		pad := maxInt(0, (width-lipgloss.Width(line))/2)
-		lines[idx] = strings.Repeat(" ", pad) + line
+		lines[idx] = truncateStatusLine(strings.Repeat(" ", pad)+line, width)
 	}
 	return strings.Join(lines, "\n")
 }

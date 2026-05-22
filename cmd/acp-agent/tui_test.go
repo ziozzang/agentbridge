@@ -659,6 +659,40 @@ func TestTUIFrameSurfaceAppliesOverlayOverTranscript(t *testing.T) {
 	}
 }
 
+func TestTUIFrameSurfaceClampsTallOverlayToTranscriptRows(t *testing.T) {
+	surface := tuiFrameSurface{
+		width:      40,
+		height:     6,
+		transcript: "line1\nline2",
+		overlay: strings.Join([]string{
+			"approval requested",
+			"1. yes",
+			"2. yes, same command",
+			"3. no",
+			"4. other command",
+			"0. yolo",
+		}, "\n"),
+		notice:   "notice",
+		composer: tuiComposerSurface{width: 40, input: " › "}.View(),
+		status:   "Ready",
+	}
+	got := stripANSI(surface.View())
+	lines := strings.Split(got, "\n")
+	if len(lines) != 5 {
+		t.Fatalf("overlay should not grow fixed frame rows, lines=%d view=%q", len(lines), got)
+	}
+	for _, want := range []string{"notice", "Ready"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("frame missing %q after overlay clamp: %q", want, got)
+		}
+	}
+	for _, line := range strings.Split(surface.View(), "\n") {
+		if width := lipgloss.Width(line); width > surface.width {
+			t.Fatalf("frame line width=%d exceeds %d: %q", width, surface.width, line)
+		}
+	}
+}
+
 func TestTUIFrameSurfaceKeepsNoticeToSingleRow(t *testing.T) {
 	surface := tuiFrameSurface{
 		width:      48,

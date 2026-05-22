@@ -65,13 +65,19 @@ Possible orchestrator responsibilities:
 - advertise node capabilities, health, locality, and permission policy
 - route subtasks and tool calls to the right node
 - delegate or broker authentication for downstream nodes
+- act as an auth/session proxy when a client should not hold every downstream
+  credential directly
+- reconcile multiple ACP server nodes attached to one logical workspace
 - hold session placement metadata and resume routing
 - aggregate progress, cancellation, metrics, and audit events across nodes
 
 This is a design direction, not a claim that distributed orchestration is fully
 implemented today. Current code should still preserve the boundary: the server
 brokers, the terminal worker executes local terminal actions, and future
-orchestrators choose placement explicitly.
+orchestrators choose placement explicitly. The first milestone is a clear
+contract for directory, capability, placement, auth delegation, and audit
+events; clustering or automatic scheduling should follow that contract rather
+than being hidden inside provider code.
 
 ## Future Worker Nodes
 

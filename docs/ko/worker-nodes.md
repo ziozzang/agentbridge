@@ -62,12 +62,18 @@ AgentBridge는 작은 control plane에 가까운 orchestrator/master-node 모델
 - node capability, health, locality, permission policy 광고
 - subtask와 tool call을 적절한 node로 routing
 - downstream node 인증 위임 또는 대행
+- client가 모든 downstream credential을 직접 들고 있지 않아도 되도록 auth/session
+  proxy 역할 수행
+- 하나의 logical workspace에 여러 ACP server node가 붙는 경우 이를 조정
 - session placement metadata와 resume routing 보유
 - node 전체의 progress, cancellation, metric, audit event 집계
 
 이는 설계 방향성이지, distributed orchestration이 오늘 완성되었다는 의미는 아닙니다.
 현재 code는 여전히 boundary를 지켜야 합니다. Server는 중개하고, terminal worker는 local
-terminal action을 실행하며, 향후 orchestrator는 placement를 명시적으로 선택합니다.
+terminal action을 실행하며, 향후 orchestrator는 placement를 명시적으로 선택합니다. 첫
+milestone은 directory, capability, placement, auth delegation, audit event의 명확한
+contract입니다. Clustering이나 automatic scheduling은 provider code 안에 숨기지 말고
+그 contract 위에서 따라와야 합니다.
 
 ## 향후 Worker Node
 
