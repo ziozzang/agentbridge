@@ -126,6 +126,9 @@ streaming을 한 컴포넌트에 섞어서 동작만 맞춘 변경은 완료로 
   적용하고, 다음 event wait는 계속 명시적으로 예약합니다.
 - Batched UI event는 model state를 순서대로 변경한 뒤 batch 마지막에 viewport를 한 번만
   refresh합니다. Batch 내부에서 event마다 transcript refresh를 반복하지 않습니다.
+- ACP event handler는 직접 렌더링하지 않습니다. Transcript state를 dirty로 만들고
+  다음 wait를 예약하며, 해당 message의 단일 viewport refresh는 Bubble Tea update
+  tail이 소유합니다.
 - Terminal resize event는 같은 update loop를 통해 viewport와 composer를 reflow하고,
   매우 작은 terminal 크기도 유효한 component size로 clamp합니다.
 - Stop request는 같은 key event 안에서 즉시 transcript cell을 추가하고 viewport를

@@ -125,7 +125,6 @@ func (m *tuiModel) handleTUIEvent(msg tuiEventMsg, cmds []tea.Cmd) []tea.Cmd {
 	for _, ev := range msg.Events {
 		m.applyEventState(ev)
 	}
-	m.refreshViewport()
 	return append(cmds, waitTUIEvent(m.events))
 }
 

@@ -139,6 +139,9 @@ ownership boundary visible in code, tests, and this document.
   explicit.
 - Batched UI events mutate model state in order, then refresh the viewport once
   after the batch. Per-event transcript refresh inside the batch is avoided.
+- The ACP event handler does not render directly. It marks transcript state and
+  schedules the next wait; the Bubble Tea update tail owns the single viewport
+  refresh for that message.
 - Terminal resize events reflow the viewport and composer through the same
   update loop, with tiny terminal dimensions clamped to valid component sizes.
 - Stop requests append an immediate transcript cell and refresh the viewport in

@@ -1000,6 +1000,25 @@ func TestTUIEventBatchRefreshesViewportOnce(t *testing.T) {
 	}
 }
 
+func TestTUIEventHandlerLeavesRefreshToUpdateTail(t *testing.T) {
+	m := newTUIModel(context.Background(), &client{events: make(chan uiEvent, 1)})
+	m.width = 80
+	m.height = 8
+	m.reflow()
+	m.transcriptView = "cached"
+	m.transcriptDirty = false
+	cmds := m.handleTUIEvent(tuiEventMsg{Events: []uiEvent{uiAssistantDeltaEvent{Text: "delta"}}}, nil)
+	if len(cmds) != 1 {
+		t.Fatalf("handler should only schedule next wait command, cmds=%d", len(cmds))
+	}
+	if !m.transcriptDirty {
+		t.Fatalf("handler should leave dirty transcript for Update tail refresh")
+	}
+	if m.transcriptView != "cached" {
+		t.Fatalf("handler refreshed transcript directly: %q", m.transcriptView)
+	}
+}
+
 func TestTUIBusySubmitQueueEventsReachFrame(t *testing.T) {
 	events := make(chan uiEvent, 4)
 	c := &client{
