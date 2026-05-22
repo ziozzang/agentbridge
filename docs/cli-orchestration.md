@@ -37,6 +37,9 @@ The broader ownership and permission rules are documented in
   overlay, and transcript cells.
 - Transcript rendering is a dedicated surface: history cells are normalized
   before rendering, and the viewport consumes the rendered transcript string.
+- Transcript body text is wrapped to the viewport width, including assistant
+  output, thinking, tool details, errors, and info cells, so long provider/tool
+  lines do not break the terminal layout horizontally.
 - Status and notice rendering is also a dedicated surface. It derives running
   activity, token progress, queue/subagent/tool counts, scroll state, context,
   quota, permission mode, and session identity separately from the frame layout.

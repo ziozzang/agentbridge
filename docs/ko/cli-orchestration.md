@@ -36,6 +36,9 @@ shell script를 실행하지 않습니다.
   transcript cell을 소유합니다.
 - Transcript rendering은 별도 surface입니다. History cell을 정규화한 뒤 렌더링하고,
   viewport는 렌더링된 transcript string을 소비합니다.
+- Transcript body text는 viewport 폭에 맞춰 wrap합니다. Assistant output,
+  thinking, tool detail, error, info cell의 긴 provider/tool line이 terminal layout을
+  가로로 깨지 않도록 합니다.
 - Status/notice rendering도 별도 surface입니다. Running activity, token progress,
   queue/subagent/tool count, scroll state, context, quota, permission mode, session
   identity를 frame layout과 분리해서 계산합니다.

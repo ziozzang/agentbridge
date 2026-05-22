@@ -83,6 +83,31 @@ func TestTUITranscriptSurfaceRendersCellKinds(t *testing.T) {
 	}
 }
 
+func TestTUITranscriptSurfaceWrapsLongCellLines(t *testing.T) {
+	tr := tuiTranscript{
+		width: 24,
+		cells: []tuiCell{
+			{Kind: "assistant", Title: "assistant", Body: strings.Repeat("word ", 12)},
+			{Kind: "tool", Title: "tool in_progress", Body: "path: " + strings.Repeat("segment/", 10)},
+			{Kind: "error", Title: "error", Body: strings.Repeat("failure ", 10)},
+		},
+	}
+	got := stripANSI(tr.View())
+	for _, line := range strings.Split(got, "\n") {
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+		if width := lipgloss.Width(line); width > 24 {
+			t.Fatalf("transcript line width=%d > 24: %q\nview=%q", width, line, got)
+		}
+	}
+	for _, want := range []string{"assistant", "tool in_progress", "path:", "error"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("wrapped transcript missing %q: %q", want, got)
+		}
+	}
+}
+
 func TestTUIProgressTracksStreamingEvents(t *testing.T) {
 	start := time.Date(2026, 5, 22, 1, 2, 3, 0, time.UTC)
 	m := tuiModel{width: 180, state: clientState{Busy: true}, turnAt: start, now: start}
