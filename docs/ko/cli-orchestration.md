@@ -65,6 +65,8 @@ streaming을 한 컴포넌트에 섞어서 동작만 맞춘 변경은 완료로 
 - Composer 위 notice row도 같은 fixed-row 규칙을 따릅니다. 긴 progress text,
   stop prompt, completion hint는 frame assembly 전에 truncate되어 composer/status
   row를 밀어내지 않습니다.
+- Notice surface가 이 truncation을 직접 소유합니다. Frame이 방어적으로 다시 truncate할 수
+  있지만, notice surface 호출자는 이미 single fixed-width line을 받아야 합니다.
 - Permission approval overlay도 별도 surface입니다. Choice list 렌더링과
   number/arrow/yes/no key를 ACP permission reply로 매핑하는 책임을 가집니다.
 - Approval reply는 같은 key event 안에서 overlay를 닫습니다. 다음 frame은 server

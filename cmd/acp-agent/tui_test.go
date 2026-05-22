@@ -232,6 +232,30 @@ func TestTUIStatusSurfaceTruncatesToSingleFixedLine(t *testing.T) {
 	}
 }
 
+func TestTUINoticeSurfaceTruncatesToSingleFixedLine(t *testing.T) {
+	m := tuiModel{
+		width:    36,
+		activity: strings.Repeat("very long activity ", 8),
+		turnAt:   time.Date(2026, 5, 22, 1, 2, 3, 0, time.UTC),
+		now:      time.Date(2026, 5, 22, 1, 2, 8, 0, time.UTC),
+		state:    clientState{Busy: true},
+	}
+	got := m.noticeLine()
+	if strings.Contains(got, "\n") {
+		t.Fatalf("notice wrapped: %q", got)
+	}
+	if width := lipgloss.Width(got); width > m.width {
+		t.Fatalf("notice width=%d want <= %d: %q", width, m.width, got)
+	}
+
+	m = tuiModel{width: 20, input: newTUIComposer()}
+	m.input.SetValue("/permission ")
+	got = m.noticeLine()
+	if strings.Contains(got, "\n") || lipgloss.Width(got) > m.width {
+		t.Fatalf("hint notice should be one fixed row: %q", got)
+	}
+}
+
 func TestTruncateStatusLineHandlesTinyWidth(t *testing.T) {
 	if got := truncateStatusLine("abcdef", 0); got != "" {
 		t.Fatalf("zero width=%q", got)

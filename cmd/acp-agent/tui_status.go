@@ -19,10 +19,10 @@ func (s tuiStatusSurface) Notice() string {
 		return ""
 	}
 	if m.overlay != nil {
-		return tuiWarnStyle.Render("approval requested") + " choose with numbers, arrows, enter, or esc"
+		return s.truncateNotice(tuiWarnStyle.Render("approval requested") + " choose with numbers, arrows, enter, or esc")
 	}
 	if m.escArmed {
-		return tuiWarnStyle.Render("stop current turn?") + " press ESC again to stop · Ctrl-C stops immediately · Ctrl-C again exits"
+		return s.truncateNotice(tuiWarnStyle.Render("stop current turn?") + " press ESC again to stop · Ctrl-C stops immediately · Ctrl-C again exits")
 	}
 	if m.state.Busy {
 		parts := []string{"running " + s.turnElapsed()}
@@ -33,7 +33,7 @@ func (s tuiStatusSurface) Notice() string {
 			parts = append(parts, progress)
 		}
 		parts = append(parts, "ESC: confirm stop", "Ctrl-C: stop", "Ctrl-D: exit")
-		return strings.Join(parts, " · ")
+		return s.truncateNotice(strings.Join(parts, " · "))
 	}
 	if m.commandRuns > 0 {
 		parts := []string{fmt.Sprintf("command running %d", m.commandRuns)}
@@ -41,12 +41,20 @@ func (s tuiStatusSurface) Notice() string {
 			parts = append(parts, m.activity)
 		}
 		parts = append(parts, "Ctrl-C: exit", "Ctrl-D: exit")
-		return strings.Join(parts, " · ")
+		return s.truncateNotice(strings.Join(parts, " · "))
 	}
 	if hint := m.completionHint(); hint != "" {
-		return tuiHintStyle.Render(hint)
+		return s.truncateNotice(tuiHintStyle.Render(hint))
 	}
-	return "Ctrl-D: exit · /help"
+	return s.truncateNotice("Ctrl-D: exit · /help")
+}
+
+func (s tuiStatusSurface) truncateNotice(line string) string {
+	width := s.model.width
+	if width <= 0 {
+		return ""
+	}
+	return truncateStatusLine(line, width)
 }
 
 func (s tuiStatusSurface) Progress() string {

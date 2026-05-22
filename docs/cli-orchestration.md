@@ -69,6 +69,9 @@ ownership boundary visible in code, tests, and this document.
 - The notice row above the composer follows the same fixed-row rule: long
   progress text, stop prompts, or completion hints are truncated before frame
   assembly so they cannot move the composer or status rows.
+- The notice surface owns that truncation itself; the frame may defensively
+  truncate again, but callers of the notice surface should already receive a
+  single fixed-width line.
 - Permission approval overlays are a dedicated surface for rendering choice
   lists and mapping number/arrow/yes/no keys to ACP permission replies.
 - Approval replies close the overlay in the same key event; the next frame
