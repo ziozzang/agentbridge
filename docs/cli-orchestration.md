@@ -140,6 +140,9 @@ ownership boundary visible in code, tests, and this document.
   update loop. A burst of streaming deltas can then be applied in one Bubble
   Tea update while still preserving event order and keeping subsequent waits
   explicit.
+- The TUI event channel buffer and batch limit are named runtime constants.
+  They are tuning points for responsiveness and must not be hidden as literals
+  in the event loop.
 - Batched UI events mutate model state in order, then refresh the viewport once
   after the batch. Per-event transcript refresh inside the batch is avoided.
 - The ACP event handler does not render directly. It marks transcript state and

@@ -9,8 +9,13 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 )
 
+const (
+	tuiEventBufferSize = 512
+	tuiEventBatchLimit = 64
+)
+
 func runBubbleTUI(ctx context.Context, c *client) error {
-	c.events = make(chan uiEvent, 512)
+	c.events = make(chan uiEvent, tuiEventBufferSize)
 	c.stream = nil
 	c.emitState()
 
@@ -34,7 +39,7 @@ func waitTUIEvent(events <-chan uiEvent) tea.Cmd {
 			return tea.Quit()
 		}
 		batch := []uiEvent{ev}
-		for len(batch) < 64 {
+		for len(batch) < tuiEventBatchLimit {
 			select {
 			case next, ok := <-events:
 				if !ok {

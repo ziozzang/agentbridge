@@ -986,6 +986,24 @@ func TestWaitTUIEventBatchesBufferedEvents(t *testing.T) {
 	}
 }
 
+func TestWaitTUIEventCapsBatchLimit(t *testing.T) {
+	events := make(chan uiEvent, tuiEventBatchLimit+1)
+	for i := 0; i < tuiEventBatchLimit+1; i++ {
+		events <- uiAssistantDeltaEvent{Text: "x"}
+	}
+	msg := waitTUIEvent(events)()
+	batch, ok := msg.(tuiEventMsg)
+	if !ok {
+		t.Fatalf("message type=%T", msg)
+	}
+	if len(batch.Events) != tuiEventBatchLimit {
+		t.Fatalf("batch len=%d want %d", len(batch.Events), tuiEventBatchLimit)
+	}
+	if got := len(events); got != 1 {
+		t.Fatalf("remaining buffered events=%d want 1", got)
+	}
+}
+
 func TestWaitTUIEventReturnsBufferedBatchBeforeClosedChannel(t *testing.T) {
 	events := make(chan uiEvent, 2)
 	events <- uiAssistantDeltaEvent{Text: "a"}
