@@ -1,6 +1,10 @@
 package main
 
-import "github.com/charmbracelet/lipgloss"
+import (
+	"strings"
+
+	"github.com/charmbracelet/lipgloss"
+)
 
 type tuiFrameSurface struct {
 	width      int
@@ -16,13 +20,27 @@ func (s tuiFrameSurface) View() string {
 	if s.width <= 0 {
 		return ""
 	}
-	transcript := s.transcript
+	transcript := clampFrameBlock(s.transcript, s.width, maxInt(1, s.height-3))
 	if s.overlay != "" {
 		transcript = overlayBlock(s.width, s.height, transcript, s.overlay)
 	}
 	notice := tuiNoticeStyle.Width(s.width).Render(truncateStatusLine(s.notice, s.width))
 	status := tuiStatusStyle.Width(s.width).Render(truncateStatusLine(s.status, s.width))
 	return lipgloss.JoinVertical(lipgloss.Left, transcript, notice, s.composer, status)
+}
+
+func clampFrameBlock(block string, width, height int) string {
+	if width <= 0 || height <= 0 {
+		return ""
+	}
+	lines := splitDisplayLines(block)
+	if len(lines) > height {
+		lines = lines[:height]
+	}
+	for i, line := range lines {
+		lines[i] = truncateStatusLine(strings.ReplaceAll(line, "\r", " "), width)
+	}
+	return strings.Join(lines, "\n")
 }
 
 func (m tuiModel) frameSurface() tuiFrameSurface {

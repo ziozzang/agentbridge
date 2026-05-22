@@ -95,6 +95,9 @@ streaming을 한 컴포넌트에 섞어서 동작만 맞춘 변경은 완료로 
   ANSI-aware truncate되어 status line으로 wrap되지 않습니다.
 - 최상위 frame도 별도 surface입니다. Transcript, overlay, notice, composer,
   status row를 조립하지만 transport나 command behavior는 소유하지 않습니다.
+- Frame은 fixed notice, composer, status row를 제외하고 남은 row 수에 맞춰
+  transcript block도 방어적으로 clamp합니다. 잘못되었거나 너무 큰 transcript
+  surface가 하단 shell row를 화면 밖으로 밀어내면 안 됩니다.
 - TUI component construction은 runtime update loop 밖에 둡니다. 그래서 composer,
   spinner, viewport, 초기 model state를 terminal program 실행 없이 테스트할 수 있습니다.
 - Bubble Tea program option은 하나의 lifecycle helper에서 만듭니다. Interactive

@@ -104,6 +104,9 @@ ownership boundary visible in code, tests, and this document.
 - The top-level frame is also a dedicated surface. It assembles transcript,
   overlay, notice, composer, and status rows without owning any transport or
   command behavior.
+- The frame defensively clamps the transcript block to the rows left after the
+  fixed notice, composer, and status rows. A malformed or over-tall transcript
+  surface must not push the bottom shell rows off screen.
 - TUI component construction lives outside the runtime update loop, so the
   composer, spinner, viewport, and initial model state can be tested without
   launching a terminal program.

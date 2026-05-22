@@ -740,6 +740,44 @@ func TestTUIFrameSurfaceKeepsStatusToSingleRow(t *testing.T) {
 	}
 }
 
+func TestTUIFrameSurfaceClampsTranscriptToReservedRows(t *testing.T) {
+	surface := tuiFrameSurface{
+		width:  32,
+		height: 6,
+		transcript: strings.Join([]string{
+			"line1",
+			"line2",
+			"line3",
+			"line4",
+			"line5",
+			"line6",
+		}, "\n"),
+		notice:   "notice",
+		composer: tuiComposerSurface{width: 32, input: " › prompt"}.View(),
+		status:   "Ready",
+	}
+	got := stripANSI(surface.View())
+	lines := strings.Split(got, "\n")
+	if len(lines) != 6 {
+		t.Fatalf("frame should reserve 3 transcript rows and 3 fixed rows, lines=%d view=%q", len(lines), got)
+	}
+	for _, want := range []string{"line1", "line2", "line3", "notice", "prompt", "Ready"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("clamped frame missing %q: %q", want, got)
+		}
+	}
+	for _, unexpected := range []string{"line4", "line5", "line6"} {
+		if strings.Contains(got, unexpected) {
+			t.Fatalf("transcript overflow leaked %q into frame: %q", unexpected, got)
+		}
+	}
+	for _, line := range strings.Split(surface.View(), "\n") {
+		if width := lipgloss.Width(line); width > surface.width {
+			t.Fatalf("frame line width=%d exceeds %d: %q", width, surface.width, line)
+		}
+	}
+}
+
 func TestTUIStatusLineShowsActivityAndPermission(t *testing.T) {
 	start := time.Now().Add(-75 * time.Second)
 	m := tuiModel{width: 180, activity: "tool: Read file", turnAt: start, now: start.Add(75 * time.Second), state: clientState{
