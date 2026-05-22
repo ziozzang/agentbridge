@@ -1356,6 +1356,23 @@ func TestTUIWindowSizeUpdateReflowsFrameAndComposer(t *testing.T) {
 	}
 }
 
+func TestTUIWindowSizeHandlerLeavesRefreshToUpdateTail(t *testing.T) {
+	m := newTUIModel(context.Background(), &client{events: make(chan uiEvent)})
+	m.width = 80
+	m.height = 8
+	m.applyEvent(uiAssistantDeltaEvent{Text: "cached"})
+	m.handleWindowSize(tea.WindowSizeMsg{Width: 40, Height: 6})
+	if m.width != 40 || m.height != 6 || m.viewport.Width != 40 || m.viewport.Height != 3 {
+		t.Fatalf("window size not applied: model=%dx%d viewport=%dx%d", m.width, m.height, m.viewport.Width, m.viewport.Height)
+	}
+	if !m.transcriptDirty {
+		t.Fatalf("window size handler should leave dirty transcript for Update tail refresh")
+	}
+	if !strings.Contains(m.transcriptView, "cached") || m.transcriptWidth != 80 {
+		t.Fatalf("window size handler refreshed transcript directly: width=%d view=%q", m.transcriptWidth, m.transcriptView)
+	}
+}
+
 func TestTUIReflowClampsTinyComposerAndViewport(t *testing.T) {
 	m := tuiModel{width: 2, height: 2, autoFollow: true, input: newTUIComposer()}
 	m.reflow()
@@ -1373,6 +1390,7 @@ func TestTUIScrollPositionIsPreservedWhenNotFollowing(t *testing.T) {
 		m.appendCell(tuiCell{Kind: "info", Title: "line", Body: strings.Repeat("x", i+1)})
 	}
 	m.reflow()
+	m.refreshViewport()
 	if !m.viewport.AtBottom() {
 		t.Fatalf("expected initial viewport to follow bottom")
 	}
@@ -1449,11 +1467,15 @@ func TestTUIReflowInvalidatesTranscriptOnWidthChange(t *testing.T) {
 	first := m.transcriptView
 	m.width = 24
 	m.reflow()
-	if m.transcriptWidth != 24 {
-		t.Fatalf("transcript width=%d", m.transcriptWidth)
+	if !m.transcriptDirty {
+		t.Fatalf("width change should leave transcript dirty for Update tail refresh")
 	}
-	if m.transcriptDirty || m.transcriptView == first {
-		t.Fatalf("width change should refresh transcript cache")
+	if m.transcriptView != first {
+		t.Fatalf("reflow should not refresh transcript directly")
+	}
+	m.refreshViewport()
+	if m.transcriptDirty || m.transcriptWidth != 24 || m.transcriptView == first {
+		t.Fatalf("refresh after reflow failed: dirty=%v width=%d view=%q", m.transcriptDirty, m.transcriptWidth, m.transcriptView)
 	}
 }
 

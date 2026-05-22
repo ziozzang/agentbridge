@@ -130,7 +130,6 @@ func (m *tuiModel) reflow() {
 	}
 	m.viewport.Width = m.width
 	m.viewport.Height = tuiTranscriptRows(m.height)
-	m.refreshViewport()
 }
 
 func (m *tuiModel) refreshViewport() {

@@ -147,6 +147,8 @@ ownership boundary visible in code, tests, and this document.
   refresh for that message.
 - Terminal resize events reflow the viewport and composer through the same
   update loop, with tiny terminal dimensions clamped to valid component sizes.
+  Reflow updates dimensions and dirty state only; the update tail owns the
+  viewport refresh for the resize message.
 - Stop requests append an immediate transcript cell in the same key event; the
   update tail refreshes the viewport before returning so interrupt feedback is
   visible before the next provider event arrives.

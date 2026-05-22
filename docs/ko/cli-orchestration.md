@@ -133,7 +133,8 @@ streaming을 한 컴포넌트에 섞어서 동작만 맞춘 변경은 완료로 
   다음 wait를 예약하며, 해당 message의 단일 viewport refresh는 Bubble Tea update
   tail이 소유합니다.
 - Terminal resize event는 같은 update loop를 통해 viewport와 composer를 reflow하고,
-  매우 작은 terminal 크기도 유효한 component size로 clamp합니다.
+  매우 작은 terminal 크기도 유효한 component size로 clamp합니다. Reflow는 dimension과
+  dirty state만 갱신하고, resize message의 viewport refresh는 update tail이 소유합니다.
 - Stop request는 같은 key event 안에서 즉시 transcript cell을 추가합니다. Update
   tail이 반환 전에 viewport를 refresh하므로 다음 provider event가 오기 전에도
   interrupt feedback이 화면에 보입니다.
