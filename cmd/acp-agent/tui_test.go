@@ -1254,6 +1254,23 @@ func TestTUIReflowReservesNoticeComposerStatusRows(t *testing.T) {
 	}
 }
 
+func TestTUILayoutTranscriptRows(t *testing.T) {
+	cases := map[int]int{
+		0:  1,
+		1:  1,
+		2:  1,
+		3:  1,
+		4:  1,
+		9:  6,
+		30: 27,
+	}
+	for height, want := range cases {
+		if got := tuiTranscriptRows(height); got != want {
+			t.Fatalf("height %d transcript rows=%d want %d", height, got, want)
+		}
+	}
+}
+
 func TestTUIWindowSizeUpdateReflowsFrameAndComposer(t *testing.T) {
 	m := newTUIModel(context.Background(), &client{events: make(chan uiEvent)})
 	m.appendCell(tuiCell{Kind: "assistant", Title: "assistant", Body: strings.Repeat("wide ", 20)})

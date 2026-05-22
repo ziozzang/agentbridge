@@ -20,7 +20,7 @@ func (s tuiFrameSurface) View() string {
 	if s.width <= 0 {
 		return ""
 	}
-	transcript := clampFrameBlock(s.transcript, s.width, maxInt(1, s.height-3))
+	transcript := clampFrameBlock(s.transcript, s.width, tuiTranscriptRows(s.height))
 	if s.overlay != "" {
 		transcript = overlayBlock(s.width, s.height, transcript, s.overlay)
 	}

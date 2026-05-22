@@ -107,6 +107,9 @@ ownership boundary visible in code, tests, and this document.
 - The frame defensively clamps the transcript block to the rows left after the
   fixed notice, composer, and status rows. A malformed or over-tall transcript
   surface must not push the bottom shell rows off screen.
+- The count of fixed shell rows is a shared layout contract used by both
+  reflow and frame rendering; it should not be duplicated as ad hoc arithmetic
+  in event-loop code.
 - TUI component construction lives outside the runtime update loop, so the
   composer, spinner, viewport, and initial model state can be tested without
   launching a terminal program.

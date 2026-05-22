@@ -129,7 +129,7 @@ func (m *tuiModel) reflow() {
 		m.invalidateTranscript()
 	}
 	m.viewport.Width = m.width
-	m.viewport.Height = maxInt(1, m.height-3)
+	m.viewport.Height = tuiTranscriptRows(m.height)
 	m.refreshViewport()
 }
 
