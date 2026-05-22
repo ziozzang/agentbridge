@@ -110,6 +110,9 @@ ownership boundary visible in code, tests, and this document.
   resize, key routing, ACP UI events, command completion, spinner ticks, and
   composer updates. This keeps the runtime event loop testable without starting
   a terminal program.
+- Composer updates are a key-layer fallback only. Window resize, spinner ticks,
+  ACP UI events, and command completion messages must not be sent through the
+  textinput component.
 - Buffered ACP UI events are drained into bounded batches before entering the
   update loop. A burst of streaming deltas can then be applied in one Bubble
   Tea update while still preserving event order and keeping subsequent waits

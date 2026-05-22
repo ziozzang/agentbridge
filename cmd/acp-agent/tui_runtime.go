@@ -66,6 +66,8 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if handled {
 			return out, cmd
 		}
+		m, cmd = m.updateComposer(msg)
+		cmds = append(cmds, cmd)
 	case tuiEventMsg:
 		cmds = m.handleTUIEvent(msg, cmds)
 	case commandDoneMsg:
@@ -76,8 +78,6 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m, cmd = m.handleSpinnerTick(msg)
 		cmds = append(cmds, cmd)
 	}
-	m, cmd = m.updateComposer(msg)
-	cmds = append(cmds, cmd)
 	m.refreshViewport()
 	return m, tea.Batch(cmds...)
 }

@@ -957,6 +957,27 @@ func TestTUIRouteKeySeparatesGlobalOverlayViewportAndComposer(t *testing.T) {
 	}
 }
 
+func TestTUIComposerOnlyReceivesUnhandledKeys(t *testing.T) {
+	m := tuiModel{input: newTUIComposer(), events: make(chan uiEvent), width: 80, height: 8}
+	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("a")})
+	m = next.(tuiModel)
+	if got := m.input.Value(); got != "a" {
+		t.Fatalf("unhandled text key should update composer, got %q", got)
+	}
+
+	next, _ = m.Update(tuiEventMsg{Events: []uiEvent{uiAssistantDeltaEvent{Text: "answer"}}})
+	m = next.(tuiModel)
+	if got := m.input.Value(); got != "a" {
+		t.Fatalf("tui events should not update composer, got %q", got)
+	}
+
+	next, _ = m.Update(spinner.TickMsg{})
+	m = next.(tuiModel)
+	if got := m.input.Value(); got != "a" {
+		t.Fatalf("spinner tick should not update composer, got %q", got)
+	}
+}
+
 func TestTUICommandDoneAppendsErrorCell(t *testing.T) {
 	m := tuiModel{}
 	m.handleCommandDone(commandDoneMsg{Err: errors.New("boom")})

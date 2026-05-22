@@ -101,6 +101,9 @@ streaming을 한 컴포넌트에 섞어서 동작만 맞춘 변경은 완료로 
   completion, spinner tick, composer update용 작은 handler를 거쳐 message를
   처리합니다. 그래서 terminal program을 띄우지 않고 runtime event loop를 테스트할
   수 있습니다.
+- Composer update는 key-layer fallback일 때만 실행합니다. Window resize, spinner
+  tick, ACP UI event, command completion message는 textinput component로 보내지
+  않습니다.
 - Buffered ACP UI event는 update loop에 들어가기 전에 제한된 batch로 drain합니다.
   Streaming delta burst는 event 순서를 유지하면서 하나의 Bubble Tea update에서
   적용하고, 다음 event wait는 계속 명시적으로 예약합니다.
