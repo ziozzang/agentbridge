@@ -91,6 +91,7 @@ func (s tuiStatusSurface) Status() string {
 		firstNonEmpty(state.Model, "(model)"),
 		firstNonEmpty(state.Mode, "default"),
 		shortPath(state.Cwd),
+		workerLabel(state.Worker),
 		tuiPermStyle.Render(permissionLabel(firstNonEmpty(m.opts.Permission, "prompt"))),
 	)
 	if state.QueueLen > 0 {
@@ -111,6 +112,16 @@ func (s tuiStatusSurface) Status() string {
 		return truncateStatusLine(line, m.width)
 	}
 	return line
+}
+
+func workerLabel(w workerState) string {
+	if w.Kind == "" {
+		return ""
+	}
+	if len(w.Capabilities) > 0 {
+		return fmt.Sprintf("Worker %s:%d", w.Kind, len(w.Capabilities))
+	}
+	return "Worker " + w.Kind
 }
 
 func truncateStatusLine(line string, width int) string {

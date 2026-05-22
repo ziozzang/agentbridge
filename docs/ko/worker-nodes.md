@@ -40,6 +40,35 @@ Shell execution은 가장 명확한 예입니다. Bash command는 terminal worke
 소유하기 때문입니다. AgentBridge server는 model tool call을 중개하지만 shell command를
 직접 실행하지 않습니다.
 
+CLI는 이 placement 상태를 세 곳에 노출합니다.
+
+- fixed TUI status surface는 active worker kind와 capability 개수를 보여줍니다.
+- `/status`는 worker id, kind, capability list, permission policy, cancellation
+  지원 여부를 출력합니다.
+- `/structure`는 session/context state 옆에 `worker:` block을 포함합니다.
+
+현재 내장 worker id는 `acp-agent:local`이고 kind는 `terminal`입니다. 이는 provider나
+model name이 아니라 runtime state surface입니다.
+
+## Orchestrator 방향성
+
+AgentBridge는 작은 control plane에 가까운 orchestrator/master-node 모델로 확장할 수
+있어야 합니다. 이 설계에서 orchestrator가 모든 tool을 직접 실행하지는 않습니다. 대신
+여러 ACP server, agent session, worker node를 조율합니다.
+
+가능한 orchestrator 책임은 아래와 같습니다.
+
+- 사용 가능한 ACP server와 worker node directory 유지
+- node capability, health, locality, permission policy 광고
+- subtask와 tool call을 적절한 node로 routing
+- downstream node 인증 위임 또는 대행
+- session placement metadata와 resume routing 보유
+- node 전체의 progress, cancellation, metric, audit event 집계
+
+이는 설계 방향성이지, distributed orchestration이 오늘 완성되었다는 의미는 아닙니다.
+현재 code는 여전히 boundary를 지켜야 합니다. Server는 중개하고, terminal worker는 local
+terminal action을 실행하며, 향후 orchestrator는 placement를 명시적으로 선택합니다.
+
 ## 향후 Worker Node
 
 같은 모델로 추가 worker node를 붙일 수 있습니다.

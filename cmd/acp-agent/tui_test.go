@@ -17,11 +17,12 @@ func TestTUIStatusLinePrioritizesState(t *testing.T) {
 		SessionID: "abcdef123456",
 		Model:     "glm-5.1",
 		Mode:      "default",
+		Worker:    workerStateForOptions(clientOptions{Permission: "allow"}),
 		Context:   contextState{Tokens: 64000, Window: 128000, UsedPercent: 50, LeftPercent: 50},
 		Limits:    limitState{FiveHourPercent: 94, WeeklyPercent: 84},
 	}, opts: clientOptions{Permission: "allow"}}
 	got := m.statusLine()
-	for _, want := range []string{"Ready", "Context 50% left", "5h 94%", "weekly 84%", "glm-5.1", "Full Access"} {
+	for _, want := range []string{"Ready", "Context 50% left", "5h 94%", "weekly 84%", "glm-5.1", "Worker terminal:6", "Full Access"} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("status line missing %q: %q", want, got)
 		}

@@ -8,6 +8,9 @@ client implementation.
 In the worker-node model, `acp-agent` is the built-in terminal worker. Its
 worker capabilities include shell execution, Lua orchestration, file
 attachment, and CLI-local memory/queue state.
+The active worker is part of CLI runtime state: the TUI status surface shows a
+compact worker label, while `/status` and `/structure` expose the worker id,
+kind, capabilities, permission policy, and cancellation support.
 
 ## Placement
 
@@ -55,7 +58,8 @@ ownership boundary visible in code, tests, and this document.
   content the user sees.
 - Status and notice rendering is also a dedicated surface. It derives running
   activity, token progress, queue/subagent/tool counts, scroll state, context,
-  quota, permission mode, and session identity separately from the frame layout.
+  quota, worker placement, permission mode, and session identity separately
+  from the frame layout.
 - The status surface is a single fixed bottom line. Long status content is
   ANSI-aware truncated instead of wrapped, preserving the transcript/composer
   layout even on narrow terminals.

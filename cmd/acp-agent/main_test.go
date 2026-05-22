@@ -315,9 +315,22 @@ func TestCommandsUpdateLocalState(t *testing.T) {
 	c.commandBool("tools", "off", &c.opts.ShowTools)
 	c.printStatus()
 	got := stderr.String()
-	for _, want := range []string{"permission reject", "thinking true", "tools false", "model=m1", "mode=default", "SOUL.md"} {
+	for _, want := range []string{"permission reject", "thinking true", "tools false", "model=m1", "mode=default", "SOUL.md", "worker=acp-agent:local", "worker_kind=terminal", "worker_permission=reject"} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("status missing %q in:\n%s", want, got)
+		}
+	}
+}
+
+func TestStructureIncludesWorkerNode(t *testing.T) {
+	c := &client{
+		opts:  clientOptions{Permission: "allow"},
+		state: clientState{Cwd: t.TempDir(), SessionID: "s1", Model: "glm-5.1", Mode: "default"},
+	}
+	got := c.structureString()
+	for _, want := range []string{"worker:", "id: acp-agent:local", "kind: terminal", "run_command", "permission: allow", "cancellable: true"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("structure missing %q in:\n%s", want, got)
 		}
 	}
 }

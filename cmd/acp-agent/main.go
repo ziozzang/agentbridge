@@ -259,6 +259,7 @@ type clientState struct {
 	SessionID string
 	Model     string
 	Mode      string
+	Worker    workerState
 	Context   contextState
 	Limits    limitState
 	Busy      bool
@@ -266,6 +267,14 @@ type clientState struct {
 	Tools     int
 	Subagents int
 	LastTool  string
+}
+
+type workerState struct {
+	ID           string
+	Kind         string
+	Capabilities []string
+	Permission   string
+	Cancellable  bool
 }
 
 type contextState struct {
@@ -630,7 +639,7 @@ func (c *client) restoreAttachments(files []attachment) {
 }
 
 func (c *client) setSessionState(addr, cwd string, session acp.NewSessionResponse) {
-	state := clientState{Addr: addr, Cwd: cwd, SessionID: session.SessionID}
+	state := clientState{Addr: addr, Cwd: cwd, SessionID: session.SessionID, Worker: workerStateForOptions(c.opts)}
 	if session.Models != nil {
 		state.Model = session.Models.CurrentModelID
 	}
@@ -641,6 +650,25 @@ func (c *client) setSessionState(addr, cwd string, session acp.NewSessionRespons
 	c.state = state
 	c.mu.Unlock()
 	c.emitState()
+}
+
+func (c *client) snapshotState() (clientState, clientOptions) {
+	c.mu.Lock()
+	state := c.state
+	opts := c.opts
+	state.Worker = workerStateForOptions(opts)
+	c.mu.Unlock()
+	return state, opts
+}
+
+func workerStateForOptions(opts clientOptions) workerState {
+	return workerState{
+		ID:           "acp-agent:local",
+		Kind:         "terminal",
+		Capabilities: []string{"run_command", "run_lua", "attach_files", "cli_memory", "queue", "goal"},
+		Permission:   firstNonEmpty(opts.Permission, "prompt"),
+		Cancellable:  true,
+	}
 }
 
 func (c *client) Call(ctx context.Context, method string, params any, result any) error {
@@ -1184,8 +1212,8 @@ func (c *client) commandStructure() {
 }
 
 func (c *client) structureString() string {
+	state, _ := c.snapshotState()
 	c.mu.Lock()
-	state := c.state
 	files := append([]attachment(nil), c.files...)
 	c.mu.Unlock()
 	contextFile := systemprompt.ProjectContextPath(state.Cwd)
@@ -1199,6 +1227,8 @@ func (c *client) structureString() string {
 		res := f.Resource
 		fmt.Fprintf(&b, "  %d. %s (%s, chars=%d, truncated=%v)\n", i+1, res.Path, res.MimeType, len(res.Text), res.Truncated)
 	}
+	fmt.Fprintf(&b, "worker:\n  id: %s\n  kind: %s\n  capabilities: %s\n  permission: %s\n  cancellable: %v\n",
+		state.Worker.ID, state.Worker.Kind, strings.Join(state.Worker.Capabilities, ", "), state.Worker.Permission, state.Worker.Cancellable)
 	return b.String()
 }
 
@@ -1332,18 +1362,16 @@ func (c *client) printStatus() {
 }
 
 func (c *client) statusString() string {
-	c.mu.Lock()
-	state := c.state
-	opts := c.opts
-	c.mu.Unlock()
+	state, opts := c.snapshotState()
 	contextFile := systemprompt.ProjectContextPath(state.Cwd)
 	if contextFile == "" {
 		contextFile = "(none)"
 	}
-	return fmt.Sprintf("addr=%s\nsession=%s\ncwd=%s\ncontext=%s\ncontext_usage=%s\n5h_limit=%s\nweekly_limit=%s\nmonthly_limit=%s\nmessages=%d\ncheckpoints=%d\ncache_epoch=%d\nmodel=%s\nmode=%s\nbusy=%v\nqueue=%d\nactive_tools=%d\nactive_subagents=%d\nlast_tool=%s\npermission=%s\nthinking=%v\ntools=%v\nraw=%v\n",
+	return fmt.Sprintf("addr=%s\nsession=%s\ncwd=%s\ncontext=%s\ncontext_usage=%s\n5h_limit=%s\nweekly_limit=%s\nmonthly_limit=%s\nmessages=%d\ncheckpoints=%d\ncache_epoch=%d\nmodel=%s\nmode=%s\nworker=%s\nworker_kind=%s\nworker_caps=%s\nworker_permission=%s\nworker_cancellable=%v\nbusy=%v\nqueue=%d\nactive_tools=%d\nactive_subagents=%d\nlast_tool=%s\npermission=%s\nthinking=%v\ntools=%v\nraw=%v\n",
 		state.Addr, state.SessionID, state.Cwd, contextFile, contextLabel(state.Context),
 		percentOrUnknown(state.Limits.FiveHourPercent), percentOrUnknown(state.Limits.WeeklyPercent), percentOrUnknown(state.Limits.MonthlyPercent),
 		state.Context.Messages, state.Context.Checkpoints, state.Context.CacheEpoch, state.Model, state.Mode,
+		state.Worker.ID, state.Worker.Kind, strings.Join(state.Worker.Capabilities, ","), state.Worker.Permission, state.Worker.Cancellable,
 		state.Busy, state.QueueLen, state.Tools, state.Subagents, state.LastTool,
 		firstNonEmpty(opts.Permission, "prompt"), opts.ShowThinking, opts.ShowTools, opts.RawUpdates)
 }

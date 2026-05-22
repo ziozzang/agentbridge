@@ -8,6 +8,9 @@ AgentBridge는 CLI orchestration을 client-owned harness layer로 봅니다. 서
 Worker-node model에서 `acp-agent`는 내장 terminal worker입니다. Shell execution,
 Lua orchestration, file attachment, CLI-local memory/queue state가 이 worker의
 capability입니다.
+Active worker는 CLI runtime state의 일부입니다. TUI status surface는 compact worker
+label을 보여주고, `/status`와 `/structure`는 worker id, kind, capability, permission
+policy, cancellation 지원 여부를 노출합니다.
 
 ## Placement
 
@@ -52,8 +55,8 @@ streaming을 한 컴포넌트에 섞어서 동작만 맞춘 변경은 완료로 
   auto-follow와 manual scroll preservation은 사용자가 보는 렌더링 결과와 같은
   content 기준으로 동작합니다.
 - Status/notice rendering도 별도 surface입니다. Running activity, token progress,
-  queue/subagent/tool count, scroll state, context, quota, permission mode, session
-  identity를 frame layout과 분리해서 계산합니다.
+  queue/subagent/tool count, scroll state, context, quota, worker placement,
+  permission mode, session identity를 frame layout과 분리해서 계산합니다.
 - Status surface는 하단 고정 한 줄입니다. 긴 상태 정보는 wrap하지 않고 ANSI-aware
   truncate해서 좁은 터미널에서도 transcript/composer layout을 유지합니다.
 - Composer 위 notice row도 같은 fixed-row 규칙을 따릅니다. 긴 progress text,

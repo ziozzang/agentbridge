@@ -41,6 +41,38 @@ terminal worker because that worker owns the user's cwd, environment, TTY
 policy, and permission prompt. The AgentBridge server brokers the model tool
 call but does not execute shell commands itself.
 
+The CLI exposes this placement state in three places:
+
+- the fixed TUI status surface shows the active worker kind and capability
+  count
+- `/status` prints the worker id, kind, capability list, permission policy, and
+  cancellation support
+- `/structure` includes a `worker:` block beside session and context state
+
+The built-in worker id is currently `acp-agent:local`, with kind `terminal`.
+This is intentionally a runtime state surface, not a provider or model name.
+
+## Orchestrator Direction
+
+AgentBridge should grow toward an orchestrator/master-node model, similar to a
+small control plane. In that design, the orchestrator does not execute every
+tool itself. Instead it coordinates multiple ACP servers, agent sessions, and
+worker nodes.
+
+Possible orchestrator responsibilities:
+
+- maintain a directory of available ACP servers and worker nodes
+- advertise node capabilities, health, locality, and permission policy
+- route subtasks and tool calls to the right node
+- delegate or broker authentication for downstream nodes
+- hold session placement metadata and resume routing
+- aggregate progress, cancellation, metrics, and audit events across nodes
+
+This is a design direction, not a claim that distributed orchestration is fully
+implemented today. Current code should still preserve the boundary: the server
+brokers, the terminal worker executes local terminal actions, and future
+orchestrators choose placement explicitly.
+
 ## Future Worker Nodes
 
 The same model can support additional worker nodes:

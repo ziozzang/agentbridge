@@ -59,10 +59,7 @@ func (c *client) emitState() {
 	if c == nil || c.events == nil {
 		return
 	}
-	c.mu.Lock()
-	state := c.state
-	opts := c.opts
-	c.mu.Unlock()
+	state, opts := c.snapshotState()
 	c.emit(uiStateEvent{State: state, Opts: opts})
 }
 
