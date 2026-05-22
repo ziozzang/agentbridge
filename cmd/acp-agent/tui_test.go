@@ -400,6 +400,33 @@ func TestTUIOverlaySurfaceMapsChoicesAndRenders(t *testing.T) {
 	}
 }
 
+func TestTUIOverlaySurfaceWrapsToTerminalWidth(t *testing.T) {
+	surface := tuiOverlaySurface{
+		width: 24,
+		req: &uiPermissionRequest{
+			Title:  "permission requested for a very long command",
+			Detail: "command: " + strings.Repeat("segment/", 8),
+			Options: []choiceOption{
+				{Key: "1", Label: "yes"},
+				{Key: "4", Label: "other command with a very long replacement label"},
+			},
+		},
+		choice: 1,
+	}
+	got := surface.View()
+	for _, line := range strings.Split(got, "\n") {
+		if width := lipgloss.Width(line); width > surface.width {
+			t.Fatalf("overlay line width=%d > %d: %q\nview=%q", width, surface.width, line, stripANSI(got))
+		}
+	}
+	plain := stripANSI(got)
+	for _, want := range []string{"permission", "command:", "4. other"} {
+		if !strings.Contains(plain, want) {
+			t.Fatalf("overlay missing %q: %q", want, plain)
+		}
+	}
+}
+
 func TestTUIOverlayChoiceRestoresTranscriptFrame(t *testing.T) {
 	reply := make(chan string, 1)
 	m := newTUIModel(context.Background(), &client{events: make(chan uiEvent)})

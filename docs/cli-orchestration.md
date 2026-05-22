@@ -74,6 +74,9 @@ ownership boundary visible in code, tests, and this document.
   single fixed-width line.
 - Permission approval overlays are a dedicated surface for rendering choice
   lists and mapping number/arrow/yes/no keys to ACP permission replies.
+- Approval overlays own their width and wrapping. Long titles, command details,
+  choice labels, and replacement input must fit inside the terminal width
+  before the overlay is composed over the transcript.
 - Approval replies close the overlay in the same key event; the next frame
   returns to the transcript and bottom composer without waiting for server
   traffic.

@@ -69,6 +69,9 @@ streaming을 한 컴포넌트에 섞어서 동작만 맞춘 변경은 완료로 
   있지만, notice surface 호출자는 이미 single fixed-width line을 받아야 합니다.
 - Permission approval overlay도 별도 surface입니다. Choice list 렌더링과
   number/arrow/yes/no key를 ACP permission reply로 매핑하는 책임을 가집니다.
+- Approval overlay는 자기 width와 wrapping을 소유합니다. 긴 title, command detail,
+  choice label, replacement input은 transcript 위에 합성되기 전에 terminal width 안에
+  들어가야 합니다.
 - Approval reply는 같은 key event 안에서 overlay를 닫습니다. 다음 frame은 server
   traffic을 기다리지 않고 transcript와 bottom composer 상태로 돌아옵니다.
 - `other command`처럼 replacement text가 필요한 permission choice도 Bubble Tea

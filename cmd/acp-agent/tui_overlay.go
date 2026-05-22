@@ -30,15 +30,16 @@ func (s tuiOverlaySurface) View() string {
 	if !s.Active() {
 		return ""
 	}
+	width := s.bodyWidth()
 	var b strings.Builder
-	b.WriteString(tuiToolStyle.Render(s.req.Title))
+	b.WriteString(tuiToolStyle.Render(wrapTranscriptText(s.req.Title, width)))
 	if strings.TrimSpace(s.req.Detail) != "" {
 		b.WriteString("\n")
-		b.WriteString(s.req.Detail)
+		b.WriteString(wrapTranscriptText(s.req.Detail, width))
 	}
 	if help := s.Help(); help != "" {
 		b.WriteString("\n")
-		b.WriteString(tuiThinkingStyle.Render(help))
+		b.WriteString(tuiThinkingStyle.Render(wrapTranscriptText(help, width)))
 	}
 	for i, opt := range s.req.Options {
 		key := overlayOptionKey(i, opt)
@@ -47,15 +48,22 @@ func (s tuiOverlaySurface) View() string {
 			prefix = "› "
 		}
 		b.WriteString("\n")
-		b.WriteString(fmt.Sprintf("%s%s. %s", prefix, key, opt.Label))
+		b.WriteString(indentWrappedLines(fmt.Sprintf("%s. %s", key, opt.Label), prefix, width))
 	}
 	if s.inputActive {
 		b.WriteString("\n")
-		b.WriteString(tuiThinkingStyle.Render("enter: submit replacement · esc: reject"))
+		b.WriteString(tuiThinkingStyle.Render(wrapTranscriptText("enter: submit replacement · esc: reject", width)))
 		b.WriteString("\n")
-		b.WriteString(s.inputView)
+		b.WriteString(truncateStatusLine(s.inputView, width))
 	}
-	return tuiOverlayStyle.Width(minInt(72, maxInt(36, s.width-4))).Render(b.String())
+	return tuiOverlayStyle.Width(width).Render(b.String())
+}
+
+func (s tuiOverlaySurface) bodyWidth() int {
+	if s.width <= 0 {
+		return 1
+	}
+	return maxInt(1, minInt(72, s.width-4))
 }
 
 func (s tuiOverlaySurface) HasChoiceKey(key string) bool {
