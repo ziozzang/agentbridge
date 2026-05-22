@@ -846,10 +846,10 @@ func TestTUICommandDoneSuccessDoesNotAddEmptyCell(t *testing.T) {
 }
 
 func TestTUICommandDoneClearsRunState(t *testing.T) {
-	m := tuiModel{commandRuns: 1, activity: "running command"}
+	m := tuiModel{commandRuns: 1, activity: "running command", commandCancel: func() {}}
 	m.handleCommandDone(commandDoneMsg{Line: "/status"})
-	if m.commandRuns != 0 || m.activity != "" {
-		t.Fatalf("command state not cleared: runs=%d activity=%q", m.commandRuns, m.activity)
+	if m.commandRuns != 0 || m.activity != "" || m.commandCancel != nil {
+		t.Fatalf("command state not cleared: runs=%d activity=%q cancel=%v", m.commandRuns, m.activity, m.commandCancel != nil)
 	}
 }
 
@@ -864,6 +864,9 @@ func TestTUISubmitSlashCommandTracksRunState(t *testing.T) {
 	m = next.(tuiModel)
 	if m.commandRuns != 1 || m.activity != "running command" {
 		t.Fatalf("command state = runs %d activity %q", m.commandRuns, m.activity)
+	}
+	if m.commandCancel == nil {
+		t.Fatalf("slash command should install a command cancel func")
 	}
 	if msg := cmd(); msg == nil {
 		t.Fatalf("command should return completion message")
@@ -881,6 +884,33 @@ func TestTUISubmitPromptDoesNotTrackLocalCommand(t *testing.T) {
 	m = next.(tuiModel)
 	if m.commandRuns != 0 {
 		t.Fatalf("plain prompt should not be a local command: %d", m.commandRuns)
+	}
+}
+
+func TestTUICtrlCCancelsLocalCommandBeforeExit(t *testing.T) {
+	cancelled := false
+	m := tuiModel{
+		commandRuns:   1,
+		activity:      "running command",
+		commandCancel: func() { cancelled = true },
+	}
+	next, cmd := m.handleCtrlC()
+	if cmd != nil {
+		t.Fatalf("local command ctrl-c should not quit")
+	}
+	m = next.(tuiModel)
+	if !cancelled {
+		t.Fatalf("local command cancel func was not called")
+	}
+	if !m.ctrlCArmed {
+		t.Fatalf("ctrl-c should arm exit after cancelling local command")
+	}
+	if len(m.cells) != 1 || m.cells[0].Title != "interrupt" || !strings.Contains(m.cells[0].Body, "local command") {
+		t.Fatalf("missing local command interrupt cell: %#v", m.cells)
+	}
+	_, cmd = m.handleCtrlC()
+	if cmd == nil {
+		t.Fatalf("second ctrl-c should quit")
 	}
 }
 

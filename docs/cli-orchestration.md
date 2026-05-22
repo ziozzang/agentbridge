@@ -117,6 +117,9 @@ ownership boundary visible in code, tests, and this document.
 - Local slash command execution is tracked separately from provider prompt
   busy state. A command running in a Bubble Tea command must appear in the
   notice/status surfaces without pretending that the model turn itself is busy.
+- Local slash commands run with their own cancellable context. If no model turn
+  is busy but a local command is running, Ctrl-C cancels that command first and
+  only exits the client on the next Ctrl-C.
 - Worker-node routed client tools, such as `client__run_command`, execute in
   the CLI process. Their lifecycle must still be visible as TUI tool cells and
   active tool counts, because a delegated worker action is part of the current

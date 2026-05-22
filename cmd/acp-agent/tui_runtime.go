@@ -120,6 +120,7 @@ func (m *tuiModel) handleCommandDone(msg commandDoneMsg) {
 	}
 	if m.commandRuns == 0 && !m.state.Busy {
 		m.activity = ""
+		m.commandCancel = nil
 	}
 }
 
@@ -159,11 +160,15 @@ func (m tuiModel) submitInput(cmds []tea.Cmd) (tea.Model, tea.Cmd) {
 	if line == "/exit" || line == "/quit" {
 		return m, tea.Quit
 	}
+	runCtx := m.ctx
 	if strings.HasPrefix(line, "/") {
 		m.commandRuns++
 		m.activity = "running command"
+		var cancel context.CancelFunc
+		runCtx, cancel = context.WithCancel(m.ctx)
+		m.commandCancel = cancel
 	}
-	cmds = append(cmds, m.runLine(line))
+	cmds = append(cmds, m.runLine(runCtx, line))
 	m.refreshViewport()
 	return m, tea.Batch(cmds...)
 }
@@ -183,6 +188,12 @@ func (m tuiModel) handleCtrlC() (tea.Model, tea.Cmd) {
 		m.ctrlCArmed = true
 		m.escArmed = false
 		return m, cmd
+	}
+	if m.commandRuns > 0 {
+		m.cancelLocalCommand("interrupt", "Ctrl-C cancelled local command. Press Ctrl-C again to exit client.")
+		m.ctrlCArmed = true
+		m.escArmed = false
+		return m, nil
 	}
 	if m.overlay != nil {
 		m.cancelOverlay()
@@ -217,6 +228,14 @@ func (m *tuiModel) requestStop(title, body string) tea.Cmd {
 		}
 		return interruptDoneMsg{Stopped: client.Interrupt(ctx)}
 	}
+}
+
+func (m *tuiModel) cancelLocalCommand(title, body string) {
+	if m.commandCancel != nil {
+		m.commandCancel()
+	}
+	m.appendCell(tuiCell{Kind: "info", Title: title, Body: body})
+	m.refreshViewport()
 }
 
 func (m tuiModel) updateOverlay(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -325,9 +344,9 @@ func (m *tuiModel) replyOverlay(key string) {
 	m.overlayInput.Reset()
 }
 
-func (m tuiModel) runLine(line string) tea.Cmd {
+func (m tuiModel) runLine(ctx context.Context, line string) tea.Cmd {
 	return func() tea.Msg {
-		err := m.client.runCommand(m.ctx, line)
+		err := m.client.runCommand(ctx, line)
 		return commandDoneMsg{Line: line, Err: err}
 	}
 }

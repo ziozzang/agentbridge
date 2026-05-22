@@ -43,6 +43,7 @@ type tuiModel struct {
 	overlayTyping bool
 	activity      string
 	commandRuns   int
+	commandCancel context.CancelFunc
 	answerRunes   int
 	thinkingRunes int
 	toolEvents    int
