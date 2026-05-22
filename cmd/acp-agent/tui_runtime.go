@@ -94,6 +94,11 @@ func (m tuiModel) routeKey(msg tea.KeyMsg, cmds []tea.Cmd) (tea.Model, tea.Cmd, 
 	case keyName == "esc":
 		next, cmd := m.handleEsc()
 		return next, cmd, true
+	case isCompletionAcceptKey(keyName):
+		next, handled := m.acceptCompletion()
+		if handled {
+			return next, nil, true
+		}
 	case isSubmitKey(keyName):
 		next, cmd := m.submitInput(cmds)
 		return next, cmd, true
@@ -137,6 +142,17 @@ func (m tuiModel) updateComposer(msg tea.Msg) (tuiModel, tea.Cmd) {
 	var cmd tea.Cmd
 	m.input, cmd = m.input.Update(msg)
 	return m, cmd
+}
+
+func (m tuiModel) acceptCompletion() (tea.Model, bool) {
+	value := m.input.Value()
+	next := completeSlashValue(value, slashMatches(value))
+	if next == "" || next == value {
+		return m, false
+	}
+	m.input.SetValue(next)
+	m.input.CursorEnd()
+	return m, true
 }
 
 func (m tuiModel) updateViewport(msg tea.KeyMsg) (tea.Model, tea.Cmd) {

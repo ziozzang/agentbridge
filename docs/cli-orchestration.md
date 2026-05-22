@@ -79,6 +79,9 @@ ownership boundary visible in code, tests, and this document.
   tool request instead of leaving a goroutine blocked behind the UI.
 - Completion hints are a dedicated surface. It owns slash-command argument
   hints and compact suggestion text, while the composer only owns text input.
+- Completion application is also a key-layer concern. Tab completes slash
+  commands through the completion surface before normal composer text handling,
+  while Ctrl-N/Ctrl-P remain textinput suggestion navigation keys.
 - The bottom composer is a dedicated surface, so fixed-width input rendering is
   separate from frame assembly and can evolve independently of the transcript.
 - The composer row is fixed-height as well. Long input text is ANSI-aware

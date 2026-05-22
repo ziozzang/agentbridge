@@ -64,6 +64,67 @@ func compactSlashHint(value string, matches []string) string {
 	return root + " " + strings.Join(args, "|")
 }
 
+func completeSlashValue(value string, matches []string) string {
+	value = strings.TrimSpace(value)
+	if value == "" || !strings.HasPrefix(value, "/") || len(matches) == 0 {
+		return ""
+	}
+	if len(matches) == 1 {
+		return completionValue(matches[0])
+	}
+	prefix := commonPrefix(matches)
+	if len(prefix) > len(value) {
+		if hasMatch(prefix, matches) {
+			return completionValue(prefix)
+		}
+		return prefix
+	}
+	return ""
+}
+
+func slashMatches(value string) []string {
+	value = strings.TrimSpace(value)
+	if value == "" || !strings.HasPrefix(value, "/") {
+		return nil
+	}
+	var matches []string
+	for _, item := range slashCommandSuggestions {
+		if strings.HasPrefix(item, value) {
+			matches = append(matches, item)
+		}
+	}
+	return matches
+}
+
+func completionValue(match string) string {
+	if strings.HasSuffix(match, " ") {
+		return match
+	}
+	return match + " "
+}
+
+func hasMatch(match string, items []string) bool {
+	for _, item := range items {
+		if item == match {
+			return true
+		}
+	}
+	return false
+}
+
+func commonPrefix(items []string) string {
+	if len(items) == 0 {
+		return ""
+	}
+	prefix := items[0]
+	for _, item := range items[1:] {
+		for !strings.HasPrefix(item, prefix) && prefix != "" {
+			prefix = prefix[:len(prefix)-1]
+		}
+	}
+	return prefix
+}
+
 func (m tuiModel) completionSurface() tuiCompletionSurface {
 	if m.overlay != nil {
 		return tuiCompletionSurface{}

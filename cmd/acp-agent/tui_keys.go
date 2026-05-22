@@ -32,6 +32,10 @@ func isViewportKey(keyName string) bool {
 	}
 }
 
+func isCompletionAcceptKey(keyName string) bool {
+	return keyName == "tab"
+}
+
 func isOverlayCancelKey(keyName string) bool {
 	return keyName == "esc"
 }

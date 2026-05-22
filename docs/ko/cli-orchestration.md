@@ -73,6 +73,9 @@ streaming을 한 컴포넌트에 섞어서 동작만 맞춘 변경은 완료로 
   UI 뒤에 goroutine이 막힌 상태로 남지 않게 합니다.
 - Completion hint도 별도 surface입니다. Slash-command argument hint와 compact
   suggestion text를 소유하고, composer는 text input만 소유합니다.
+- Completion 적용도 key layer의 책임입니다. Tab은 일반 composer text handling 전에
+  completion surface를 통해 slash command를 완성하고, Ctrl-N/Ctrl-P는 textinput
+  suggestion navigation key로 남깁니다.
 - Bottom composer도 별도 surface입니다. Fixed-width input rendering을 frame
   assembly에서 분리해서 transcript와 독립적으로 발전시킬 수 있습니다.
 - Composer row도 fixed-height입니다. 긴 입력 text는 composer surface에서

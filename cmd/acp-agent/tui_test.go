@@ -458,6 +458,57 @@ func TestTUISlashCommandSuggestions(t *testing.T) {
 	}
 }
 
+func TestTUITabCompletesUniqueSlashCommand(t *testing.T) {
+	m := tuiModel{input: newTUIComposer()}
+	m.input.SetValue("/go")
+	next, cmd, handled := m.routeKey(tea.KeyMsg{Type: tea.KeyTab}, nil)
+	if !handled || cmd != nil {
+		t.Fatalf("tab completion should be handled without command")
+	}
+	m = next.(tuiModel)
+	if got := m.input.Value(); got != "/goal " {
+		t.Fatalf("completion value=%q", got)
+	}
+}
+
+func TestTUITabCompletesCommonSlashPrefix(t *testing.T) {
+	m := tuiModel{input: newTUIComposer()}
+	m.input.SetValue("/ses")
+	next, cmd, handled := m.routeKey(tea.KeyMsg{Type: tea.KeyTab}, nil)
+	if !handled || cmd != nil {
+		t.Fatalf("tab completion should be handled without command")
+	}
+	m = next.(tuiModel)
+	if got := m.input.Value(); got != "/session" {
+		t.Fatalf("ambiguous completion should keep value at common prefix, got %q", got)
+	}
+
+	m.input.SetValue("/session-")
+	next, _, handled = m.routeKey(tea.KeyMsg{Type: tea.KeyTab}, nil)
+	if !handled {
+		t.Fatalf("tab completion should be handled")
+	}
+	m = next.(tuiModel)
+	if got := m.input.Value(); got != "/session-load " {
+		t.Fatalf("completion value=%q", got)
+	}
+}
+
+func TestCompleteSlashValue(t *testing.T) {
+	if got := completeSlashValue("/mo", []string{"/model", "/mode"}); got != "/mode " {
+		t.Fatalf("common prefix completion=%q", got)
+	}
+	if got := completeSlashValue("/m", []string{"/model", "/mode"}); got != "/mode " {
+		t.Fatalf("common prefix completion=%q", got)
+	}
+	if got := completeSlashValue("/mod", []string{"/model"}); got != "/model " {
+		t.Fatalf("unique completion=%q", got)
+	}
+	if got := completeSlashValue("hello", []string{"/help"}); got != "" {
+		t.Fatalf("non-command completion=%q", got)
+	}
+}
+
 func TestTUIPermissionArgumentSuggestions(t *testing.T) {
 	m := tuiModel{width: 160}
 	m.input.SetValue("/permission ")
