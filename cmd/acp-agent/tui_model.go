@@ -123,8 +123,8 @@ func (m *tuiModel) reflow() {
 	if m.width <= 0 || m.height <= 0 {
 		return
 	}
-	m.input.Width = maxInt(1, m.width-3)
-	m.overlayInput.Width = maxInt(1, m.width-8)
+	m.input.Width = tuiComposerInputWidth(m.width)
+	m.overlayInput.Width = tuiOverlayInputWidth(m.width)
 	if m.viewport.Width != m.width {
 		m.invalidateTranscript()
 	}

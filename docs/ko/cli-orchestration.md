@@ -100,6 +100,8 @@ streaming을 한 컴포넌트에 섞어서 동작만 맞춘 변경은 완료로 
   surface가 하단 shell row를 화면 밖으로 밀어내면 안 됩니다.
 - Fixed shell row 개수는 reflow와 frame rendering이 공유하는 layout contract입니다.
   Event-loop code 안에서 임의 산술식으로 중복하면 안 됩니다.
+- Composer와 overlay input width도 같은 규칙을 따릅니다. Terminal width 산술은
+  layout helper가 소유하고, runtime handler는 계산된 dimension만 적용합니다.
 - TUI component construction은 runtime update loop 밖에 둡니다. 그래서 composer,
   spinner, viewport, 초기 model state를 terminal program 실행 없이 테스트할 수 있습니다.
 - Bubble Tea program option은 하나의 lifecycle helper에서 만듭니다. Interactive

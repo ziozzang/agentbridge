@@ -351,7 +351,7 @@ func (m *tuiModel) handleOverlayActionKey(keyName string) {
 func (m *tuiModel) startOverlayInput() {
 	m.overlayTyping = true
 	m.overlayInput = newTUIOverlayInput()
-	m.overlayInput.Width = maxInt(1, m.width-8)
+	m.overlayInput.Width = tuiOverlayInputWidth(m.width)
 }
 
 func (m tuiModel) overlayHelp() string {

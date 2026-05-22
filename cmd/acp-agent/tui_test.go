@@ -1271,6 +1271,26 @@ func TestTUILayoutTranscriptRows(t *testing.T) {
 	}
 }
 
+func TestTUILayoutInputWidths(t *testing.T) {
+	cases := map[int]struct {
+		composer int
+		overlay  int
+	}{
+		0:  {composer: 1, overlay: 1},
+		2:  {composer: 1, overlay: 1},
+		9:  {composer: 6, overlay: 1},
+		72: {composer: 69, overlay: 64},
+	}
+	for width, want := range cases {
+		if got := tuiComposerInputWidth(width); got != want.composer {
+			t.Fatalf("width %d composer input=%d want %d", width, got, want.composer)
+		}
+		if got := tuiOverlayInputWidth(width); got != want.overlay {
+			t.Fatalf("width %d overlay input=%d want %d", width, got, want.overlay)
+		}
+	}
+}
+
 func TestTUIWindowSizeUpdateReflowsFrameAndComposer(t *testing.T) {
 	m := newTUIModel(context.Background(), &client{events: make(chan uiEvent)})
 	m.appendCell(tuiCell{Kind: "assistant", Title: "assistant", Body: strings.Repeat("wide ", 20)})

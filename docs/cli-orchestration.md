@@ -110,6 +110,9 @@ ownership boundary visible in code, tests, and this document.
 - The count of fixed shell rows is a shared layout contract used by both
   reflow and frame rendering; it should not be duplicated as ad hoc arithmetic
   in event-loop code.
+- Composer and overlay input widths follow the same rule: layout helpers own
+  terminal-width arithmetic, while runtime handlers only apply the computed
+  dimensions.
 - TUI component construction lives outside the runtime update loop, so the
   composer, spinner, viewport, and initial model state can be tested without
   launching a terminal program.
