@@ -55,6 +55,17 @@ func TestTUIComponentFactoryInitializesShellParts(t *testing.T) {
 	}
 }
 
+func TestTUIProgramOptionsCanBuildProgram(t *testing.T) {
+	opts := tuiProgramOptions(context.Background())
+	if len(opts) < 2 {
+		t.Fatalf("program options should include context and alt screen")
+	}
+	p := tea.NewProgram(tuiModel{}, opts...)
+	if p == nil {
+		t.Fatalf("program was not constructed")
+	}
+}
+
 func TestTUIThinkingDeltasCoalesce(t *testing.T) {
 	m := tuiModel{}
 	m.applyEvent(uiThinkingDeltaEvent{Text: "useful"})

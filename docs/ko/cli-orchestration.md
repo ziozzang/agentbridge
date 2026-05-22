@@ -64,6 +64,9 @@ shell script를 실행하지 않습니다.
   status row를 조립하지만 transport나 command behavior는 소유하지 않습니다.
 - TUI component construction은 runtime update loop 밖에 둡니다. 그래서 composer,
   spinner, viewport, 초기 model state를 terminal program 실행 없이 테스트할 수 있습니다.
+- Bubble Tea program option은 하나의 lifecycle helper에서 만듭니다. Interactive
+  program은 caller context와 alternate-screen mode를 함께 받으므로 외부 취소와
+  terminal 소유권이 명시적으로 유지됩니다.
 - Keyboard handling은 작은 key layer로 분리합니다. Global interrupt/exit key가
   가장 먼저 처리되고, overlay는 selection key를, transcript viewport는 scroll key를,
   composer는 일반 text navigation key를 소유합니다.

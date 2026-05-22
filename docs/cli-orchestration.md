@@ -70,6 +70,9 @@ The broader ownership and permission rules are documented in
 - TUI component construction lives outside the runtime update loop, so the
   composer, spinner, viewport, and initial model state can be tested without
   launching a terminal program.
+- Bubble Tea program options are built in one lifecycle helper. The interactive
+  program receives the caller context and alternate-screen mode together, so
+  external cancellation and terminal ownership stay explicit.
 - Keyboard handling is split into a small key layer: global interrupt/exit keys
   win first, overlays own selection keys, the transcript viewport owns scroll
   keys, and the composer keeps normal text navigation keys.

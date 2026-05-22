@@ -15,9 +15,16 @@ func runBubbleTUI(ctx context.Context, c *client) error {
 	c.emitState()
 
 	m := newTUIModel(ctx, c)
-	p := tea.NewProgram(m, tea.WithAltScreen())
+	p := tea.NewProgram(m, tuiProgramOptions(ctx)...)
 	_, err := p.Run()
 	return err
+}
+
+func tuiProgramOptions(ctx context.Context) []tea.ProgramOption {
+	return []tea.ProgramOption{
+		tea.WithContext(ctx),
+		tea.WithAltScreen(),
+	}
 }
 
 func waitTUIEvent(events <-chan uiEvent) tea.Cmd {
