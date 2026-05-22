@@ -152,6 +152,9 @@ ownership boundary visible in code, tests, and this document.
 - The TUI event channel buffer and batch limit are named runtime constants.
   They are tuning points for responsiveness and must not be hidden as literals
   in the event loop.
+- UI event emission is non-blocking. If the TUI event buffer is full, new
+  events are dropped instead of blocking provider streaming, local command
+  completion, or high-priority key handling.
 - Batched UI events mutate model state in order, then refresh the viewport once
   after the batch. Per-event transcript refresh inside the batch is avoided.
 - The ACP event handler does not render directly. It marks transcript state and

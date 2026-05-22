@@ -137,6 +137,9 @@ streaming을 한 컴포넌트에 섞어서 동작만 맞춘 변경은 완료로 
   적용하고, 다음 event wait는 계속 명시적으로 예약합니다.
 - TUI event channel buffer와 batch limit은 이름 있는 runtime constant입니다.
   Responsiveness를 조정하는 지점이므로 event loop 안의 literal로 숨기면 안 됩니다.
+- UI event emission은 non-blocking입니다. TUI event buffer가 가득 찬 경우 provider
+  streaming, local command completion, high-priority key handling을 막지 않고 새
+  event를 drop합니다.
 - Batched UI event는 model state를 순서대로 변경한 뒤 batch 마지막에 viewport를 한 번만
   refresh합니다. Batch 내부에서 event마다 transcript refresh를 반복하지 않습니다.
 - ACP event handler는 직접 렌더링하지 않습니다. Transcript state를 dirty로 만들고

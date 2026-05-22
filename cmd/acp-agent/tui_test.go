@@ -1004,6 +1004,18 @@ func TestWaitTUIEventCapsBatchLimit(t *testing.T) {
 	}
 }
 
+func TestSendUIEventDropsWhenBufferIsFull(t *testing.T) {
+	events := make(chan uiEvent, 1)
+	events <- uiInfoEvent{Title: "existing"}
+	if sendUIEvent(events, uiInfoEvent{Title: "dropped"}) {
+		t.Fatalf("full event buffer should report dropped event")
+	}
+	got := (<-events).(uiInfoEvent)
+	if got.Title != "existing" {
+		t.Fatalf("full event buffer should preserve existing event, got %#v", got)
+	}
+}
+
 func TestWaitTUIEventReturnsBufferedBatchBeforeClosedChannel(t *testing.T) {
 	events := make(chan uiEvent, 2)
 	events <- uiAssistantDeltaEvent{Text: "a"}

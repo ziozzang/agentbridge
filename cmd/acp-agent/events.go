@@ -49,9 +49,18 @@ func (c *client) emit(ev uiEvent) {
 	if c == nil || c.events == nil {
 		return
 	}
+	sendUIEvent(c.events, ev)
+}
+
+func sendUIEvent(events chan<- uiEvent, ev uiEvent) bool {
+	if events == nil {
+		return false
+	}
 	select {
-	case c.events <- ev:
+	case events <- ev:
+		return true
 	default:
+		return false
 	}
 }
 
