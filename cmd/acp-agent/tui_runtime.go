@@ -56,15 +56,15 @@ func (m tuiModel) Init() tea.Cmd {
 func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmds []tea.Cmd
 	var handled bool
-	var out tea.Model
 	var cmd tea.Cmd
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.handleWindowSize(msg)
 	case tea.KeyMsg:
-		out, cmd, handled = m.routeKey(msg, cmds)
+		m, cmd, handled = m.routeKey(msg, cmds)
 		if handled {
-			return out, cmd
+			m.refreshViewport()
+			return m, cmd
 		}
 		m, cmd = m.updateComposer(msg)
 		cmds = append(cmds, cmd)
@@ -88,7 +88,7 @@ func (m *tuiModel) handleWindowSize(msg tea.WindowSizeMsg) {
 	m.reflow()
 }
 
-func (m tuiModel) routeKey(msg tea.KeyMsg, cmds []tea.Cmd) (tea.Model, tea.Cmd, bool) {
+func (m tuiModel) routeKey(msg tea.KeyMsg, cmds []tea.Cmd) (tuiModel, tea.Cmd, bool) {
 	keyName := tuiKeyName(msg)
 	switch {
 	case isGlobalInterruptKey(keyName):
@@ -158,7 +158,7 @@ func (m tuiModel) updateComposer(msg tea.Msg) (tuiModel, tea.Cmd) {
 	return m, cmd
 }
 
-func (m tuiModel) acceptCompletion() (tea.Model, bool) {
+func (m tuiModel) acceptCompletion() (tuiModel, bool) {
 	value := m.input.Value()
 	next := completeSlashValue(value, slashMatches(value))
 	if next == "" || next == value {
@@ -169,14 +169,14 @@ func (m tuiModel) acceptCompletion() (tea.Model, bool) {
 	return m, true
 }
 
-func (m tuiModel) updateViewport(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+func (m tuiModel) updateViewport(msg tea.KeyMsg) (tuiModel, tea.Cmd) {
 	var cmd tea.Cmd
 	m.viewport, cmd = m.viewport.Update(msg)
 	m.autoFollow = m.viewport.AtBottom()
 	return m, cmd
 }
 
-func (m tuiModel) submitInput(cmds []tea.Cmd) (tea.Model, tea.Cmd) {
+func (m tuiModel) submitInput(cmds []tea.Cmd) (tuiModel, tea.Cmd) {
 	m.escArmed = false
 	m.ctrlCArmed = false
 	m.autoFollow = true
@@ -198,11 +198,10 @@ func (m tuiModel) submitInput(cmds []tea.Cmd) (tea.Model, tea.Cmd) {
 		m.commandCancel = cancel
 	}
 	cmds = append(cmds, m.runLine(runCtx, line))
-	m.refreshViewport()
 	return m, tea.Batch(cmds...)
 }
 
-func (m tuiModel) handleCtrlC() (tea.Model, tea.Cmd) {
+func (m tuiModel) handleCtrlC() (tuiModel, tea.Cmd) {
 	if m.ctrlCArmed {
 		m.prepareExit()
 		return m, tea.Quit
@@ -241,7 +240,7 @@ func (m *tuiModel) prepareExit() {
 	}
 }
 
-func (m tuiModel) handleEsc() (tea.Model, tea.Cmd) {
+func (m tuiModel) handleEsc() (tuiModel, tea.Cmd) {
 	if !m.state.Busy {
 		m.escArmed = false
 		return m, nil
@@ -261,7 +260,6 @@ func (m *tuiModel) requestStop(title, body string) tea.Cmd {
 	client := m.client
 	ctx := m.ctx
 	m.appendCell(tuiCell{Kind: "info", Title: title, Body: body})
-	m.refreshViewport()
 	return func() tea.Msg {
 		if client == nil {
 			return interruptDoneMsg{}
@@ -275,10 +273,9 @@ func (m *tuiModel) cancelLocalCommand(title, body string) {
 		m.commandCancel()
 	}
 	m.appendCell(tuiCell{Kind: "info", Title: title, Body: body})
-	m.refreshViewport()
 }
 
-func (m tuiModel) updateOverlay(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+func (m tuiModel) updateOverlay(msg tea.KeyMsg) (tuiModel, tea.Cmd) {
 	if m.overlay == nil {
 		return m, nil
 	}
@@ -301,7 +298,7 @@ func (m tuiModel) updateOverlay(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-func (m tuiModel) updateOverlayInput(msg tea.KeyMsg, keyName string) (tea.Model, tea.Cmd) {
+func (m tuiModel) updateOverlayInput(msg tea.KeyMsg, keyName string) (tuiModel, tea.Cmd) {
 	switch {
 	case isOverlayCancelKey(keyName):
 		m.cancelOverlay()

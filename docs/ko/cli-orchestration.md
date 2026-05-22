@@ -114,6 +114,9 @@ streaming을 한 컴포넌트에 섞어서 동작만 맞춘 변경은 완료로 
   동기 실행하면 안 됩니다. Key event는 local UI state를 즉시 바꾸고, cancellation은
   Bubble Tea command로 예약해서 rendering과 이후 high-priority key가 계속 반응하도록
   유지합니다.
+- Key handler는 직접 렌더링하지 않습니다. 처리된 key path는 변경된 model을 Bubble
+  Tea update loop에 돌려주고, 해당 key message의 단일 viewport refresh는 update
+  tail이 소유합니다.
 - Bubble Tea update loop는 window resize, key routing, ACP UI event, command
   completion, spinner tick, composer update용 작은 handler를 거쳐 message를
   처리합니다. 그래서 terminal program을 띄우지 않고 runtime event loop를 테스트할
@@ -131,9 +134,9 @@ streaming을 한 컴포넌트에 섞어서 동작만 맞춘 변경은 완료로 
   tail이 소유합니다.
 - Terminal resize event는 같은 update loop를 통해 viewport와 composer를 reflow하고,
   매우 작은 terminal 크기도 유효한 component size로 clamp합니다.
-- Stop request는 같은 key event 안에서 즉시 transcript cell을 추가하고 viewport를
-  refresh합니다. 그래서 다음 provider event가 오기 전에도 interrupt feedback이
-  화면에 보입니다.
+- Stop request는 같은 key event 안에서 즉시 transcript cell을 추가합니다. Update
+  tail이 반환 전에 viewport를 refresh하므로 다음 provider event가 오기 전에도
+  interrupt feedback이 화면에 보입니다.
 - Turn 실행 중 들어온 prompt는 client queue에 들어가고 state/info event로 방출되어
   transcript와 status surface 양쪽에 렌더링됩니다.
 - Local slash command는 결과 cell 전에 command cell을 방출합니다. `/help`,

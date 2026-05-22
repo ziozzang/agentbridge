@@ -275,9 +275,9 @@ func TestTUIPermissionOverlayReplies(t *testing.T) {
 		Reply:   reply,
 	}}
 	next, _ := m.updateOverlay(tea.KeyMsg{Type: tea.KeyDown})
-	m = next.(tuiModel)
+	m = next
 	next, _ = m.updateOverlay(tea.KeyMsg{Type: tea.KeyEnter})
-	m = next.(tuiModel)
+	m = next
 	if m.overlay != nil {
 		t.Fatalf("overlay still active")
 	}
@@ -293,7 +293,7 @@ func TestTUIPermissionOverlayAcceptsLineFeedEnter(t *testing.T) {
 		Reply:   reply,
 	}}
 	next, _ := m.updateOverlay(tea.KeyMsg{Type: tea.KeyCtrlJ})
-	m = next.(tuiModel)
+	m = next
 	if m.overlay != nil {
 		t.Fatalf("overlay still active")
 	}
@@ -309,7 +309,7 @@ func TestTUIPermissionOverlayNumericChoice(t *testing.T) {
 		Reply:   reply,
 	}}
 	next, _ := m.updateOverlay(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("2")})
-	m = next.(tuiModel)
+	m = next
 	if m.overlay != nil {
 		t.Fatalf("overlay still active")
 	}
@@ -520,7 +520,7 @@ func TestTUITabCompletesUniqueSlashCommand(t *testing.T) {
 	if !handled || cmd != nil {
 		t.Fatalf("tab completion should be handled without command")
 	}
-	m = next.(tuiModel)
+	m = next
 	if got := m.input.Value(); got != "/goal " {
 		t.Fatalf("completion value=%q", got)
 	}
@@ -533,7 +533,7 @@ func TestTUITabCompletesCommonSlashPrefix(t *testing.T) {
 	if !handled || cmd != nil {
 		t.Fatalf("tab completion should be handled without command")
 	}
-	m = next.(tuiModel)
+	m = next
 	if got := m.input.Value(); got != "/session" {
 		t.Fatalf("ambiguous completion should keep value at common prefix, got %q", got)
 	}
@@ -543,7 +543,7 @@ func TestTUITabCompletesCommonSlashPrefix(t *testing.T) {
 	if !handled {
 		t.Fatalf("tab completion should be handled")
 	}
-	m = next.(tuiModel)
+	m = next
 	if got := m.input.Value(); got != "/session-load " {
 		t.Fatalf("completion value=%q", got)
 	}
@@ -797,7 +797,7 @@ func TestTUIStatusLineShowsActivityAndPermission(t *testing.T) {
 func TestTUIEscRequiresConfirmationBeforeStop(t *testing.T) {
 	m := tuiModel{width: 120, state: clientState{Busy: true}}
 	next, cmd := m.handleEsc()
-	m = next.(tuiModel)
+	m = next
 	if cmd != nil {
 		t.Fatalf("first esc should not quit")
 	}
@@ -808,7 +808,7 @@ func TestTUIEscRequiresConfirmationBeforeStop(t *testing.T) {
 		t.Fatalf("missing stop notice: %q", m.noticeLine())
 	}
 	next, cmd = m.handleEsc()
-	m = next.(tuiModel)
+	m = next
 	if cmd == nil {
 		t.Fatalf("second esc should schedule async stop")
 	}
@@ -820,7 +820,7 @@ func TestTUIEscRequiresConfirmationBeforeStop(t *testing.T) {
 func TestTUICtrlCStopsThenExits(t *testing.T) {
 	m := tuiModel{state: clientState{Busy: true}}
 	next, cmd := m.handleCtrlC()
-	m = next.(tuiModel)
+	m = next
 	if cmd == nil {
 		t.Fatalf("first ctrl-c should schedule async interrupt")
 	}
@@ -839,7 +839,7 @@ func TestTUICtrlCAddsSingleInterruptCell(t *testing.T) {
 	if cmd == nil {
 		t.Fatalf("first ctrl-c should schedule async interrupt")
 	}
-	m = next.(tuiModel)
+	m = next
 	count := 0
 	for _, cell := range m.cells {
 		if cell.Title == "interrupt" {
@@ -857,7 +857,7 @@ func TestTUIInterruptCommandReportsCompletion(t *testing.T) {
 	if cmd == nil {
 		t.Fatalf("interrupt command missing")
 	}
-	m = next.(tuiModel)
+	m = next
 	msg := cmd()
 	done, ok := msg.(interruptDoneMsg)
 	if !ok {
@@ -888,6 +888,27 @@ func TestTUIStopFeedbackRefreshesFrameImmediately(t *testing.T) {
 		if !strings.Contains(got, want) {
 			t.Fatalf("stop frame missing %q: %q", want, got)
 		}
+	}
+}
+
+func TestTUIKeyHandlerLeavesStopRefreshToUpdateTail(t *testing.T) {
+	m := newTUIModel(context.Background(), &client{events: make(chan uiEvent)})
+	m.width = 80
+	m.height = 8
+	m.state = clientState{Busy: true}
+	m.reflow()
+	m.transcriptView = "cached"
+	m.transcriptDirty = false
+	next, cmd := m.handleCtrlC()
+	if cmd == nil {
+		t.Fatalf("ctrl-c should schedule async interrupt")
+	}
+	m = next
+	if !m.transcriptDirty {
+		t.Fatalf("key handler should leave dirty transcript for Update tail refresh")
+	}
+	if m.transcriptView != "cached" {
+		t.Fatalf("key handler refreshed transcript directly: %q", m.transcriptView)
 	}
 }
 
@@ -1100,7 +1121,7 @@ func TestTUIRouteKeySeparatesGlobalOverlayViewportAndComposer(t *testing.T) {
 	if !handled || cmd != nil {
 		t.Fatalf("overlay numeric key should be handled without command")
 	}
-	m = next.(tuiModel)
+	m = next
 	if m.overlay != nil {
 		t.Fatalf("overlay should be closed")
 	}
@@ -1110,7 +1131,7 @@ func TestTUIRouteKeySeparatesGlobalOverlayViewportAndComposer(t *testing.T) {
 
 	m = tuiModel{input: newTUIComposer()}
 	next, cmd, handled = m.routeKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("a")}, nil)
-	if handled || cmd != nil || next.(tuiModel).input.Value() != "" {
+	if handled || cmd != nil || next.input.Value() != "" {
 		t.Fatalf("composer text key should fall through to composer update")
 	}
 
@@ -1119,7 +1140,7 @@ func TestTUIRouteKeySeparatesGlobalOverlayViewportAndComposer(t *testing.T) {
 	if !handled {
 		t.Fatalf("viewport key should be handled by viewport layer")
 	}
-	if next.(tuiModel).input.Value() != "" {
+	if next.input.Value() != "" {
 		t.Fatalf("viewport key should not mutate composer")
 	}
 }
@@ -1177,7 +1198,7 @@ func TestTUISubmitSlashCommandTracksRunState(t *testing.T) {
 	if cmd == nil {
 		t.Fatalf("slash command should schedule command")
 	}
-	m = next.(tuiModel)
+	m = next
 	if m.commandRuns != 1 || m.activity != "running command" {
 		t.Fatalf("command state = runs %d activity %q", m.commandRuns, m.activity)
 	}
@@ -1197,7 +1218,7 @@ func TestTUISubmitPromptDoesNotTrackLocalCommand(t *testing.T) {
 	if cmd == nil {
 		t.Fatalf("prompt should schedule command wrapper")
 	}
-	m = next.(tuiModel)
+	m = next
 	if m.commandRuns != 0 {
 		t.Fatalf("plain prompt should not be a local command: %d", m.commandRuns)
 	}
@@ -1214,7 +1235,7 @@ func TestTUICtrlCCancelsLocalCommandBeforeExit(t *testing.T) {
 	if cmd != nil {
 		t.Fatalf("local command ctrl-c should not quit")
 	}
-	m = next.(tuiModel)
+	m = next
 	if !cancelled {
 		t.Fatalf("local command cancel func was not called")
 	}
@@ -1249,7 +1270,7 @@ func TestTUIExitCancelsLocalCommandAndWaiters(t *testing.T) {
 	if !handled || cmd == nil {
 		t.Fatalf("ctrl-d should be handled as quit")
 	}
-	m = next.(tuiModel)
+	m = next
 	if !cancelledCommand || m.commandCancel != nil || m.overlay != nil {
 		t.Fatalf("exit cleanup incomplete: cancelled=%v commandCancel=%v overlay=%v", cancelledCommand, m.commandCancel != nil, m.overlay != nil)
 	}
@@ -1356,7 +1377,7 @@ func TestTUIScrollPositionIsPreservedWhenNotFollowing(t *testing.T) {
 		t.Fatalf("expected initial viewport to follow bottom")
 	}
 	next, _ := m.updateViewport(tea.KeyMsg{Type: tea.KeyPgUp})
-	m = next.(tuiModel)
+	m = next
 	if m.autoFollow {
 		t.Fatalf("page up should disable auto-follow")
 	}

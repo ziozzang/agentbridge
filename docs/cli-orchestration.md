@@ -126,6 +126,9 @@ ownership boundary visible in code, tests, and this document.
   Tea update function. The key event updates local UI state immediately, then
   schedules cancellation as a Bubble Tea command so rendering and subsequent
   high-priority keys stay responsive.
+- Key handlers do not render directly. Handled key paths return a mutated model
+  to the Bubble Tea update loop, and the update tail owns the single viewport
+  refresh for that key message.
 - The Bubble Tea update loop routes messages through small handlers for window
   resize, key routing, ACP UI events, command completion, spinner ticks, and
   composer updates. This keeps the runtime event loop testable without starting
@@ -144,9 +147,9 @@ ownership boundary visible in code, tests, and this document.
   refresh for that message.
 - Terminal resize events reflow the viewport and composer through the same
   update loop, with tiny terminal dimensions clamped to valid component sizes.
-- Stop requests append an immediate transcript cell and refresh the viewport in
-  the same key event, so interrupt feedback is visible before the next provider
-  event arrives.
+- Stop requests append an immediate transcript cell in the same key event; the
+  update tail refreshes the viewport before returning so interrupt feedback is
+  visible before the next provider event arrives.
 - Prompts submitted while a turn is busy are queued by the client, emitted as
   state/info events, and rendered in both the transcript and status surface.
 - Local slash commands emit command cells before their result cells. This keeps
