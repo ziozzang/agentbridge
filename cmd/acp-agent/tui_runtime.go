@@ -81,6 +81,9 @@ func (m tuiModel) routeKey(msg tea.KeyMsg, cmds []tea.Cmd) (tea.Model, tea.Cmd, 
 		next, cmd := m.handleCtrlC()
 		return next, cmd, true
 	case isGlobalExitKey(keyName):
+		if m.overlay != nil {
+			m.cancelOverlay()
+		}
 		return m, tea.Quit, true
 	}
 	if m.overlay != nil {
@@ -151,13 +154,22 @@ func (m tuiModel) submitInput(cmds []tea.Cmd) (tea.Model, tea.Cmd) {
 
 func (m tuiModel) handleCtrlC() (tea.Model, tea.Cmd) {
 	if m.ctrlCArmed {
+		if m.overlay != nil {
+			m.cancelOverlay()
+		}
 		return m, tea.Quit
 	}
 	if m.state.Busy {
+		if m.overlay != nil {
+			m.cancelOverlay()
+		}
 		m.requestStop("interrupt", "Ctrl-C cancelled current turn. Press Ctrl-C again to exit client.")
 		m.ctrlCArmed = true
 		m.escArmed = false
 		return m, nil
+	}
+	if m.overlay != nil {
+		m.cancelOverlay()
 	}
 	return m, tea.Quit
 }
@@ -191,6 +203,9 @@ func (m tuiModel) updateOverlay(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	keyName := tuiKeyName(msg)
+	if m.overlayTyping {
+		return m.updateOverlayInput(msg, keyName)
+	}
 	switch keyName {
 	case "up", "k":
 		if m.choice > 0 {
@@ -206,18 +221,56 @@ func (m tuiModel) updateOverlay(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+func (m tuiModel) updateOverlayInput(msg tea.KeyMsg, keyName string) (tea.Model, tea.Cmd) {
+	switch {
+	case isOverlayCancelKey(keyName):
+		m.cancelOverlay()
+		return m, nil
+	case isOverlaySubmitKey(keyName):
+		if m.overlay == nil || m.choice < 0 || m.choice >= len(m.overlay.Options) {
+			m.cancelOverlay()
+			return m, nil
+		}
+		line := strings.TrimSpace(m.overlayInput.Value())
+		if line == "" {
+			m.cancelOverlay()
+			return m, nil
+		}
+		m.replyOverlay(overlayOptionKey(m.choice, m.overlay.Options[m.choice]) + ":" + line)
+		return m, nil
+	}
+	var cmd tea.Cmd
+	m.overlayInput, cmd = m.overlayInput.Update(msg)
+	return m, cmd
+}
+
 func (m *tuiModel) handleOverlayActionKey(keyName string) {
 	surface := m.overlaySurface()
 	switch {
 	case isOverlayCancelKey(keyName):
 		m.cancelOverlay()
 	case isOverlaySubmitKey(keyName):
+		if surface.SelectedOptionRequestsText() {
+			m.startOverlayInput()
+			return
+		}
 		m.replyOverlayChoice(m.choice)
 	default:
 		if reply, ok := surface.ReplyForKey(keyName); ok {
+			if idx := m.overlayChoiceIndex(reply); idx >= 0 && choiceOptionRequestsText(m.overlay.Options[idx]) {
+				m.choice = idx
+				m.startOverlayInput()
+				return
+			}
 			m.replyOverlay(reply)
 		}
 	}
+}
+
+func (m *tuiModel) startOverlayInput() {
+	m.overlayTyping = true
+	m.overlayInput = newTUIOverlayInput()
+	m.overlayInput.Width = maxInt(1, m.width-8)
 }
 
 func (m tuiModel) overlayHelp() string {
@@ -247,6 +300,8 @@ func (m *tuiModel) replyOverlay(key string) {
 	}
 	m.overlay.Reply <- key
 	m.overlay = nil
+	m.overlayTyping = false
+	m.overlayInput.Reset()
 }
 
 func (m tuiModel) runLine(line string) tea.Cmd {
@@ -254,4 +309,16 @@ func (m tuiModel) runLine(line string) tea.Cmd {
 		err := m.client.runCommand(m.ctx, line)
 		return commandDoneMsg{Err: err}
 	}
+}
+
+func (m tuiModel) overlayChoiceIndex(key string) int {
+	if m.overlay == nil {
+		return -1
+	}
+	for i, opt := range m.overlay.Options {
+		if overlayOptionKey(i, opt) == key {
+			return i
+		}
+	}
+	return -1
 }

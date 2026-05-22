@@ -30,10 +30,12 @@ type tuiModel struct {
 	viewport      viewport.Model
 	autoFollow    bool
 	input         textinput.Model
+	overlayInput  textinput.Model
 	spinner       spinner.Model
 	cells         []tuiCell
 	overlay       *uiPermissionRequest
 	choice        int
+	overlayTyping bool
 	activity      string
 	answerRunes   int
 	thinkingRunes int

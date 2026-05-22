@@ -54,6 +54,8 @@ shell script를 실행하지 않습니다.
   number/arrow/yes/no key를 ACP permission reply로 매핑하는 책임을 가집니다.
 - Approval reply는 같은 key event 안에서 overlay를 닫습니다. 다음 frame은 server
   traffic을 기다리지 않고 transcript와 bottom composer 상태로 돌아옵니다.
+- `other command`처럼 replacement text가 필요한 permission choice도 Bubble Tea
+  overlay 안에서 처리합니다. Terminal raw mode 상태에서 stdin을 직접 읽지 않습니다.
 - Completion hint도 별도 surface입니다. Slash-command argument hint와 compact
   suggestion text를 소유하고, composer는 text input만 소유합니다.
 - Bottom composer도 별도 surface입니다. Fixed-width input rendering을 frame

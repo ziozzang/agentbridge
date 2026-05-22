@@ -8,9 +8,11 @@ import (
 )
 
 type tuiOverlaySurface struct {
-	req    *uiPermissionRequest
-	choice int
-	width  int
+	req         *uiPermissionRequest
+	choice      int
+	width       int
+	inputActive bool
+	inputView   string
 }
 
 func (s tuiOverlaySurface) Active() bool {
@@ -46,6 +48,12 @@ func (s tuiOverlaySurface) View() string {
 		}
 		b.WriteString("\n")
 		b.WriteString(fmt.Sprintf("%s%s. %s", prefix, key, opt.Label))
+	}
+	if s.inputActive {
+		b.WriteString("\n")
+		b.WriteString(tuiThinkingStyle.Render("enter: submit replacement · esc: reject"))
+		b.WriteString("\n")
+		b.WriteString(s.inputView)
 	}
 	return tuiOverlayStyle.Width(minInt(72, maxInt(36, s.width-4))).Render(b.String())
 }
@@ -100,8 +108,26 @@ func overlayOptionKey(idx int, opt choiceOption) string {
 	return fmt.Sprintf("%d", idx+1)
 }
 
+func choiceOptionRequestsText(opt choiceOption) bool {
+	label := strings.ToLower(strings.TrimSpace(opt.Label))
+	return strings.Contains(label, "other command") || strings.Contains(label, "replacement command")
+}
+
+func (s tuiOverlaySurface) SelectedOptionRequestsText() bool {
+	if !s.Active() || s.choice < 0 || s.choice >= len(s.req.Options) {
+		return false
+	}
+	return choiceOptionRequestsText(s.req.Options[s.choice])
+}
+
 func (m tuiModel) overlaySurface() tuiOverlaySurface {
-	return tuiOverlaySurface{req: m.overlay, choice: m.choice, width: m.width}
+	return tuiOverlaySurface{
+		req:         m.overlay,
+		choice:      m.choice,
+		width:       m.width,
+		inputActive: m.overlayTyping,
+		inputView:   m.overlayInput.View(),
+	}
 }
 
 func overlayBlock(width, height int, base, overlay string) string {

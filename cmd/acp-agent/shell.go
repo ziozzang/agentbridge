@@ -64,6 +64,13 @@ func (c *client) confirmShellCommand(command string) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	if strings.HasPrefix(choice, "4:") {
+		next := strings.TrimSpace(strings.TrimPrefix(choice, "4:"))
+		if next == "" {
+			return "", fmt.Errorf("command rejected by user")
+		}
+		return next, nil
+	}
 	switch choice {
 	case "1", "y", "yes":
 		return command, nil

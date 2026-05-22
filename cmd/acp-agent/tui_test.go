@@ -44,6 +44,9 @@ func TestTUIComponentFactoryInitializesShellParts(t *testing.T) {
 	if !m.input.Focused() || !m.input.ShowSuggestions {
 		t.Fatalf("composer should be focused with suggestions enabled")
 	}
+	if !m.overlayInput.Focused() || m.overlayInput.ShowSuggestions {
+		t.Fatalf("overlay input should be focused without suggestions")
+	}
 	if got := m.input.Placeholder; got == "" {
 		t.Fatalf("composer placeholder missing")
 	}
@@ -248,6 +251,64 @@ func TestTUIPermissionOverlayNumericChoice(t *testing.T) {
 	}
 	if got := <-reply; got != "2" {
 		t.Fatalf("reply=%q", got)
+	}
+}
+
+func TestTUIPermissionOverlayOtherCommandUsesTUIInput(t *testing.T) {
+	reply := make(chan string, 1)
+	m := newTUIModel(context.Background(), &client{events: make(chan uiEvent)})
+	m.width = 120
+	m.overlay = &uiPermissionRequest{
+		Options: []choiceOption{
+			{Key: "1", Label: "yes"},
+			{Key: "4", Label: "other command"},
+		},
+		Reply: reply,
+	}
+	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("4")})
+	if cmd != nil {
+		t.Fatalf("starting overlay input should not launch a command")
+	}
+	m = next.(tuiModel)
+	if !m.overlayTyping || m.overlay == nil {
+		t.Fatalf("overlay input mode not active")
+	}
+	for _, r := range []rune("pwd") {
+		next, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+		m = next.(tuiModel)
+	}
+	next, cmd = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if cmd != nil {
+		t.Fatalf("submitting overlay input should not launch a command")
+	}
+	m = next.(tuiModel)
+	if m.overlay != nil || m.overlayTyping {
+		t.Fatalf("overlay did not close")
+	}
+	if got := <-reply; got != "4:pwd" {
+		t.Fatalf("reply=%q", got)
+	}
+}
+
+func TestTUICtrlCCancelsActiveOverlay(t *testing.T) {
+	reply := make(chan string, 1)
+	m := tuiModel{ctx: context.Background(), state: clientState{Busy: true}, overlay: &uiPermissionRequest{
+		Options: []choiceOption{{Key: "1", Label: "yes"}, {Key: "3", Label: "no"}},
+		Reply:   reply,
+	}}
+	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyCtrlC})
+	if cmd != nil {
+		t.Fatalf("first ctrl-c should stop, not quit")
+	}
+	m = next.(tuiModel)
+	if m.overlay != nil {
+		t.Fatalf("overlay should be closed")
+	}
+	if got := <-reply; got != "3" {
+		t.Fatalf("reply=%q", got)
+	}
+	if !m.ctrlCArmed {
+		t.Fatalf("ctrl-c should arm exit after stopping")
 	}
 }
 

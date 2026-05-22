@@ -13,18 +13,20 @@ import (
 
 func newTUIModel(ctx context.Context, c *client) tuiModel {
 	input := newTUIComposer()
+	overlayInput := newTUIOverlayInput()
 	sp := newTUISpinner()
 	return tuiModel{
-		ctx:        ctx,
-		client:     c,
-		events:     c.events,
-		state:      c.state,
-		opts:       c.opts,
-		viewport:   viewport.New(80, 20),
-		autoFollow: true,
-		input:      input,
-		spinner:    sp,
-		now:        time.Now(),
+		ctx:          ctx,
+		client:       c,
+		events:       c.events,
+		state:        c.state,
+		opts:         c.opts,
+		viewport:     viewport.New(80, 20),
+		autoFollow:   true,
+		input:        input,
+		overlayInput: overlayInput,
+		spinner:      sp,
+		now:          time.Now(),
 	}
 }
 
@@ -39,6 +41,16 @@ func newTUIComposer() textinput.Model {
 	input.CompletionStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
 	input.KeyMap.NextSuggestion = key.NewBinding(key.WithKeys("ctrl+n"))
 	input.KeyMap.PrevSuggestion = key.NewBinding(key.WithKeys("ctrl+p"))
+	return input
+}
+
+func newTUIOverlayInput() textinput.Model {
+	input := textinput.New()
+	input.Placeholder = "replacement command"
+	input.Prompt = " command › "
+	input.Focus()
+	input.CharLimit = 0
+	input.ShowSuggestions = false
 	return input
 }
 
