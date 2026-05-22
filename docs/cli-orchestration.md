@@ -5,6 +5,10 @@ can expose the layer to models as normal tools, but execution happens where the
 capability is placed: in the terminal client, in a server process, or in another
 client implementation.
 
+In the worker-node model, `acp-agent` is the built-in terminal worker. Its
+worker capabilities include shell execution, Lua orchestration, file
+attachment, and CLI-local memory/queue state.
+
 ## Placement
 
 There are two tool ownership classes.

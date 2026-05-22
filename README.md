@@ -148,6 +148,7 @@ Legacy aliases such as `ACP_HARNESS_PROVIDER`, `ACP_HARNESS_API_KEY`,
 | [Architecture](docs/architecture.md) | [아키텍처](docs/ko/architecture.md) |
 | [CLI Orchestration Design](docs/cli-orchestration.md) | [CLI Orchestration 설계](docs/ko/cli-orchestration.md) |
 | [Tool Placement](docs/tool-placement.md) | [Tool Placement](docs/ko/tool-placement.md) |
+| [Worker Nodes](docs/worker-nodes.md) | [Worker Nodes](docs/ko/worker-nodes.md) |
 | [Safety Pipeline](docs/safety.md) | [Safety Pipeline](docs/ko/safety.md) |
 | [Providers](docs/providers.md) | [프로바이더](docs/ko/providers.md) |
 | [Plugins](docs/plugins.md) | [플러그인](docs/ko/plugins.md) |

@@ -14,6 +14,13 @@ The process has three main layers:
 3. Shared safety and runtime services wrap providers for PII masking, response
    sanitization, compaction, observability, and status reporting.
 
+Tool and subtask execution is placed on explicit worker nodes rather than being
+implied by the protocol adapter. The built-in server process is one worker for
+server-owned file/web tools; `acp-agent` is a terminal worker for local shell,
+Lua orchestration, and file attachment actions. Future container or remote
+workers should follow the same placement contract. See
+[Worker Nodes](worker-nodes.md).
+
 The central provider contract is `internal/provider.Provider`:
 
 - `StreamChat` streams normalized assistant chunks.

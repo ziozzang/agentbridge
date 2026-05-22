@@ -14,6 +14,12 @@ bridge입니다.
 3. 공통 safety/runtime service가 provider를 감싸 PII masking, response
    sanitization, compaction, observability, status reporting을 처리합니다.
 
+Tool과 subtask execution은 protocol adapter가 암묵적으로 결정하지 않고 명시적인
+worker node에 배치합니다. 내장 server process는 server-owned file/web tool용
+worker이고, `acp-agent`는 local shell, Lua orchestration, file attachment action을
+담당하는 terminal worker입니다. 향후 container 또는 remote worker도 같은 placement
+contract를 따라야 합니다. 자세한 내용은 [Worker Nodes](worker-nodes.md)를 참고합니다.
+
 중심 contract는 `internal/provider.Provider`입니다.
 
 - `StreamChat`은 정규화된 assistant chunk를 스트리밍합니다.

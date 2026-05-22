@@ -151,6 +151,10 @@ the LLM transcript.
   as `clientTools` and surfaced to the model under `client__<name>`. Executor
   must route those calls back to the ACP client with `client/call_tool`. This is
   separate from AgentBridge-owned server tools.
+- Treat these placement targets as worker nodes. `acp-agent` is the built-in
+  terminal worker; future container or remote workers must advertise
+  capabilities, permission posture, progress events, and cancellation behavior
+  instead of hiding execution behind server-side side effects.
 - Shell commands and shell scripts are client-owned. `acp-agent` advertises
   `run_command`, which the model sees as `client__run_command`; do not add
   server-owned shell execution back into `internal/tools/executor`.

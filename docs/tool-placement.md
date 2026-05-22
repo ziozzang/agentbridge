@@ -3,6 +3,10 @@
 AgentBridge separates tool execution by ownership. This is a security and
 deployment boundary, not only an implementation detail.
 
+Worker nodes are the execution endpoints behind this ownership model. See
+[Worker Nodes](worker-nodes.md) for the broader placement model, including
+terminal, container, and remote workers.
+
 ## Server-Owned Tools
 
 Server-owned tools run in the AgentBridge process and are defined under
@@ -38,6 +42,9 @@ Shell commands and shell scripts belong in this client-owned layer because the
 terminal client owns the interactive user, local tty policy, permission mode,
 and cwd. AgentBridge may broker the model tool call, but it does not execute
 the command.
+
+In worker-node terms, `acp-agent` is a local terminal worker. `run_command` is
+an action on that worker node, not on the AgentBridge server.
 
 ## Permission Model
 

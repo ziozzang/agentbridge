@@ -3,6 +3,10 @@
 AgentBridge는 tool 실행 위치를 ownership으로 분리합니다. 이것은 단순한 구현
 세부사항이 아니라 보안과 배치 경계입니다.
 
+Worker node는 이 ownership model 뒤에 있는 execution endpoint입니다. Terminal,
+container, remote worker까지 포함한 더 넓은 placement model은
+[Worker Nodes](worker-nodes.md)를 참고합니다.
+
 ## Server-Owned Tool
 
 Server-owned tool은 AgentBridge 프로세스 안에서 실행되며
@@ -38,6 +42,9 @@ Shell command와 shell script는 이 client-owned layer에 있어야 합니다. 
 client가 interactive user, local tty policy, permission mode, cwd를 소유하기
 때문입니다. AgentBridge는 model tool call을 중개할 수 있지만 command를 직접
 실행하지 않습니다.
+
+Worker-node 관점에서 `acp-agent`는 local terminal worker입니다. `run_command`는
+AgentBridge server action이 아니라 이 worker node의 action입니다.
 
 ## Permission Model
 

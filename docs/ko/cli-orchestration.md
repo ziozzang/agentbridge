@@ -5,6 +5,10 @@ AgentBridge는 CLI orchestration을 client-owned harness layer로 봅니다. 서
 곳입니다. 즉 terminal client, server process, 또는 다른 client 구현체가 될 수
 있습니다.
 
+Worker-node model에서 `acp-agent`는 내장 terminal worker입니다. Shell execution,
+Lua orchestration, file attachment, CLI-local memory/queue state가 이 worker의
+capability입니다.
+
 ## Placement
 
 Tool ownership은 두 종류입니다.
