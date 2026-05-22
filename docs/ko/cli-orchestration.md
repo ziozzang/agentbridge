@@ -41,6 +41,9 @@ shell script를 실행하지 않습니다.
   identity를 frame layout과 분리해서 계산합니다.
 - Status surface는 하단 고정 한 줄입니다. 긴 상태 정보는 wrap하지 않고 ANSI-aware
   truncate해서 좁은 터미널에서도 transcript/composer layout을 유지합니다.
+- Composer 위 notice row도 같은 fixed-row 규칙을 따릅니다. 긴 progress text,
+  stop prompt, completion hint는 frame assembly 전에 truncate되어 composer/status
+  row를 밀어내지 않습니다.
 - Permission approval overlay도 별도 surface입니다. Choice list 렌더링과
   number/arrow/yes/no key를 ACP permission reply로 매핑하는 책임을 가집니다.
 - Approval reply는 같은 key event 안에서 overlay를 닫습니다. 다음 frame은 server

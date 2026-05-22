@@ -43,6 +43,9 @@ The broader ownership and permission rules are documented in
 - The status surface is a single fixed bottom line. Long status content is
   ANSI-aware truncated instead of wrapped, preserving the transcript/composer
   layout even on narrow terminals.
+- The notice row above the composer follows the same fixed-row rule: long
+  progress text, stop prompts, or completion hints are truncated before frame
+  assembly so they cannot move the composer or status rows.
 - Permission approval overlays are a dedicated surface for rendering choice
   lists and mapping number/arrow/yes/no keys to ACP permission replies.
 - Approval replies close the overlay in the same key event; the next frame

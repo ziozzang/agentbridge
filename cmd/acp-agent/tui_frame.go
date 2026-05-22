@@ -20,7 +20,7 @@ func (s tuiFrameSurface) View() string {
 	if s.overlay != "" {
 		transcript = overlayBlock(s.width, s.height, transcript, s.overlay)
 	}
-	notice := tuiNoticeStyle.Width(s.width).Render(s.notice)
+	notice := tuiNoticeStyle.Width(s.width).Render(truncateStatusLine(s.notice, s.width))
 	status := tuiStatusStyle.Width(s.width).Render(s.status)
 	return lipgloss.JoinVertical(lipgloss.Left, transcript, notice, s.composer, status)
 }

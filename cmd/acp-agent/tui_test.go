@@ -408,6 +408,28 @@ func TestTUIFrameSurfaceAppliesOverlayOverTranscript(t *testing.T) {
 	}
 }
 
+func TestTUIFrameSurfaceKeepsNoticeToSingleRow(t *testing.T) {
+	surface := tuiFrameSurface{
+		width:      48,
+		height:     8,
+		transcript: "assistant",
+		notice:     strings.Repeat("very long notice ", 12),
+		composer:   tuiComposerSurface{width: 48, input: " › prompt"}.View(),
+		status:     "Ready",
+	}
+	got := stripANSI(surface.View())
+	lines := strings.Split(got, "\n")
+	if len(lines) != 4 {
+		t.Fatalf("notice should not wrap frame rows, lines=%d view=%q", len(lines), got)
+	}
+	if !strings.Contains(lines[1], "very long") {
+		t.Fatalf("notice row missing content: %q", got)
+	}
+	if strings.Contains(lines[1], "prompt") || strings.Contains(lines[1], "Ready") {
+		t.Fatalf("notice row overlapped adjacent rows: %q", got)
+	}
+}
+
 func TestTUIStatusLineShowsActivityAndPermission(t *testing.T) {
 	start := time.Now().Add(-75 * time.Second)
 	m := tuiModel{width: 180, activity: "tool: Read file", turnAt: start, now: start.Add(75 * time.Second), state: clientState{
