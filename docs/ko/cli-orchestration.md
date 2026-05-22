@@ -57,6 +57,8 @@ streaming을 한 컴포넌트에 섞어서 동작만 맞춘 변경은 완료로 
 - Transcript rendering은 명시적인 dirty flag 뒤에 cache됩니다. Spinner tick,
   status-only update, 기타 frame change는 cell이나 viewport width가 바뀌지 않았다면
   전체 transcript를 다시 wrap하지 않아야 합니다.
+- Spinner tick은 status-only frame tick입니다. Elapsed-time과 spinner state는 바꿀 수
+  있지만 transcript dirty flag와 cached transcript view는 보존해야 합니다.
 - Status/notice rendering도 별도 surface입니다. Running activity, token progress,
   queue/subagent/tool count, scroll state, context, quota, worker placement,
   permission mode, session identity를 frame layout과 분리해서 계산합니다.

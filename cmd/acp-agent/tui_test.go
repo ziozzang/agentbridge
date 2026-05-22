@@ -1477,6 +1477,23 @@ func TestTUIRefreshViewportCachesTranscript(t *testing.T) {
 	}
 }
 
+func TestTUISpinnerTickPreservesTranscriptCache(t *testing.T) {
+	m := newTUIModel(context.Background(), &client{events: make(chan uiEvent)})
+	m.width = 80
+	m.height = 8
+	m.reflow()
+	m.applyEvent(uiAssistantDeltaEvent{Text: "stable transcript"})
+	cached := m.transcriptView
+	next, _ := m.Update(spinner.TickMsg{})
+	m = next.(tuiModel)
+	if m.transcriptDirty {
+		t.Fatalf("spinner tick should not dirty transcript")
+	}
+	if m.transcriptView != cached {
+		t.Fatalf("spinner tick should preserve transcript cache: %q", m.transcriptView)
+	}
+}
+
 func TestTUIReflowInvalidatesTranscriptOnWidthChange(t *testing.T) {
 	m := newTUIModel(context.Background(), &client{events: make(chan uiEvent)})
 	m.width = 80
