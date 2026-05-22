@@ -412,9 +412,10 @@ func TestTUIOverlayChoiceRestoresTranscriptFrame(t *testing.T) {
 }
 
 func TestTUIInterruptKeysBypassOverlay(t *testing.T) {
+	reply := make(chan string, 1)
 	m := tuiModel{ctx: context.Background(), state: clientState{Busy: true}, overlay: &uiPermissionRequest{
 		Options: []choiceOption{{Key: "1", Label: "yes"}},
-		Reply:   make(chan string, 1),
+		Reply:   reply,
 	}}
 	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyCtrlC})
 	m = next.(tuiModel)
@@ -427,6 +428,9 @@ func TestTUIInterruptKeysBypassOverlay(t *testing.T) {
 	_, cmd = m.Update(tea.KeyMsg{Type: tea.KeyCtrlD})
 	if cmd == nil {
 		t.Fatalf("ctrl-d should quit even when overlay is active")
+	}
+	if got := <-reply; got != "3" {
+		t.Fatalf("exit should reject overlay, got %q", got)
 	}
 }
 
@@ -911,6 +915,41 @@ func TestTUICtrlCCancelsLocalCommandBeforeExit(t *testing.T) {
 	_, cmd = m.handleCtrlC()
 	if cmd == nil {
 		t.Fatalf("second ctrl-c should quit")
+	}
+}
+
+func TestTUIExitCancelsLocalCommandAndWaiters(t *testing.T) {
+	cancelledCommand := false
+	promptCtx, promptCancel := context.WithCancel(context.Background())
+	choiceCtx, choiceCancel := context.WithCancel(context.Background())
+	reply := make(chan string, 1)
+	c := &client{promptCancel: promptCancel, choiceCancel: choiceCancel}
+	m := tuiModel{
+		client:        c,
+		commandRuns:   1,
+		commandCancel: func() { cancelledCommand = true },
+		overlay: &uiPermissionRequest{
+			Options: []choiceOption{{Key: "1", Label: "yes"}, {Key: "3", Label: "no"}},
+			Reply:   reply,
+		},
+	}
+	next, cmd, handled := m.routeKey(tea.KeyMsg{Type: tea.KeyCtrlD}, nil)
+	if !handled || cmd == nil {
+		t.Fatalf("ctrl-d should be handled as quit")
+	}
+	m = next.(tuiModel)
+	if !cancelledCommand || m.commandCancel != nil || m.overlay != nil {
+		t.Fatalf("exit cleanup incomplete: cancelled=%v commandCancel=%v overlay=%v", cancelledCommand, m.commandCancel != nil, m.overlay != nil)
+	}
+	if got := <-reply; got != "3" {
+		t.Fatalf("overlay reply=%q", got)
+	}
+	for name, ctx := range map[string]context.Context{"prompt": promptCtx, "choice": choiceCtx} {
+		select {
+		case <-ctx.Done():
+		default:
+			t.Fatalf("%s context was not cancelled", name)
+		}
 	}
 }
 

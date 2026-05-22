@@ -83,9 +83,7 @@ func (m tuiModel) routeKey(msg tea.KeyMsg, cmds []tea.Cmd) (tea.Model, tea.Cmd, 
 		next, cmd := m.handleCtrlC()
 		return next, cmd, true
 	case isGlobalExitKey(keyName):
-		if m.overlay != nil {
-			m.cancelOverlay()
-		}
+		m.prepareExit()
 		return m, tea.Quit, true
 	}
 	if m.overlay != nil {
@@ -158,6 +156,7 @@ func (m tuiModel) submitInput(cmds []tea.Cmd) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	if line == "/exit" || line == "/quit" {
+		m.prepareExit()
 		return m, tea.Quit
 	}
 	runCtx := m.ctx
@@ -175,9 +174,7 @@ func (m tuiModel) submitInput(cmds []tea.Cmd) (tea.Model, tea.Cmd) {
 
 func (m tuiModel) handleCtrlC() (tea.Model, tea.Cmd) {
 	if m.ctrlCArmed {
-		if m.overlay != nil {
-			m.cancelOverlay()
-		}
+		m.prepareExit()
 		return m, tea.Quit
 	}
 	if m.state.Busy {
@@ -199,6 +196,19 @@ func (m tuiModel) handleCtrlC() (tea.Model, tea.Cmd) {
 		m.cancelOverlay()
 	}
 	return m, tea.Quit
+}
+
+func (m *tuiModel) prepareExit() {
+	if m.overlay != nil {
+		m.cancelOverlay()
+	}
+	if m.commandCancel != nil {
+		m.commandCancel()
+		m.commandCancel = nil
+	}
+	if m.client != nil {
+		m.client.CancelLocalWaiters()
+	}
 }
 
 func (m tuiModel) handleEsc() (tea.Model, tea.Cmd) {

@@ -196,6 +196,20 @@ func TestInterruptCancelsLocalPromptContext(t *testing.T) {
 	}
 }
 
+func TestCancelLocalWaitersCancelsPromptAndChoice(t *testing.T) {
+	promptCtx, promptCancel := context.WithCancel(context.Background())
+	choiceCtx, choiceCancel := context.WithCancel(context.Background())
+	c := &client{promptCancel: promptCancel, choiceCancel: choiceCancel}
+	c.CancelLocalWaiters()
+	for name, ctx := range map[string]context.Context{"prompt": promptCtx, "choice": choiceCtx} {
+		select {
+		case <-ctx.Done():
+		default:
+			t.Fatalf("%s context was not cancelled", name)
+		}
+	}
+}
+
 func TestStreamBufferFlushesOnToolUpdate(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	c := &client{

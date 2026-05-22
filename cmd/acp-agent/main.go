@@ -497,6 +497,22 @@ func (c *client) Interrupt(ctx context.Context) bool {
 	return true
 }
 
+func (c *client) CancelLocalWaiters() {
+	if c == nil {
+		return
+	}
+	c.mu.Lock()
+	cancel := c.promptCancel
+	choiceCancel := c.choiceCancel
+	c.mu.Unlock()
+	if choiceCancel != nil {
+		choiceCancel()
+	}
+	if cancel != nil {
+		cancel()
+	}
+}
+
 func (c *client) Prompt(ctx context.Context, sessionID, text string) error {
 	promptCtx, cancel := context.WithCancel(ctx)
 	c.mu.Lock()

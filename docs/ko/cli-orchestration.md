@@ -111,6 +111,9 @@ streaming을 한 컴포넌트에 섞어서 동작만 맞춘 변경은 완료로 
 - Local slash command는 command별 cancellable context로 실행합니다. Model turn은
   busy가 아니지만 local command가 실행 중이면, Ctrl-C는 먼저 그 command를 취소하고
   다음 Ctrl-C에서 client를 종료합니다.
+- Ctrl-D, `/quit`, 두 번째 Ctrl-C 같은 exit path는 local cleanup을 소유합니다.
+  Bubble Tea program이 종료되기 전에 pending permission overlay, prompt context,
+  choice waiter, local command context를 취소해야 합니다.
 - `client__run_command` 같은 worker-node routed client tool은 CLI process에서
   실행됩니다. 하지만 위임된 worker action도 현재 turn의 일부이므로 lifecycle은 TUI
   tool cell과 active tool count에 보여야 합니다.
