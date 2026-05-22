@@ -143,7 +143,6 @@ func (c *client) updateToolSurface(update map[string]any, status, title, kind st
 		}
 	}
 	c.mu.Lock()
-	defer c.mu.Unlock()
 	if c.activeTools == nil {
 		c.activeTools = map[string]string{}
 	}
@@ -172,6 +171,37 @@ func (c *client) updateToolSurface(update map[string]any, status, title, kind st
 	}
 	c.state.Tools = len(c.activeTools)
 	c.state.Subagents = len(c.activeAgents)
+	c.mu.Unlock()
+	c.emitState()
+}
+
+func (c *client) updateClientToolSurface(id, status, title string) {
+	if id == "" {
+		return
+	}
+	c.mu.Lock()
+	if c.activeTools == nil {
+		c.activeTools = map[string]string{}
+	}
+	if c.activeAgents == nil {
+		c.activeAgents = map[string]string{}
+	}
+	if title == "" {
+		title = c.activeTools[id]
+	}
+	switch status {
+	case "completed", "failed", "cancelled":
+		delete(c.activeTools, id)
+	default:
+		c.activeTools[id] = title
+		delete(c.activeAgents, id)
+	}
+	if title != "" {
+		c.state.LastTool = title
+	}
+	c.state.Tools = len(c.activeTools)
+	c.state.Subagents = len(c.activeAgents)
+	c.mu.Unlock()
 	c.emitState()
 }
 

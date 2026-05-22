@@ -806,19 +806,91 @@ func (c *client) handleInbound(msg rpcMessage) {
 		var p runLuaParams
 		_ = json.Unmarshal(msg.Params, &p)
 		go func() {
+			toolID := clientRequestToolID(msg.ID, "run_lua")
+			c.updateClientToolSurface(toolID, "in_progress", "run_lua")
+			c.emit(uiToolEvent{Status: "worker:start", Title: "run_lua", Detail: luaToolDetail(p)})
 			resp, err := c.runLua(c.activeRequestContext(), p)
+			if err != nil {
+				c.updateClientToolSurface(toolID, "failed", "run_lua")
+				c.emit(uiToolEvent{Status: "worker:failed", Title: "run_lua", Detail: err.Error()})
+			} else {
+				c.updateClientToolSurface(toolID, "completed", "run_lua")
+				c.emit(uiToolEvent{Status: "worker:completed", Title: "run_lua", Detail: clientToolResultDetail(resp)})
+			}
 			c.respond(msg.ID, resp, err)
 		}()
 	case "client/call_tool":
 		var p clientToolCallParams
 		_ = json.Unmarshal(msg.Params, &p)
 		go func() {
+			name := strings.TrimSpace(p.Name)
+			toolID := clientRequestToolID(msg.ID, name)
+			c.updateClientToolSurface(toolID, "in_progress", name)
+			c.emit(uiToolEvent{Status: "worker:start", Title: name, Detail: clientToolDetail(p)})
 			resp, err := c.callClientTool(c.activeRequestContext(), p)
+			if err != nil {
+				c.updateClientToolSurface(toolID, "failed", name)
+				c.emit(uiToolEvent{Status: "worker:failed", Title: name, Detail: err.Error()})
+			} else {
+				c.updateClientToolSurface(toolID, "completed", name)
+				c.emit(uiToolEvent{Status: "worker:completed", Title: name, Detail: clientToolResultDetail(resp)})
+			}
 			c.respond(msg.ID, resp, err)
 		}()
 	default:
 		respond(nil, fmt.Errorf("method not found: %s", msg.Method))
 	}
+}
+
+func clientRequestToolID(id json.RawMessage, name string) string {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		name = "tool"
+	}
+	raw := strings.TrimSpace(string(id))
+	if raw == "" {
+		raw = name
+	}
+	return "client/" + name + "/" + raw
+}
+
+func clientToolDetail(p clientToolCallParams) string {
+	switch strings.TrimSpace(p.Name) {
+	case "run_command":
+		command := strings.TrimSpace(stringFromAny(p.Args["command"]))
+		if command != "" {
+			return "command: " + command
+		}
+	case "run_lua":
+		return luaToolDetail(runLuaParams{
+			Code: stringFromAny(p.Args["code"]),
+			Path: stringFromAny(p.Args["path"]),
+		})
+	}
+	return ""
+}
+
+func luaToolDetail(p runLuaParams) string {
+	if path := strings.TrimSpace(p.Path); path != "" {
+		return "path: " + path
+	}
+	if strings.TrimSpace(p.Code) != "" {
+		return "inline lua"
+	}
+	return ""
+}
+
+func clientToolResultDetail(resp runLuaResult) string {
+	out := strings.TrimSpace(resp.Output)
+	if out == "" {
+		return ""
+	}
+	const max = 240
+	if len([]rune(out)) <= max {
+		return out
+	}
+	runes := []rune(out)
+	return string(runes[:max]) + "..."
 }
 
 func (c *client) activeRequestContext() context.Context {

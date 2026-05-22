@@ -110,6 +110,13 @@ ownership boundary visible in code, tests, and this document.
 - Local slash commands emit command cells before their result cells. This keeps
   input/output separation visible for `/help`, `/status`, permission changes,
   Lua orchestration, and other client-side commands.
+- Worker-node routed client tools, such as `client__run_command`, execute in
+  the CLI process. Their lifecycle must still be visible as TUI tool cells and
+  active tool counts, because a delegated worker action is part of the current
+  turn.
+- Tool/subagent state updates must release client state locks before emitting
+  UI state events. The UI event pipeline snapshots client state, so emitting
+  while holding that mutex can deadlock the Bubble Tea runtime.
 - A minimal line-oriented fallback remains available behind `--plain` for
   debugging and minimal terminals. It does not own terminal layout.
 

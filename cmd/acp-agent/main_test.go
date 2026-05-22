@@ -243,6 +243,108 @@ func TestToolSurfaceTracksSubagents(t *testing.T) {
 	}
 }
 
+func TestToolSurfaceEmitsStateWithoutDeadlock(t *testing.T) {
+	c := &client{
+		stderr:       ioDiscard{},
+		opts:         clientOptions{ShowTools: true},
+		events:       make(chan uiEvent, 8),
+		activeTools:  map[string]string{},
+		activeAgents: map[string]string{},
+	}
+	done := make(chan struct{})
+	go func() {
+		c.printUpdate(acp.SessionUpdateParams{Update: map[string]any{
+			"sessionUpdate": "tool_call",
+			"toolCallId":    "tool-1",
+			"title":         "Read file",
+			"status":        "in_progress",
+		}})
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("tool surface update deadlocked while emitting state")
+	}
+	if c.state.Tools != 1 || c.state.LastTool != "Read file" {
+		t.Fatalf("state after tool event = %#v", c.state)
+	}
+	var sawState, sawTool bool
+	for len(c.events) > 0 {
+		switch (<-c.events).(type) {
+		case uiStateEvent:
+			sawState = true
+		case uiToolEvent:
+			sawTool = true
+		}
+	}
+	if !sawState || !sawTool {
+		t.Fatalf("events sawState=%v sawTool=%v", sawState, sawTool)
+	}
+}
+
+func TestClientToolSurfaceTracksWorkerTools(t *testing.T) {
+	c := &client{events: make(chan uiEvent, 8), activeTools: map[string]string{}, activeAgents: map[string]string{}}
+	c.updateClientToolSurface("client/run_command/1", "in_progress", "run_command")
+	if c.state.Tools != 1 || c.state.LastTool != "run_command" {
+		t.Fatalf("state after client tool start = %#v", c.state)
+	}
+	c.updateClientToolSurface("client/run_command/1", "completed", "run_command")
+	if c.state.Tools != 0 || c.state.Subagents != 0 {
+		t.Fatalf("state after client tool completion = %#v", c.state)
+	}
+}
+
+func TestInboundClientToolEmitsWorkerLifecycle(t *testing.T) {
+	left, right := net.Pipe()
+	defer left.Close()
+	defer right.Close()
+	params, err := json.Marshal(clientToolCallParams{
+		Name: "run_command",
+		Args: map[string]any{"command": "printf worker-ok"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := &client{
+		conn:         left,
+		stderr:       ioDiscard{},
+		opts:         clientOptions{Permission: "allow"},
+		state:        clientState{Cwd: t.TempDir()},
+		events:       make(chan uiEvent, 16),
+		activeTools:  map[string]string{},
+		activeAgents: map[string]string{},
+	}
+	c.handleInbound(rpcMessage{ID: json.RawMessage(`1`), Method: "client/call_tool", Params: params})
+	if err := right.SetReadDeadline(time.Now().Add(2 * time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	line, err := bufio.NewReader(right).ReadString('\n')
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(line, "worker-ok") {
+		t.Fatalf("response missing command output: %s", line)
+	}
+	var sawStart, sawDone bool
+	for len(c.events) > 0 {
+		if ev, ok := (<-c.events).(uiToolEvent); ok {
+			if ev.Status == "worker:start" && ev.Title == "run_command" {
+				sawStart = true
+			}
+			if ev.Status == "worker:completed" && ev.Title == "run_command" {
+				sawDone = true
+			}
+		}
+	}
+	if !sawStart || !sawDone {
+		t.Fatalf("worker lifecycle events start=%v done=%v", sawStart, sawDone)
+	}
+	if c.state.Tools != 0 {
+		t.Fatalf("client tool should be cleared after completion: %#v", c.state)
+	}
+}
+
 func TestPrintUpdateStoresContextSnapshot(t *testing.T) {
 	c := &client{}
 	c.printUpdate(acp.SessionUpdateParams{Update: map[string]any{
