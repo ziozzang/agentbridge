@@ -25,6 +25,11 @@ shell script를 실행하지 않습니다.
 
 ## Layers
 
+Layer separation은 ACP TUI 작업의 완료 조건입니다. 단순한 구현 취향이 아닙니다.
+Transport, command execution, rendering, permission selection, provider
+streaming을 한 컴포넌트에 섞어서 동작만 맞춘 변경은 완료로 보지 않습니다. 모든
+변경은 code, test, 이 문서에서 ownership boundary가 보이도록 유지해야 합니다.
+
 ### Terminal UI
 
 `acp-agent`의 기본 interactive shell은 Bubble Tea를 사용합니다. Layer는 다음처럼

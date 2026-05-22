@@ -27,6 +27,12 @@ The broader ownership and permission rules are documented in
 
 ## Layers
 
+Layer separation is a completion criterion for the ACP TUI work, not merely an
+implementation preference. A change is not considered complete if it works by
+mixing transport, command execution, rendering, permission selection, and
+provider streaming into the same component. Each change should keep the
+ownership boundary visible in code, tests, and this document.
+
 ### Terminal UI
 
 `acp-agent` uses Bubble Tea for the default interactive shell. The layering is:

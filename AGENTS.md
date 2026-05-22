@@ -271,6 +271,11 @@ focused on live request/session/provider state.
 - **No new top-level dependencies** without strong justification; the
   harness aims to stay a small static binary. Pure-Go libraries are
   strongly preferred (e.g. `modernc.org/sqlite` over CGo).
+- **Layer boundaries are a quality gate** for the ACP TUI and orchestration
+  work. Keep transport/client state, Bubble Tea model/update routing,
+  rendering surfaces, permission overlays, provider streaming, and command/tool
+  execution in separate components. A fix that works by crossing these
+  boundaries without documenting and testing the ownership split is incomplete.
 - **Errors**: return early. Wrap with context using `fmt.Errorf("%s: %w", …)`.
 - **Concurrency**: every streaming function returns a `<-chan Chunk` and a
   `<-chan error` and the goroutine that produces them must close both
