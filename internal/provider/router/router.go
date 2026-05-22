@@ -460,16 +460,14 @@ func (c *Client) streamChain(ctx context.Context, chain []resolvedRoute, request
 				callOpts := opts
 				callOpts.Model = target
 				chunks, upstreamErrs := p.StreamChat(ctx, messages, callOpts)
-				buffered := make([]provider.Chunk, 0, 16)
+				sawChunk := false
 				for ch := range chunks {
-					buffered = append(buffered, ch)
+					sawChunk = true
+					out <- ch
 				}
 				err = <-upstreamErrs
 				release()
 				if err == nil {
-					for _, ch := range buffered {
-						out <- ch
-					}
 					errs <- nil
 					return
 				}
@@ -477,10 +475,7 @@ func (c *Client) streamChain(ctx context.Context, chain []resolvedRoute, request
 				if isLimitError(err) && keySig != "" {
 					c.markLimited(keySig, err)
 				}
-				if len(buffered) > 0 {
-					for _, ch := range buffered {
-						out <- ch
-					}
+				if sawChunk {
 					errs <- err
 					return
 				}

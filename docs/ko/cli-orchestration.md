@@ -56,6 +56,9 @@ shell script를 실행하지 않습니다.
   traffic을 기다리지 않고 transcript와 bottom composer 상태로 돌아옵니다.
 - `other command`처럼 replacement text가 필요한 permission choice도 Bubble Tea
   overlay 안에서 처리합니다. Terminal raw mode 상태에서 stdin을 직접 읽지 않습니다.
+- Permission overlay와 client-owned tool call은 active prompt context를 공유합니다.
+  Ctrl-C는 pending prompt와 대기 중인 permission/client tool request를 함께 취소해서
+  UI 뒤에 goroutine이 막힌 상태로 남지 않게 합니다.
 - Completion hint도 별도 surface입니다. Slash-command argument hint와 compact
   suggestion text를 소유하고, composer는 text input만 소유합니다.
 - Bottom composer도 별도 surface입니다. Fixed-width input rendering을 frame

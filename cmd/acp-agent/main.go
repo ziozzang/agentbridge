@@ -306,7 +306,9 @@ type client struct {
 	activeAgents  map[string]string
 	thinkingPlain bool
 	events        chan uiEvent
+	promptCtx     context.Context
 	promptCancel  context.CancelFunc
+	choiceCancel  context.CancelFunc
 
 	writeMu sync.Mutex
 	nextID  atomic.Int64
@@ -466,9 +468,16 @@ func (c *client) Interrupt(ctx context.Context) bool {
 	sessionID := c.state.SessionID
 	busy := c.state.Busy
 	cancel := c.promptCancel
+	choiceCancel := c.choiceCancel
 	c.mu.Unlock()
 	if !busy {
+		if choiceCancel != nil {
+			choiceCancel()
+		}
 		return false
+	}
+	if choiceCancel != nil {
+		choiceCancel()
 	}
 	if cancel != nil {
 		cancel()
@@ -483,6 +492,7 @@ func (c *client) Prompt(ctx context.Context, sessionID, text string) error {
 	promptCtx, cancel := context.WithCancel(ctx)
 	c.mu.Lock()
 	c.state.Busy = true
+	c.promptCtx = promptCtx
 	c.promptCancel = cancel
 	c.mu.Unlock()
 	c.emitState()
@@ -491,6 +501,7 @@ func (c *client) Prompt(ctx context.Context, sessionID, text string) error {
 		c.finishThinkingOutput()
 		c.mu.Lock()
 		c.state.Busy = false
+		c.promptCtx = nil
 		c.promptCancel = nil
 		c.mu.Unlock()
 		c.emitState()
@@ -767,19 +778,29 @@ func (c *client) handleInbound(msg rpcMessage) {
 		var p runLuaParams
 		_ = json.Unmarshal(msg.Params, &p)
 		go func() {
-			resp, err := c.runLua(context.Background(), p)
+			resp, err := c.runLua(c.activeRequestContext(), p)
 			c.respond(msg.ID, resp, err)
 		}()
 	case "client/call_tool":
 		var p clientToolCallParams
 		_ = json.Unmarshal(msg.Params, &p)
 		go func() {
-			resp, err := c.callClientTool(context.Background(), p)
+			resp, err := c.callClientTool(c.activeRequestContext(), p)
 			c.respond(msg.ID, resp, err)
 		}()
 	default:
 		respond(nil, fmt.Errorf("method not found: %s", msg.Method))
 	}
+}
+
+func (c *client) activeRequestContext() context.Context {
+	c.mu.Lock()
+	ctx := c.promptCtx
+	c.mu.Unlock()
+	if ctx != nil {
+		return ctx
+	}
+	return context.Background()
 }
 
 func (c *client) respond(id json.RawMessage, result any, err error) {

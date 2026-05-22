@@ -60,6 +60,9 @@ The broader ownership and permission rules are documented in
 - Permission choices that need replacement text, such as `other command`, stay
   inside the Bubble Tea overlay. They do not read directly from stdin while the
   terminal is in raw mode.
+- Permission overlays and client-owned tool calls share the active prompt
+  context. Ctrl-C cancels the pending prompt and any waiting permission/client
+  tool request instead of leaving a goroutine blocked behind the UI.
 - Completion hints are a dedicated surface. It owns slash-command argument
   hints and compact suggestion text, while the composer only owns text input.
 - The bottom composer is a dedicated surface, so fixed-width input rendering is

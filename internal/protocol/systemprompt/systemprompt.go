@@ -28,6 +28,11 @@ agent process with paths resolved from the session working directory.`
 const toolsTemplate = `<tools>
 Available tools: __TOOLS__
 - Use only tools listed above.
+- For questions about the live client machine, running processes, memory/CPU
+  usage, shell environment, or current filesystem state that cannot be answered
+  from the conversation alone, use an appropriate tool instead of guessing.
+- When client__run_command is listed and shell inspection is needed, use it
+  with a narrow read-only command such as ps, pwd, ls, cat, or env.
 - Prefer reading before writing: when modifying a file, read it first so your edit is grounded in the current contents.
 - Issue independent lookups (multiple file reads, separate searches) in parallel rather than sequentially.
 - Briefly state what you are about to do before invoking any tool that touches the file system, terminal, or network.

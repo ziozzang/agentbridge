@@ -72,7 +72,7 @@ func (p *thinkingProvider) StreamChat(ctx context.Context, msgs []provider.Messa
 	if model == "" {
 		model = cfg.DefaultModel
 	}
-	if thinkingPattern.MatchString(model) {
+	if thinkingPattern.MatchString(model) && len(opts.Tools) == 0 {
 		cfg.Thinking = "enabled"
 	} else {
 		cfg.Thinking = ""

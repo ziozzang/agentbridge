@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/ziozzang/agentbridge/internal/provider"
 )
@@ -81,8 +82,41 @@ func TestStreamChatAggregatesEverything(t *testing.T) {
 	if stop != "tool_calls" {
 		t.Errorf("stop=%q", stop)
 	}
-	if usage == nil || usage.TotalTokens != 8 {
-		t.Errorf("usage=%+v", usage)
+	if usage != nil {
+		t.Errorf("tool-call streams should return as soon as tool_calls finishes; usage=%+v", usage)
+	}
+}
+
+func TestStreamChatFlushesToolCallsBeforeUpstreamClose(t *testing.T) {
+	upstreamDone := make(chan struct{})
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		defer close(upstreamDone)
+		w.Header().Set("Content-Type", "text/event-stream")
+		fmt.Fprintf(w, "data: %s\n\n",
+			`{"choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"tc1","function":{"name":"client__run_command","arguments":"{\"command\":\"ps\"}"}}]}}]}`)
+		fmt.Fprintf(w, "data: %s\n\n", `{"choices":[{"index":0,"delta":{},"finish_reason":"tool_calls"}]}`)
+		if f, ok := w.(http.Flusher); ok {
+			f.Flush()
+		}
+		<-r.Context().Done()
+	}))
+	defer srv.Close()
+
+	c := New(provider.Config{BaseURL: srv.URL, APIKey: "k"})
+	c.HTTPClient = srv.Client()
+	chunks, errs := c.StreamChat(context.Background(),
+		[]provider.Message{{Role: "user", Content: "hi"}}, provider.StreamOptions{Model: "m"})
+	_, _, tcs, stop, _ := collect(t, chunks, errs)
+	if len(tcs) != 1 || tcs[0].Name != "client__run_command" {
+		t.Fatalf("tool calls = %+v", tcs)
+	}
+	if stop != "tool_calls" {
+		t.Fatalf("stop = %q", stop)
+	}
+	select {
+	case <-upstreamDone:
+	case <-time.After(time.Second):
+		t.Fatalf("upstream request was not closed")
 	}
 }
 

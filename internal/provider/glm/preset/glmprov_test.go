@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/ziozzang/agentbridge/internal/provider"
+	"github.com/ziozzang/agentbridge/internal/tools/definitions"
 )
 
 func TestGLMRegistration(t *testing.T) {
@@ -53,6 +54,35 @@ func TestGLMInjectsThinkingForGLM5Models(t *testing.T) {
 	<-errs
 	if !saw {
 		t.Errorf("expected thinking flag injected for glm-5.1")
+	}
+}
+
+func TestGLMSkipsThinkingWhenToolsArePresent(t *testing.T) {
+	var saw bool
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		if _, ok := body["thinking"]; ok {
+			saw = true
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		fmt.Fprint(w, "data: [DONE]\n\n")
+	}))
+	defer srv.Close()
+
+	p, err := provider.Build(provider.Config{
+		Kind: Kind, BaseURL: srv.URL, APIKey: "k",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	chunks, errs := p.StreamChat(context.Background(), nil,
+		provider.StreamOptions{Model: "glm-5.1", Tools: definitions.All()})
+	for range chunks {
+	}
+	<-errs
+	if saw {
+		t.Errorf("did not expect thinking flag when tools are present")
 	}
 }
 

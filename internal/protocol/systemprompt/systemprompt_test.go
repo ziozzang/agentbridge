@@ -19,6 +19,7 @@ func TestBuildContainsAllSections(t *testing.T) {
 	wantContains := []string{
 		"agentbridge", "<environment>", "/repo", "linux", "/bin/bash",
 		"2024-07-04", "<tools>", "read_file, write_file",
+		"live client machine", "client__run_command",
 		"<file_system_guidelines>", "<version_control>", "<code_quality>",
 		"<tone>", "<problem_solving_workflow>", "<image_handling>",
 	}

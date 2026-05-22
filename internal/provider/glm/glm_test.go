@@ -8,6 +8,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestThinkingEnabled(t *testing.T) {
@@ -136,11 +137,54 @@ func TestStreamChatAssemblesEverything(t *testing.T) {
 	if tc == nil || tc.ID != "call_1" || tc.Name != "read_file" || tc.Arguments != `{"path":"x"}` {
 		t.Errorf("toolcall = %+v", tc)
 	}
-	if usage == nil || usage.InputTokens != 11 || usage.TotalTokens != 16 {
-		t.Errorf("usage = %+v", usage)
+	if usage != nil {
+		t.Errorf("tool-call streams should return as soon as tool_calls finishes; usage = %+v", usage)
 	}
 	if !done || stop != "tool_calls" {
 		t.Errorf("done=%v stop=%q", done, stop)
+	}
+}
+
+func TestStreamChatFlushesToolCallsBeforeUpstreamClose(t *testing.T) {
+	upstreamDone := make(chan struct{})
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		defer close(upstreamDone)
+		w.Header().Set("Content-Type", "text/event-stream")
+		fmt.Fprintf(w, "data: %s\n\n",
+			`{"choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"tc1","function":{"name":"client__run_command","arguments":"{\"command\":\"ps\"}"}}]}}]}`)
+		fmt.Fprintf(w, "data: %s\n\n", `{"choices":[{"index":0,"delta":{},"finish_reason":"tool_calls"}]}`)
+		if f, ok := w.(http.Flusher); ok {
+			f.Flush()
+		}
+		<-r.Context().Done()
+	}))
+	defer srv.Close()
+
+	c := &Client{APIKey: "testkey", BaseURL: srv.URL, MaxTokens: 100, HTTPClient: srv.Client()}
+	chunks, errs := c.StreamChat(context.Background(), []Message{{Role: "user", Content: "hi"}}, StreamOptions{Model: "glm-5.1"})
+	var tc *ToolCall
+	var stop string
+	for ch := range chunks {
+		if ch.ToolCall != nil {
+			tc = ch.ToolCall
+		}
+		if ch.Done {
+			stop = ch.StopReason
+		}
+	}
+	if err := <-errs; err != nil {
+		t.Fatalf("err: %v", err)
+	}
+	if tc == nil || tc.Name != "client__run_command" {
+		t.Fatalf("tool call = %+v", tc)
+	}
+	if stop != "tool_calls" {
+		t.Fatalf("stop = %q", stop)
+	}
+	select {
+	case <-upstreamDone:
+	case <-time.After(time.Second):
+		t.Fatalf("upstream request was not closed")
 	}
 }
 

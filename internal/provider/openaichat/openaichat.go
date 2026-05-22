@@ -358,6 +358,11 @@ func (c *Client) StreamChat(ctx context.Context, messages []provider.Message, op
 				}
 				if ch.FinishReason != nil && *ch.FinishReason != "" {
 					lastFinish = *ch.FinishReason
+					if lastFinish == "tool_calls" {
+						flushToolCalls(chunks, pendingTC)
+						chunks <- provider.Chunk{Done: true, StopReason: lastFinish}
+						return
+					}
 				}
 			}
 			if chunk.Usage != nil {
@@ -379,23 +384,30 @@ func (c *Client) StreamChat(ctx context.Context, messages []provider.Message, op
 			errs <- err
 			return
 		}
-		// Flush assembled tool-calls in stable index order.
-		indices := make([]int, 0, len(pendingTC))
-		for i := range pendingTC {
-			indices = append(indices, i)
-		}
-		sort.Ints(indices)
-		for _, i := range indices {
-			tc := pendingTC[i]
-			if tc.ID != "" && tc.Name != "" {
-				cp := *tc
-				chunks <- provider.Chunk{ToolCall: &cp}
-			}
-		}
+		flushToolCalls(chunks, pendingTC)
 		chunks <- provider.Chunk{Done: true, StopReason: lastFinish}
 	}()
 
 	return chunks, errs
+}
+
+func flushToolCalls(chunks chan<- provider.Chunk, pendingTC map[int]*provider.ToolCall) {
+	// Flush assembled tool-calls in stable index order.
+	if len(pendingTC) == 0 {
+		return
+	}
+	indices := make([]int, 0, len(pendingTC))
+	for i := range pendingTC {
+		indices = append(indices, i)
+	}
+	sort.Ints(indices)
+	for _, i := range indices {
+		tc := pendingTC[i]
+		if tc.ID != "" && tc.Name != "" {
+			cp := *tc
+			chunks <- provider.Chunk{ToolCall: &cp}
+		}
+	}
 }
 
 func marshalWithDefaults(req chatRequest, extra map[string]any) ([]byte, error) {

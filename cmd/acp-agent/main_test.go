@@ -5,11 +5,13 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"net"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/ziozzang/agentbridge/internal/acp"
 	"github.com/ziozzang/agentbridge/internal/harness/filecontext"
@@ -53,6 +55,41 @@ func TestPermissionPromptYoloSetsAllowMode(t *testing.T) {
 	}
 	if c.opts.Permission != "allow" {
 		t.Fatalf("permission mode = %q", c.opts.Permission)
+	}
+}
+
+func TestPermissionOverlayChoiceCancelsOnInterrupt(t *testing.T) {
+	events := make(chan uiEvent, 2)
+	c := &client{
+		events: events,
+		done:   make(chan struct{}),
+		state:  clientState{Busy: true},
+		opts:   clientOptions{Permission: "prompt"},
+	}
+	errCh := make(chan error, 1)
+	go func() {
+		_, err := c.choose("permission requested: Run command", "command: ps", []choiceOption{
+			{Key: "1", Label: "yes"},
+			{Key: "3", Label: "no"},
+		})
+		errCh <- err
+	}()
+	select {
+	case ev := <-events:
+		if _, ok := ev.(uiPermissionRequest); !ok {
+			t.Fatalf("event = %#v", ev)
+		}
+	case <-time.After(time.Second):
+		t.Fatalf("permission event not emitted")
+	}
+	c.Interrupt(context.Background())
+	select {
+	case err := <-errCh:
+		if err == nil || !errors.Is(err, context.Canceled) {
+			t.Fatalf("err = %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatalf("choice did not cancel")
 	}
 }
 

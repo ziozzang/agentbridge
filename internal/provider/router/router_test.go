@@ -122,6 +122,53 @@ func TestRouterRetriesNextKeyOnRateLimitBeforeStreaming(t *testing.T) {
 	}
 }
 
+func TestRouterStreamsChunksBeforeUpstreamClose(t *testing.T) {
+	upstreamDone := make(chan struct{})
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		defer close(upstreamDone)
+		w.Header().Set("Content-Type", "text/event-stream")
+		fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{\"content\":\"early\"}}]}\n\n")
+		if f, ok := w.(http.Flusher); ok {
+			f.Flush()
+		}
+		<-r.Context().Done()
+	}))
+	defer srv.Close()
+	c, err := New(provider.Config{
+		Name: "router", Kind: Kind, DefaultModel: "m",
+		Extra: map[string]any{
+			"_providers": map[string]provider.Config{
+				"p": {Name: "p", Kind: "openai-chat", BaseURL: srv.URL, DefaultModel: "m"},
+			},
+			"routes": []any{map[string]any{"match": "m", "provider": "p"}},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	chunks, errs := c.StreamChat(ctx, []provider.Message{{Role: "user", Content: "hi"}}, provider.StreamOptions{Model: "m"})
+	select {
+	case ch := <-chunks:
+		if ch.Text != "early" {
+			t.Fatalf("chunk = %+v", ch)
+		}
+	case <-time.After(time.Second):
+		t.Fatalf("router did not stream first chunk before upstream close")
+	}
+	cancel()
+	for range chunks {
+	}
+	if err := <-errs; err == nil {
+		t.Fatalf("expected cancellation error")
+	}
+	select {
+	case <-upstreamDone:
+	case <-time.After(time.Second):
+		t.Fatalf("upstream request was not closed")
+	}
+}
+
 func TestRouterLimitsConcurrentRequestsPerKey(t *testing.T) {
 	var inFlight int32
 	var maxSeen int32

@@ -360,6 +360,11 @@ func (c *Client) StreamChat(ctx context.Context, messages []Message, opts Stream
 				}
 				if ch.FinishReason != nil && *ch.FinishReason != "" {
 					lastFinish = *ch.FinishReason
+					if lastFinish == "tool_calls" {
+						flushToolCalls(chunks, pendingTC)
+						chunks <- Chunk{Done: true, StopReason: lastFinish}
+						return
+					}
 				}
 			}
 			if chunk.Usage != nil {
@@ -383,29 +388,33 @@ func (c *Client) StreamChat(ctx context.Context, messages []Message, opts Stream
 			errs <- err
 			return
 		}
-		// Flush assembled tool-calls in stable index order.
-		// Collect indices, sort, and emit.
-		indices := make([]int, 0, len(pendingTC))
-		for i := range pendingTC {
-			indices = append(indices, i)
-		}
-		// Simple insertion sort (small)
-		for i := 1; i < len(indices); i++ {
-			for j := i; j > 0 && indices[j-1] > indices[j]; j-- {
-				indices[j-1], indices[j] = indices[j], indices[j-1]
-			}
-		}
-		for _, i := range indices {
-			tc := pendingTC[i]
-			if tc.ID != "" && tc.Name != "" {
-				cp := *tc
-				chunks <- Chunk{ToolCall: &cp}
-			}
-		}
+		flushToolCalls(chunks, pendingTC)
 		chunks <- Chunk{Done: true, StopReason: lastFinish}
 	}()
 
 	return chunks, errs
+}
+
+func flushToolCalls(chunks chan<- Chunk, pendingTC map[int]*ToolCall) {
+	if len(pendingTC) == 0 {
+		return
+	}
+	indices := make([]int, 0, len(pendingTC))
+	for i := range pendingTC {
+		indices = append(indices, i)
+	}
+	for i := 1; i < len(indices); i++ {
+		for j := i; j > 0 && indices[j-1] > indices[j]; j-- {
+			indices[j-1], indices[j] = indices[j], indices[j-1]
+		}
+	}
+	for _, i := range indices {
+		tc := pendingTC[i]
+		if tc.ID != "" && tc.Name != "" {
+			cp := *tc
+			chunks <- Chunk{ToolCall: &cp}
+		}
+	}
 }
 
 // parseAPIError extracts the Z.AI / OpenAI-style error envelope from a non-2xx
