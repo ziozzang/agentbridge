@@ -136,6 +136,9 @@ ownership boundary visible in code, tests, and this document.
   resize, key routing, ACP UI events, command completion, spinner ticks, and
   composer updates. This keeps the runtime event loop testable without starting
   a terminal program.
+- Command completion handlers mutate command state and transcript cells only.
+  They must not render directly; the update tail owns the viewport refresh for
+  command completion messages too.
 - Composer updates are a key-layer fallback only. Window resize, spinner ticks,
   ACP UI events, and command completion messages must not be sent through the
   textinput component.

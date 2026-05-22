@@ -1192,6 +1192,22 @@ func TestTUICommandDoneAppendsErrorCell(t *testing.T) {
 	}
 }
 
+func TestTUICommandDoneLeavesRefreshToUpdateTail(t *testing.T) {
+	m := newTUIModel(context.Background(), &client{events: make(chan uiEvent)})
+	m.width = 80
+	m.height = 8
+	m.reflow()
+	m.applyEvent(uiAssistantDeltaEvent{Text: "cached"})
+	cached := m.transcriptView
+	m.handleCommandDone(commandDoneMsg{Err: errors.New("boom")})
+	if !m.transcriptDirty {
+		t.Fatalf("command done should leave dirty transcript for Update tail refresh")
+	}
+	if m.transcriptView != cached {
+		t.Fatalf("command done refreshed transcript directly: %q", m.transcriptView)
+	}
+}
+
 func TestTUICommandDoneSuccessDoesNotAddEmptyCell(t *testing.T) {
 	m := tuiModel{}
 	m.handleCommandDone(commandDoneMsg{})

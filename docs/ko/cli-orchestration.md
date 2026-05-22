@@ -123,6 +123,9 @@ streaming을 한 컴포넌트에 섞어서 동작만 맞춘 변경은 완료로 
   completion, spinner tick, composer update용 작은 handler를 거쳐 message를
   처리합니다. 그래서 terminal program을 띄우지 않고 runtime event loop를 테스트할
   수 있습니다.
+- Command completion handler는 command state와 transcript cell만 변경합니다. 직접
+  렌더링하면 안 되며, command completion message의 viewport refresh도 update tail이
+  소유합니다.
 - Composer update는 key-layer fallback일 때만 실행합니다. Window resize, spinner
   tick, ACP UI event, command completion message는 textinput component로 보내지
   않습니다.
