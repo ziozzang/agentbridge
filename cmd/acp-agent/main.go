@@ -936,6 +936,9 @@ func repl(ctx context.Context, c *client) error {
 }
 
 func (c *client) runCommand(ctx context.Context, line string) error {
+	if strings.HasPrefix(line, "/") && !serverPromptCommandLine(line) {
+		c.emit(uiCommandEvent{Text: line})
+	}
 	switch {
 	case line == "/help":
 		c.printHelp()
@@ -1007,6 +1010,23 @@ func (c *client) runCommand(ctx context.Context, line string) error {
 		c.SubmitPrompt(ctx, line)
 	}
 	return nil
+}
+
+func serverPromptCommandLine(line string) bool {
+	switch {
+	case line == "/list":
+		return true
+	case line == "/compact" || strings.HasPrefix(line, "/compact "):
+		return true
+	case line == "/context":
+		return true
+	case line == "/save" || strings.HasPrefix(line, "/save "):
+		return true
+	case line == "/load" || strings.HasPrefix(line, "/load "):
+		return true
+	default:
+		return false
+	}
 }
 
 func (c *client) printHelp() {

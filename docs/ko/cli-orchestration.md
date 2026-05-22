@@ -83,6 +83,9 @@ shell script를 실행하지 않습니다.
   화면에 보입니다.
 - Turn 실행 중 들어온 prompt는 client queue에 들어가고 state/info event로 방출되어
   transcript와 status surface 양쪽에 렌더링됩니다.
+- Local slash command는 결과 cell 전에 command cell을 방출합니다. `/help`,
+  `/status`, permission 변경, Lua orchestration 같은 client-side command도
+  transcript에서 입력과 출력을 구분해서 볼 수 있습니다.
 - 최소 line-oriented fallback은 `--plain` 뒤에 debugging/minimal terminal용으로
   남깁니다. 이 경로는 terminal layout을 소유하지 않습니다.
 

@@ -84,13 +84,14 @@ func TestTUIThinkingDeltasCoalesce(t *testing.T) {
 func TestTUITranscriptSurfaceRendersCellKinds(t *testing.T) {
 	tr := tuiTranscript{cells: []tuiCell{
 		{Kind: "user", Title: "user", Body: "hello"},
+		{Kind: "user", Title: "command", Body: "/help"},
 		{Kind: "assistant", Title: "assistant", Body: "world"},
 		{Kind: "thinking", Title: "reasoning", Body: "step"},
 		{Kind: "tool", Title: "tool in_progress", Body: "path: README.md"},
 		{Kind: "error", Title: "error", Body: "boom"},
 	}}
 	got := stripANSI(tr.View())
-	for _, want := range []string{"user", "  > hello", "assistant", "world", "reasoning", "  step", "tool in_progress", "path: README.md", "error", "boom"} {
+	for _, want := range []string{"user", "  > hello", "command", "  > /help", "assistant", "world", "reasoning", "  step", "tool in_progress", "path: README.md", "error", "boom"} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("transcript missing %q: %q", want, got)
 		}
@@ -134,6 +135,21 @@ func TestTUIProgressTracksStreamingEvents(t *testing.T) {
 		if !strings.Contains(line, want) {
 			t.Fatalf("notice missing %q: %q", want, line)
 		}
+	}
+}
+
+func TestTUICommandEventsRenderInputOutputSeparation(t *testing.T) {
+	m := tuiModel{}
+	m.applyEvent(uiCommandEvent{Text: "/help"})
+	m.applyEvent(uiInfoEvent{Title: "help", Body: "commands"})
+	if len(m.cells) != 2 {
+		t.Fatalf("cells=%d", len(m.cells))
+	}
+	if m.cells[0].Title != "command" || m.cells[0].Body != "/help" {
+		t.Fatalf("command cell=%#v", m.cells[0])
+	}
+	if m.cells[1].Title != "help" || m.cells[1].Body != "commands" {
+		t.Fatalf("info cell=%#v", m.cells[1])
 	}
 }
 

@@ -11,6 +11,10 @@ type uiUserEvent struct {
 	Text string
 }
 
+type uiCommandEvent struct {
+	Text string
+}
+
 type uiAssistantDeltaEvent struct {
 	Text string
 }

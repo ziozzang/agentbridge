@@ -632,6 +632,48 @@ func TestUIEventRecordSerializesPermissionWithoutReplyChannel(t *testing.T) {
 	}
 }
 
+func TestUIEventRecordSerializesCommandEvent(t *testing.T) {
+	got := uiEventRecord(uiCommandEvent{Text: "/help"})
+	if got["type"] != "command" || got["text"] != "/help" {
+		t.Fatalf("bad command event record: %#v", got)
+	}
+}
+
+func TestRunCommandEmitsLocalCommandEvent(t *testing.T) {
+	events := make(chan uiEvent, 8)
+	c := &client{stdout: ioDiscard{}, stderr: ioDiscard{}, events: events}
+	if err := c.runCommand(context.Background(), "/help"); err != nil {
+		t.Fatal(err)
+	}
+	close(events)
+	var got []string
+	for ev := range events {
+		switch ev := ev.(type) {
+		case uiCommandEvent:
+			got = append(got, "command:"+ev.Text)
+		case uiInfoEvent:
+			got = append(got, "info:"+ev.Title)
+		}
+	}
+	joined := strings.Join(got, "\n")
+	if !strings.Contains(joined, "command:/help") || !strings.Contains(joined, "info:help") {
+		t.Fatalf("events = %q", joined)
+	}
+}
+
+func TestRunCommandDoesNotDuplicateServerPromptCommandEcho(t *testing.T) {
+	for _, line := range []string{"/context", "/compact 2000", "/save cp1", "/load cp1", "/list"} {
+		if !serverPromptCommandLine(line) {
+			t.Fatalf("server prompt command not recognized: %s", line)
+		}
+	}
+	for _, line := range []string{"/help", "/status", "/goal status", "/permission allow"} {
+		if serverPromptCommandLine(line) {
+			t.Fatalf("local command incorrectly treated as server prompt: %s", line)
+		}
+	}
+}
+
 func TestRunLuaSnapshotTimerAndState(t *testing.T) {
 	t.Setenv("AGENTBRIDGE_CLI_ORCH_DB", filepath.Join(t.TempDir(), "orch.sqlite"))
 	c := &client{

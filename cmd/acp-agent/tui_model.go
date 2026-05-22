@@ -31,6 +31,9 @@ func (m *tuiModel) applyEvent(ev uiEvent) {
 	case uiUserEvent:
 		m.activity = "waiting for model"
 		m.appendCell(tuiCell{Kind: "user", Title: "user", Body: ev.Text})
+	case uiCommandEvent:
+		m.activity = "running command"
+		m.appendCell(tuiCell{Kind: "user", Title: "command", Body: ev.Text})
 	case uiAssistantDeltaEvent:
 		m.activity = "answering"
 		m.answerRunes += len([]rune(ev.Text))

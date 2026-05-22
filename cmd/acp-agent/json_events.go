@@ -64,6 +64,9 @@ func uiEventRecord(ev uiEvent) map[string]any {
 	case uiUserEvent:
 		out["type"] = "user"
 		out["text"] = ev.Text
+	case uiCommandEvent:
+		out["type"] = "command"
+		out["text"] = ev.Text
 	case uiAssistantDeltaEvent:
 		out["type"] = "assistant_delta"
 		out["text"] = ev.Text

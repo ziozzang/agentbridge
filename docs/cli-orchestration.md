@@ -90,6 +90,9 @@ The broader ownership and permission rules are documented in
   event arrives.
 - Prompts submitted while a turn is busy are queued by the client, emitted as
   state/info events, and rendered in both the transcript and status surface.
+- Local slash commands emit command cells before their result cells. This keeps
+  input/output separation visible for `/help`, `/status`, permission changes,
+  Lua orchestration, and other client-side commands.
 - A minimal line-oriented fallback remains available behind `--plain` for
   debugging and minimal terminals. It does not own terminal layout.
 
