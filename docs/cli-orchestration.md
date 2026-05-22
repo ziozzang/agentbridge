@@ -55,6 +55,9 @@ The broader ownership and permission rules are documented in
   hints and compact suggestion text, while the composer only owns text input.
 - The bottom composer is a dedicated surface, so fixed-width input rendering is
   separate from frame assembly and can evolve independently of the transcript.
+- The composer row is fixed-height as well. Long input text is ANSI-aware
+  truncated by the composer surface, preventing it from wrapping into the status
+  line.
 - The top-level frame is also a dedicated surface. It assembles transcript,
   overlay, notice, composer, and status rows without owning any transport or
   command behavior.

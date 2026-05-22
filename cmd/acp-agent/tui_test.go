@@ -370,6 +370,17 @@ func TestTUIComposerSurfaceRendersBottomInput(t *testing.T) {
 	}
 }
 
+func TestTUIComposerSurfaceKeepsSingleRow(t *testing.T) {
+	surface := tuiComposerSurface{width: 32, input: " › " + strings.Repeat("long input ", 12)}
+	got := stripANSI(surface.View())
+	if strings.Contains(got, "\n") {
+		t.Fatalf("composer wrapped: %q", got)
+	}
+	if width := lipgloss.Width(got); width > 32 {
+		t.Fatalf("composer width=%d: %q", width, got)
+	}
+}
+
 func TestTUIFrameSurfaceComposesFixedShellRows(t *testing.T) {
 	surface := tuiFrameSurface{
 		width:      100,

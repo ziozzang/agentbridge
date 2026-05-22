@@ -6,7 +6,7 @@ type tuiComposerSurface struct {
 }
 
 func (s tuiComposerSurface) View() string {
-	return tuiComposerStyle.Width(s.width).Render(s.input)
+	return tuiComposerStyle.Width(s.width).Render(truncateStatusLine(s.input, s.width))
 }
 
 func (m tuiModel) composerSurface() tuiComposerSurface {

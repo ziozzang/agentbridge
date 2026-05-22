@@ -52,6 +52,8 @@ shell script를 실행하지 않습니다.
   suggestion text를 소유하고, composer는 text input만 소유합니다.
 - Bottom composer도 별도 surface입니다. Fixed-width input rendering을 frame
   assembly에서 분리해서 transcript와 독립적으로 발전시킬 수 있습니다.
+- Composer row도 fixed-height입니다. 긴 입력 text는 composer surface에서
+  ANSI-aware truncate되어 status line으로 wrap되지 않습니다.
 - 최상위 frame도 별도 surface입니다. Transcript, overlay, notice, composer,
   status row를 조립하지만 transport나 command behavior는 소유하지 않습니다.
 - TUI component construction은 runtime update loop 밖에 둡니다. 그래서 composer,
