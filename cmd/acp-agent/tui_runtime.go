@@ -112,8 +112,14 @@ func (m *tuiModel) handleTUIEvent(msg tuiEventMsg, cmds []tea.Cmd) []tea.Cmd {
 }
 
 func (m *tuiModel) handleCommandDone(msg commandDoneMsg) {
+	if msg.Line != "" && m.commandRuns > 0 {
+		m.commandRuns--
+	}
 	if msg.Err != nil {
 		m.appendCell(tuiCell{Kind: "error", Title: "error", Body: msg.Err.Error()})
+	}
+	if m.commandRuns == 0 && !m.state.Busy {
+		m.activity = ""
 	}
 }
 
@@ -152,6 +158,10 @@ func (m tuiModel) submitInput(cmds []tea.Cmd) (tea.Model, tea.Cmd) {
 	}
 	if line == "/exit" || line == "/quit" {
 		return m, tea.Quit
+	}
+	if strings.HasPrefix(line, "/") {
+		m.commandRuns++
+		m.activity = "running command"
 	}
 	cmds = append(cmds, m.runLine(line))
 	m.refreshViewport()
@@ -318,7 +328,7 @@ func (m *tuiModel) replyOverlay(key string) {
 func (m tuiModel) runLine(line string) tea.Cmd {
 	return func() tea.Msg {
 		err := m.client.runCommand(m.ctx, line)
-		return commandDoneMsg{Err: err}
+		return commandDoneMsg{Line: line, Err: err}
 	}
 }
 

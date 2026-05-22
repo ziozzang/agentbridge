@@ -114,6 +114,9 @@ ownership boundary visible in code, tests, and this document.
 - Local slash commands emit command cells before their result cells. This keeps
   input/output separation visible for `/help`, `/status`, permission changes,
   Lua orchestration, and other client-side commands.
+- Local slash command execution is tracked separately from provider prompt
+  busy state. A command running in a Bubble Tea command must appear in the
+  notice/status surfaces without pretending that the model turn itself is busy.
 - Worker-node routed client tools, such as `client__run_command`, execute in
   the CLI process. Their lifecycle must still be visible as TUI tool cells and
   active tool counts, because a delegated worker action is part of the current

@@ -35,6 +35,14 @@ func (s tuiStatusSurface) Notice() string {
 		parts = append(parts, "ESC: confirm stop", "Ctrl-C: stop", "Ctrl-D: exit")
 		return strings.Join(parts, " · ")
 	}
+	if m.commandRuns > 0 {
+		parts := []string{fmt.Sprintf("command running %d", m.commandRuns)}
+		if strings.TrimSpace(m.activity) != "" {
+			parts = append(parts, m.activity)
+		}
+		parts = append(parts, "Ctrl-C: exit", "Ctrl-D: exit")
+		return strings.Join(parts, " · ")
+	}
 	if hint := m.completionHint(); hint != "" {
 		return tuiHintStyle.Render(hint)
 	}
@@ -70,6 +78,8 @@ func (s tuiStatusSurface) Status() string {
 	status := "Ready"
 	if state.Busy {
 		status = m.spinner.View() + " Working"
+	} else if m.commandRuns > 0 {
+		status = m.spinner.View() + " Command"
 	}
 	if m.activity != "" {
 		status += ": " + m.activity
@@ -102,6 +112,9 @@ func (s tuiStatusSurface) Status() string {
 	}
 	if state.Tools > 0 {
 		parts = append(parts, fmt.Sprintf("Tools %d", state.Tools))
+	}
+	if m.commandRuns > 0 {
+		parts = append(parts, fmt.Sprintf("Commands %d", m.commandRuns))
 	}
 	if scroll := s.scrollLabel(); scroll != "" {
 		parts = append(parts, scroll)

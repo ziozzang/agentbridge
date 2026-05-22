@@ -105,6 +105,9 @@ streaming을 한 컴포넌트에 섞어서 동작만 맞춘 변경은 완료로 
 - Local slash command는 결과 cell 전에 command cell을 방출합니다. `/help`,
   `/status`, permission 변경, Lua orchestration 같은 client-side command도
   transcript에서 입력과 출력을 구분해서 볼 수 있습니다.
+- Local slash command 실행은 provider prompt busy state와 분리해서 추적합니다.
+  Bubble Tea command 안에서 실행 중인 명령은 model turn이 busy인 것처럼 가장하지
+  않고 notice/status surface에 표시되어야 합니다.
 - `client__run_command` 같은 worker-node routed client tool은 CLI process에서
   실행됩니다. 하지만 위임된 worker action도 현재 turn의 일부이므로 lifecycle은 TUI
   tool cell과 active tool count에 보여야 합니다.

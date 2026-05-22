@@ -11,7 +11,10 @@ import (
 
 type tuiEventMsg struct{ Event uiEvent }
 
-type commandDoneMsg struct{ Err error }
+type commandDoneMsg struct {
+	Line string
+	Err  error
+}
 
 type interruptDoneMsg struct{ Stopped bool }
 
@@ -39,6 +42,7 @@ type tuiModel struct {
 	choice        int
 	overlayTyping bool
 	activity      string
+	commandRuns   int
 	answerRunes   int
 	thinkingRunes int
 	toolEvents    int

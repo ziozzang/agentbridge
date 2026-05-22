@@ -154,6 +154,25 @@ func TestTUICommandEventsRenderInputOutputSeparation(t *testing.T) {
 	}
 }
 
+func TestTUICommandRunStatusSurface(t *testing.T) {
+	m := tuiModel{
+		width:       180,
+		commandRuns: 1,
+		activity:    "running command",
+		state:       clientState{Model: "glm-5.1", Context: contextState{LeftPercent: 80}},
+		opts:        clientOptions{Permission: "prompt"},
+	}
+	if got := stripANSI(m.noticeLine()); !strings.Contains(got, "command running 1") || !strings.Contains(got, "running command") {
+		t.Fatalf("notice missing command lifecycle: %q", got)
+	}
+	got := stripANSI(m.statusLine())
+	for _, want := range []string{"Command: running command", "Commands 1", "glm-5.1"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("status missing %q: %q", want, got)
+		}
+	}
+}
+
 func TestTUIStatusSurfaceSeparatesNoticeProgressAndStatus(t *testing.T) {
 	start := time.Date(2026, 5, 22, 1, 2, 3, 0, time.UTC)
 	m := tuiModel{
@@ -823,6 +842,45 @@ func TestTUICommandDoneSuccessDoesNotAddEmptyCell(t *testing.T) {
 	m.handleCommandDone(commandDoneMsg{})
 	if len(m.cells) != 0 {
 		t.Fatalf("success command should not add synthetic cell: %#v", m.cells)
+	}
+}
+
+func TestTUICommandDoneClearsRunState(t *testing.T) {
+	m := tuiModel{commandRuns: 1, activity: "running command"}
+	m.handleCommandDone(commandDoneMsg{Line: "/status"})
+	if m.commandRuns != 0 || m.activity != "" {
+		t.Fatalf("command state not cleared: runs=%d activity=%q", m.commandRuns, m.activity)
+	}
+}
+
+func TestTUISubmitSlashCommandTracksRunState(t *testing.T) {
+	c := &client{events: make(chan uiEvent, 8), stderr: ioDiscard{}}
+	m := newTUIModel(context.Background(), c)
+	m.input.SetValue("/status")
+	next, cmd := m.submitInput(nil)
+	if cmd == nil {
+		t.Fatalf("slash command should schedule command")
+	}
+	m = next.(tuiModel)
+	if m.commandRuns != 1 || m.activity != "running command" {
+		t.Fatalf("command state = runs %d activity %q", m.commandRuns, m.activity)
+	}
+	if msg := cmd(); msg == nil {
+		t.Fatalf("command should return completion message")
+	}
+}
+
+func TestTUISubmitPromptDoesNotTrackLocalCommand(t *testing.T) {
+	c := &client{events: make(chan uiEvent, 8), stderr: ioDiscard{}, state: clientState{SessionID: "s1"}}
+	m := newTUIModel(context.Background(), c)
+	m.input.SetValue("hello")
+	next, cmd := m.submitInput(nil)
+	if cmd == nil {
+		t.Fatalf("prompt should schedule command wrapper")
+	}
+	m = next.(tuiModel)
+	if m.commandRuns != 0 {
+		t.Fatalf("plain prompt should not be a local command: %d", m.commandRuns)
 	}
 }
 
