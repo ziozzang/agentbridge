@@ -62,6 +62,8 @@ streaming을 한 컴포넌트에 섞어서 동작만 맞춘 변경은 완료로 
   permission mode, session identity를 frame layout과 분리해서 계산합니다.
 - Status surface는 하단 고정 한 줄입니다. 긴 상태 정보는 wrap하지 않고 ANSI-aware
   truncate해서 좁은 터미널에서도 transcript/composer layout을 유지합니다.
+- Frame도 이 fixed-row status contract를 방어적으로 강제합니다. Status text에
+  newline이 있거나 폭을 넘더라도 추가 terminal row를 만들면 안 됩니다.
 - Composer 위 notice row도 같은 fixed-row 규칙을 따릅니다. 긴 progress text,
   stop prompt, completion hint는 frame assembly 전에 truncate되어 composer/status
   row를 밀어내지 않습니다.

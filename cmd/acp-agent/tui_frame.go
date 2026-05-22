@@ -21,7 +21,7 @@ func (s tuiFrameSurface) View() string {
 		transcript = overlayBlock(s.width, s.height, transcript, s.overlay)
 	}
 	notice := tuiNoticeStyle.Width(s.width).Render(truncateStatusLine(s.notice, s.width))
-	status := tuiStatusStyle.Width(s.width).Render(s.status)
+	status := tuiStatusStyle.Width(s.width).Render(truncateStatusLine(s.status, s.width))
 	return lipgloss.JoinVertical(lipgloss.Left, transcript, notice, s.composer, status)
 }
 

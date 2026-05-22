@@ -66,6 +66,8 @@ ownership boundary visible in code, tests, and this document.
 - The status surface is a single fixed bottom line. Long status content is
   ANSI-aware truncated instead of wrapped, preserving the transcript/composer
   layout even on narrow terminals.
+- The frame defensively enforces that fixed-row status contract too: newline
+  characters and over-wide status text must not create extra terminal rows.
 - The notice row above the composer follows the same fixed-row rule: long
   progress text, stop prompts, or completion hints are truncated before frame
   assembly so they cannot move the composer or status rows.

@@ -263,6 +263,9 @@ func TestTruncateStatusLineHandlesTinyWidth(t *testing.T) {
 	if got := truncateStatusLine("abcdef", 1); lipgloss.Width(got) > 1 {
 		t.Fatalf("tiny width result too wide: %q", got)
 	}
+	if got := truncateStatusLine("alpha\nbeta\rgamma", 80); strings.ContainsAny(got, "\r\n") {
+		t.Fatalf("fixed status line should strip line breaks: %q", got)
+	}
 }
 
 func TestTUIPermissionOverlayReplies(t *testing.T) {
@@ -712,6 +715,28 @@ func TestTUIFrameSurfaceKeepsNoticeToSingleRow(t *testing.T) {
 	}
 	if strings.Contains(lines[1], "prompt") || strings.Contains(lines[1], "Ready") {
 		t.Fatalf("notice row overlapped adjacent rows: %q", got)
+	}
+}
+
+func TestTUIFrameSurfaceKeepsStatusToSingleRow(t *testing.T) {
+	surface := tuiFrameSurface{
+		width:      44,
+		height:     8,
+		transcript: "assistant",
+		notice:     "notice",
+		composer:   tuiComposerSurface{width: 44, input: " › prompt"}.View(),
+		status:     "Ready\n" + strings.Repeat("very long status ", 12),
+	}
+	got := stripANSI(surface.View())
+	lines := strings.Split(got, "\n")
+	if len(lines) != 4 {
+		t.Fatalf("status should not wrap frame rows, lines=%d view=%q", len(lines), got)
+	}
+	if !strings.Contains(lines[3], "Ready") {
+		t.Fatalf("status row missing content: %q", got)
+	}
+	if width := lipgloss.Width(lines[3]); width > surface.width {
+		t.Fatalf("status width=%d exceeds %d: %q", width, surface.width, lines[3])
 	}
 }
 

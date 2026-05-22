@@ -149,6 +149,8 @@ func truncateStatusLine(line string, width int) string {
 	if width <= 0 {
 		return ""
 	}
+	line = strings.ReplaceAll(line, "\r", " ")
+	line = strings.ReplaceAll(line, "\n", " ")
 	return ansi.Truncate(line, width, "…")
 }
 
