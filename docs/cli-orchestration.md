@@ -114,6 +114,8 @@ ownership boundary visible in code, tests, and this document.
   update loop. A burst of streaming deltas can then be applied in one Bubble
   Tea update while still preserving event order and keeping subsequent waits
   explicit.
+- Batched UI events mutate model state in order, then refresh the viewport once
+  after the batch. Per-event transcript refresh inside the batch is avoided.
 - Terminal resize events reflow the viewport and composer through the same
   update loop, with tiny terminal dimensions clamped to valid component sizes.
 - Stop requests append an immediate transcript cell and refresh the viewport in

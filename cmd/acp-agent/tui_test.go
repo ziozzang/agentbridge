@@ -817,6 +817,41 @@ func TestWaitTUIEventBatchesBufferedEvents(t *testing.T) {
 	}
 }
 
+func TestWaitTUIEventReturnsBufferedBatchBeforeClosedChannel(t *testing.T) {
+	events := make(chan uiEvent, 2)
+	events <- uiAssistantDeltaEvent{Text: "a"}
+	close(events)
+	msg := waitTUIEvent(events)()
+	batch, ok := msg.(tuiEventMsg)
+	if !ok {
+		t.Fatalf("message type=%T", msg)
+	}
+	if len(batch.Events) != 1 {
+		t.Fatalf("batch len=%d", len(batch.Events))
+	}
+}
+
+func TestTUIEventBatchRefreshesViewportOnce(t *testing.T) {
+	m := newTUIModel(context.Background(), &client{events: make(chan uiEvent)})
+	m.width = 80
+	m.height = 8
+	m.reflow()
+	m.transcriptView = "cached"
+	m.transcriptDirty = false
+	next, _ := m.Update(tuiEventMsg{Events: []uiEvent{
+		uiAssistantDeltaEvent{Text: "a"},
+		uiAssistantDeltaEvent{Text: "b"},
+		uiAssistantDeltaEvent{Text: "c"},
+	}})
+	m = next.(tuiModel)
+	if m.transcriptDirty {
+		t.Fatalf("batch should refresh transcript once and leave cache clean")
+	}
+	if !strings.Contains(m.transcriptView, "abc") {
+		t.Fatalf("batched transcript=%q", m.transcriptView)
+	}
+}
+
 func TestTUIBusySubmitQueueEventsReachFrame(t *testing.T) {
 	events := make(chan uiEvent, 4)
 	c := &client{

@@ -6,6 +6,11 @@ import (
 )
 
 func (m *tuiModel) applyEvent(ev uiEvent) {
+	m.applyEventState(ev)
+	m.refreshViewport()
+}
+
+func (m *tuiModel) applyEventState(ev uiEvent) {
 	switch ev := ev.(type) {
 	case uiStateEvent:
 		wasBusy := m.state.Busy
@@ -61,7 +66,6 @@ func (m *tuiModel) applyEvent(ev uiEvent) {
 		m.overlay = &ev
 		m.choice = 0
 	}
-	m.refreshViewport()
 }
 
 func (m *tuiModel) markEvent(kind string) {

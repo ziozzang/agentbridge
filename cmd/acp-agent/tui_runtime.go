@@ -38,7 +38,7 @@ func waitTUIEvent(events <-chan uiEvent) tea.Cmd {
 			select {
 			case next, ok := <-events:
 				if !ok {
-					return tea.Quit()
+					return tuiEventMsg{Events: batch}
 				}
 				batch = append(batch, next)
 			default:
@@ -123,8 +123,9 @@ func (m tuiModel) routeKey(msg tea.KeyMsg, cmds []tea.Cmd) (tea.Model, tea.Cmd, 
 
 func (m *tuiModel) handleTUIEvent(msg tuiEventMsg, cmds []tea.Cmd) []tea.Cmd {
 	for _, ev := range msg.Events {
-		m.applyEvent(ev)
+		m.applyEventState(ev)
 	}
+	m.refreshViewport()
 	return append(cmds, waitTUIEvent(m.events))
 }
 
