@@ -521,6 +521,24 @@ func TestTUICtrlCStopsThenExits(t *testing.T) {
 	}
 }
 
+func TestTUICtrlCAddsSingleInterruptCell(t *testing.T) {
+	m := tuiModel{state: clientState{Busy: true}}
+	next, cmd := m.handleCtrlC()
+	if cmd != nil {
+		t.Fatalf("first ctrl-c should not quit")
+	}
+	m = next.(tuiModel)
+	count := 0
+	for _, cell := range m.cells {
+		if cell.Title == "interrupt" {
+			count++
+		}
+	}
+	if count != 1 {
+		t.Fatalf("interrupt cell count=%d cells=%#v", count, m.cells)
+	}
+}
+
 func TestTUIStopFeedbackRefreshesFrameImmediately(t *testing.T) {
 	m := newTUIModel(context.Background(), &client{events: make(chan uiEvent)})
 	m.width = 120
@@ -687,6 +705,14 @@ func TestTUICommandDoneAppendsErrorCell(t *testing.T) {
 	m.handleCommandDone(commandDoneMsg{Err: errors.New("boom")})
 	if len(m.cells) != 1 || m.cells[0].Kind != "error" || !strings.Contains(m.cells[0].Body, "boom") {
 		t.Fatalf("error cell=%#v", m.cells)
+	}
+}
+
+func TestTUICommandDoneSuccessDoesNotAddEmptyCell(t *testing.T) {
+	m := tuiModel{}
+	m.handleCommandDone(commandDoneMsg{})
+	if len(m.cells) != 0 {
+		t.Fatalf("success command should not add synthetic cell: %#v", m.cells)
 	}
 }
 
