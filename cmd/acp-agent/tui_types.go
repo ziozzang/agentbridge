@@ -9,7 +9,7 @@ import (
 	"github.com/charmbracelet/bubbles/viewport"
 )
 
-type tuiEventMsg struct{ Event uiEvent }
+type tuiEventMsg struct{ Events []uiEvent }
 
 type commandDoneMsg struct {
 	Line string

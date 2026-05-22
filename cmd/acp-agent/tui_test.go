@@ -756,7 +756,7 @@ func TestTUIUpdateSequenceRendersTranscriptProgressAndOverlay(t *testing.T) {
 		uiToolEvent{Status: "in_progress", Title: "Read file", Detail: "path: README.md"},
 	}
 	for _, ev := range events {
-		next, _ := m.Update(tuiEventMsg{Event: ev})
+		next, _ := m.Update(tuiEventMsg{Events: []uiEvent{ev}})
 		m = next.(tuiModel)
 	}
 	got := stripANSI(m.View())
@@ -765,18 +765,55 @@ func TestTUIUpdateSequenceRendersTranscriptProgressAndOverlay(t *testing.T) {
 			t.Fatalf("update sequence frame missing %q: %q", want, got)
 		}
 	}
-	next, _ := m.Update(tuiEventMsg{Event: uiPermissionRequest{
+	next, _ := m.Update(tuiEventMsg{Events: []uiEvent{uiPermissionRequest{
 		Title:   "tool permission",
 		Detail:  "command: date",
 		Options: []choiceOption{{Key: "1", Label: "yes"}, {Key: "3", Label: "no"}},
 		Reply:   make(chan string, 1),
-	}})
+	}}})
 	m = next.(tuiModel)
 	got = stripANSI(m.View())
 	for _, want := range []string{"tool permission", "command: date", "1. yes", "approval requested"} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("overlay sequence frame missing %q: %q", want, got)
 		}
+	}
+}
+
+func TestTUIEventBatchAppliesInSingleUpdate(t *testing.T) {
+	m := newTUIModel(context.Background(), &client{events: make(chan uiEvent)})
+	m.width = 120
+	m.height = 10
+	m.reflow()
+	next, _ := m.Update(tuiEventMsg{Events: []uiEvent{
+		uiStateEvent{State: clientState{Busy: true, Model: "glm-5.1", Context: contextState{LeftPercent: 88}}, Opts: clientOptions{Permission: "prompt"}},
+		uiUserEvent{Text: "hello"},
+		uiAssistantDeltaEvent{Text: "world"},
+		uiThinkingDeltaEvent{Text: "plan"},
+	}})
+	m = next.(tuiModel)
+	got := stripANSI(m.View())
+	for _, want := range []string{"hello", "world", "plan", "Working"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("batched update missing %q: %q", want, got)
+		}
+	}
+	if m.answerRunes != len([]rune("world")) || m.thinkingRunes != len([]rune("plan")) {
+		t.Fatalf("progress not accumulated: answer=%d thinking=%d", m.answerRunes, m.thinkingRunes)
+	}
+}
+
+func TestWaitTUIEventBatchesBufferedEvents(t *testing.T) {
+	events := make(chan uiEvent, 4)
+	events <- uiAssistantDeltaEvent{Text: "a"}
+	events <- uiAssistantDeltaEvent{Text: "b"}
+	msg := waitTUIEvent(events)()
+	batch, ok := msg.(tuiEventMsg)
+	if !ok {
+		t.Fatalf("message type=%T", msg)
+	}
+	if len(batch.Events) != 2 {
+		t.Fatalf("batch len=%d", len(batch.Events))
 	}
 }
 
@@ -797,7 +834,7 @@ func TestTUIBusySubmitQueueEventsReachFrame(t *testing.T) {
 	for i := 0; i < 2; i++ {
 		select {
 		case ev := <-events:
-			next, _ := m.Update(tuiEventMsg{Event: ev})
+			next, _ := m.Update(tuiEventMsg{Events: []uiEvent{ev}})
 			m = next.(tuiModel)
 		case <-time.After(time.Second):
 			t.Fatalf("timed out waiting for queue event %d", i+1)
